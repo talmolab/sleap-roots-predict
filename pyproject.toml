@@ -16,12 +16,12 @@ classifiers = [
     "Programming Language :: Python :: 3.12"
 ]
 dependencies = [
-    "sleap-nn",
     "sleap-io",
     "numpy",
     "pandas",
     "h5py",
-    "imageio", 
+    "imageio",
+    "sleap-nn[torch-cpu]",
 ]
 dynamic = ["version", "readme"]
 
@@ -44,6 +44,11 @@ dev = [
     "ipython",
     "ruff"
 ]
+# Alternative installation options for explicit GPU control
+windows_cuda = ["sleap-nn[torch-cuda128]"]
+linux_cuda = ["sleap-nn[torch-cpu]"]
+macos = ["sleap-nn[torch-cpu]"]
+cpu = ["sleap-nn[torch-cpu]"]
 
 [project.scripts]
 
