@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sleap-roots-predict"
+authors = [
+    {name = "Elizabeth Berrigan", email = "eberrigan@salk.edu"},
+]
+description = "A lightweight CLI and library that uses sleap-nn for prediction and produces artifacts in the format expected by sleap-roots pipelines. Intended to interoperate with the sleap-roots model registry."
+requires-python = ">=3.11"
+keywords = ["sleap", "pose estimation", "deep learning", "sleap-roots"]
+license = {text = "GPL-3.0"}
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+dependencies = [
+    "sleap-nn",
+    "sleap-io",
+    "numpy",
+    "pandas",
+    "h5py",
+    "imageio", 
+]
+dynamic = ["version", "readme"]
+
+[tool.setuptools]
+packages = ["sleap_roots_predict"]
+
+[tool.setuptools.dynamic]
+version = {attr = "sleap_roots_predict.__version__"}
+readme = {file = ["README.md"], content-type="text/markdown"}
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "pydocstyle",
+    "toml",
+    "twine",
+    "build",
+    "ipython",
+    "ruff"
+]
+
+[project.scripts]
+
+[project.urls]
+Homepage = "https://github.com/talmolab/sleap-roots-predict"
+Repository = "https://github.com/talmolab/sleap-roots-predict/issues"
+
+[tool.black]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "D",  # pydocstyle
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.codespell]
+# Ref: https://github.com/codespell-project/codespell#using-a-config-file
+skip = '.git*,*.css'
+check-hidden = true
+# ignore-regex = ''
+# ignore-words-list = ''
