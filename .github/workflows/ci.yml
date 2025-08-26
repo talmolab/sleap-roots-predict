@@ -9,6 +9,10 @@ on:
       - ".github/workflows/ci.yml"
       - "pyproject.toml"
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   lint:
     name: Lint
