@@ -33,7 +33,12 @@ def natural_sort(l):
 
 
 def process_image_directory(
-    source_dir, experiment_name, treatment, num_plants, greyscale=False, output_dir=None
+    source_dir,
+    experiment_name,
+    treatment,
+    num_plants,
+    greyscale=False,
+    output_dir=None,
 ):
     """Process a directory of images for a plate over time into an h5 file and metadata.
 
@@ -49,7 +54,7 @@ def process_image_directory(
 
     # Convert to Path object if needed
     source_dir = Path(source_dir)
-    
+
     # Check if the source directory exists
     if not source_dir.exists():
         print(f"Source directory {source_dir} does not exist.")

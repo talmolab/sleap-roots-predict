@@ -1,7 +1,8 @@
 """Tests for video_utils module."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from sleap_roots_predict.video_utils import natural_sort
 
