@@ -41,7 +41,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install package with platform-specific dependencies
-        run: uv pip install -e .[${{ matrix.extra }}]
+        run: uv sync --extra ${{ matrix.extra }}
 
       - name: Verify correct sleap-nn variant installed
         run: |
