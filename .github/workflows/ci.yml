@@ -325,9 +325,9 @@ jobs:
           echo "=== Running pytest ==="
           uv run pytest --cov=sleap_roots_predict --cov-report=xml --durations=-1 tests/
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
-        with:
-          fail_ci_if_error: true
-          verbose: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+    #   - name: Upload coverage
+    #     uses: codecov/codecov-action@v5
+    #     with:
+    #       fail_ci_if_error: true
+    #       verbose: false
+    #       token: ${{ secrets.CODECOV_TOKEN }}
