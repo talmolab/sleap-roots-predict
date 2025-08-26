@@ -10,122 +10,6 @@ on:
       - "pyproject.toml"
 
 jobs:
-  test-platform-deps:
-    name: Test Platform Dependencies
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            extra: cpu
-            expected: cpu
-            name: "Linux CPU (torch-cpu)"
-          - os: windows-latest
-            extra: cpu
-            expected: cpu
-            name: "Windows CPU (torch-cpu)"
-          - os: macos-14
-            extra: macos
-            expected: cpu
-            name: "macOS CPU (torch-cpu)"
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: uv python install 3.11
-
-      - name: Install package with platform-specific dependencies
-        run: uv sync --extra ${{ matrix.extra }}
-
-      - name: Verify correct sleap-nn variant installed
-        run: |
-          uv run python -c "
-          import sys
-          import subprocess
-          
-          # Get installed packages
-          result = subprocess.run(['pip', 'show', 'sleap-nn'], capture_output=True, text=True)
-          print('sleap-nn installation details:')
-          print(result.stdout)
-          
-          # Check platform and expected variant
-          platform = sys.platform
-          print(f'Platform: {platform}')
-          expected = '${{ matrix.expected }}'
-          extra = '${{ matrix.extra }}'
-          print(f'Testing {extra} extra - Expected: {expected} support')
-          
-          import torch
-          print(f'PyTorch version: {torch.__version__}')
-          
-          # Detect best available device
-          if torch.cuda.is_available():
-              device = torch.device('cuda')
-              device_name = torch.cuda.get_device_name(0)
-              device_info = f'CUDA GPU ({device_name})'
-          elif torch.backends.mps.is_available():
-              device = torch.device('mps')
-              device_info = 'Apple Metal Performance Shaders'
-          else:
-              device = torch.device('cpu')
-              device_info = 'CPU'
-          
-          print(f'Best available device: {device} - {device_info}')
-          print('✓ Package installed successfully')
-          
-          # Test tensor creation on detected device
-          test_tensor = torch.randn(3, 3).to(device)
-          print(f'Test tensor created on: {test_tensor.device}')
-          "
-
-  test-self-hosted-gpu:
-    name: Test Self-Hosted GPU
-    runs-on: [self-hosted, puma, gpu, 2xgpu]
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: false
-
-      - name: Install package with linux_cuda extra
-        run: |
-          uv sync --extra linux_cuda
-
-      - name: Verify installation on self-hosted runner
-        run: |
-          uv run python -c "
-          import torch
-          import sleap_nn
-          
-          print('Testing installation on self-hosted runner with linux_cuda extra')
-          print(f'PyTorch version: {torch.__version__}')
-          print(f'CUDA available: {torch.cuda.is_available()}')
-          
-          # Note: torch-cpu is a misnomer - it includes GPU support when GPU is available
-          if torch.cuda.is_available():
-              print('✓ GPU support is available with torch-cpu package')
-              print(f'CUDA version: {torch.version.cuda}')
-              print(f'CUDA device count: {torch.cuda.device_count()}')
-              print(f'Current device: {torch.cuda.current_device()}')
-              print(f'Device name: {torch.cuda.get_device_name(0)}')
-              
-              # Test tensor on GPU
-              test_tensor = torch.randn(3, 3).cuda()
-              print(f'Test tensor device: {test_tensor.device}')
-              print('✓ GPU functionality verified successfully')
-          else:
-              print('⚠ Warning: GPU not detected on self-hosted runner')
-          "
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -152,6 +36,46 @@ jobs:
 
       - name: Run codespell
         run: uv run codespell
+
+  test-self-hosted-gpu:
+    name: Test Self-Hosted GPU
+    runs-on: [self-hosted, puma, gpu, 2xgpu]
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install package with linux_cuda extra
+        run: |
+          uv sync --extra linux_cuda
+
+      - name: Verify GPU installation
+        run: |
+          uv run python -c "
+          import torch
+          import sleap_nn
+          
+          print(f'PyTorch version: {torch.__version__}')
+          
+          if torch.cuda.is_available():
+              device = torch.device('cuda')
+              print(f'✓ GPU detected: {torch.cuda.get_device_name(0)}')
+              print(f'CUDA version: {torch.version.cuda}')
+              print(f'Device count: {torch.cuda.device_count()}')
+              
+              # Test tensor on GPU
+              test_tensor = torch.randn(3, 3).to(device)
+              print(f'✓ Test tensor created on: {test_tensor.device}')
+          else:
+              raise RuntimeError('⚠ GPU not detected on self-hosted runner!')
+          "
 
   tests:
     timeout-minutes: 30
@@ -182,73 +106,39 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Set up Python (non-self-hosted GPU)
-        if: matrix.os != 'self-hosted-gpu'
+      - name: Set up Python
         run: uv python install ${{ matrix.python }}
 
-      - name: Install dev dependencies (Ubuntu - CPU)
-        if: matrix.os == 'ubuntu'
-        run: uv sync --extra dev --extra cpu
-
-      - name: Install dev dependencies (Windows - CPU)
-        if: matrix.os == 'windows'
-        run: uv sync --extra dev --extra cpu
-
-      - name: Install dev dependencies (macOS - CPU)
-        if: matrix.os == 'mac'
-        run: uv sync --extra dev --extra macos
-
-      - name: Install dev dependencies (Self-hosted GPU - linux_cuda)
-        if: matrix.os == 'self-hosted-gpu'
-        run: uv sync --extra dev --extra linux_cuda
-
-      - name: Print environment info
+      - name: Install dependencies
         run: |
-          echo "=== UV Environment ==="
-          uv run python --version
-          uv run python -c "import sys; print('Python executable:', sys.executable)"
-          echo "=== UV Environment NumPy Check ==="
-          uv run python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
-          echo "=== CUDA Availability Check ==="
-          uv run python -c "
-          import torch
-          print(f'PyTorch version: {torch.__version__}')
-          print(f'CUDA available: {torch.cuda.is_available()}')
-          print(f'CUDA device count: {torch.cuda.device_count()}')
-          if torch.cuda.is_available():
-              print(f'CUDA version: {torch.version.cuda}')
-              print(f'Current device: {torch.cuda.current_device()}')
-              print(f'Device name: {torch.cuda.get_device_name(0)}')
-          else:
-              print('CUDA is not available')
-          " || echo "CUDA check failed"
-          echo "=== PIP EXECUTABLE COMPARISON ==="
-          uv run python -c "import subprocess; print('pip from uv run python:', subprocess.check_output(['pip', '--version']).decode().strip())" || echo "pip not found from python"
-          uv run pip --version || echo "uv run pip failed"
-          echo "=== UV pip list vs python -m pip list ==="
-          echo "--- uv run pip list ---"
-          uv run pip list | head -20
-          echo "--- uv run python -m pip list ---"
-          uv run python -m pip list | head -20
-          echo "=== UV ENVIRONMENT CHECK ==="
-          uv run python -c "import os; print('VIRTUAL_ENV:', os.environ.get('VIRTUAL_ENV', 'Not set'))"
-          echo "=== Import Test ==="
-          uv run python -c "import torch; import sleap_nn; import sleap_io; print('All imports successful')" || echo "Import test failed"
-          echo "=== Verify platform-specific installation ==="
+          if [ "${{ matrix.os }}" = "self-hosted-gpu" ]; then
+            uv sync --extra dev --extra linux_cuda
+          elif [ "${{ matrix.os }}" = "mac" ]; then
+            uv sync --extra dev --extra macos
+          else
+            uv sync --extra dev --extra cpu
+          fi
+        shell: bash
+
+      - name: Verify installation
+        run: |
           uv run python -c "
           import sys
           import torch
-          import os
-          platform = sys.platform
-          is_self_hosted = 'self-hosted' in os.environ.get('RUNNER_NAME', '').lower()
-          print(f'Platform: {platform}')
-          print(f'Runner type: {"Self-hosted GPU" if is_self_hosted else "GitHub-hosted"}')
+          import sleap_nn
+          import sleap_io
+          import numpy
+          
+          print(f'Python: {sys.version}')
+          print(f'PyTorch: {torch.__version__}')
+          print(f'NumPy: {numpy.__version__}')
           
           # Detect best available device
           if torch.cuda.is_available():
               device = torch.device('cuda')
               device_name = torch.cuda.get_device_name(0)
               device_info = f'CUDA GPU ({device_name})'
+              print(f'CUDA version: {torch.version.cuda}')
           elif torch.backends.mps.is_available():
               device = torch.device('mps')
               device_info = 'Apple Metal Performance Shaders'
@@ -256,30 +146,12 @@ jobs:
               device = torch.device('cpu')
               device_info = 'CPU'
           
-          print(f'Best available device: {device} - {device_info}')
+          print(f'Device: {device} - {device_info}')
           
-          # Test device usage
+          # Test tensor creation
           test_tensor = torch.randn(3, 3).to(device)
-          print(f'Test tensor created on: {test_tensor.device}')
-          print('✓ Platform-specific installation verified')
-          "
-
-      - name: Check MPS backend (macOS only)
-        if: runner.os == 'macOS'
-        run: |
-          echo "=== macOS MPS Backend Check ==="
-          uv run python -c "
-          import torch
-          print(f'PyTorch version: {torch.__version__}')
-          print(f'MPS available: {torch.backends.mps.is_available()}')
-          print(f'MPS built: {torch.backends.mps.is_built()}')
-          if torch.backends.mps.is_available():
-              print('MPS backend is available and ready to use!')
-              device = torch.device('mps')
-              test_tensor = torch.randn(3, 3).to(device)
-              print(f'Test tensor on MPS: {test_tensor.device}')
-          else:
-              print('MPS backend is not available on this macOS system')
+          print(f'✓ Test tensor created on: {test_tensor.device}')
+          print('✓ All packages imported successfully')
           "
 
       - name: Run pytest
