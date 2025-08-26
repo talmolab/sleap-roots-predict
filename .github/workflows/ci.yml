@@ -122,7 +122,6 @@ jobs:
           else
             uv sync --extra dev --extra cpu
           fi
-        shell: bash
 
       - name: Verify installation
         run: |
@@ -161,7 +160,9 @@ jobs:
       - name: Run pytest
         run: |
           echo "=== Final environment check before tests ==="
-          uv run python -c "import numpy, torch, sleap_nn, sleap_io; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
+          uv run python -c "import sys; print(f'Python: {sys.version}')"
+          uv run python -c "import numpy, torch, sleap_nn, sleap_io; print(f'numpy={numpy.__version__}, torch={torch.__version__}, sleap_nn={sleap_nn.__version__}, sleap_io={sleap_io.__version__}')"
+          uv run pip list
           echo "=== Running pytest ==="
           uv run pytest --cov=sleap_roots_predict --cov-report=xml --durations=-1 tests/
 
