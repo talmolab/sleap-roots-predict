@@ -1,7 +1,11 @@
-import numpy as np
-import h5py
-from pathlib import Path
+"""Utilities for processing directories of images into H5 files with metadata."""
+
 import re
+from pathlib import Path
+
+import h5py
+import imageio.v3 as iio
+import numpy as np
 import pandas as pd
 
 
@@ -17,27 +21,35 @@ def natural_sort(l):
     Returns:
         list: List of sorted strings.
     """
+
+    def convert(text):
+        return int(text) if text.isdigit() else text.lower()
+
+    def alphanum_key(key):
+        return [convert(c) for c in re.split("([0-9]+)", key)]
+
     l = [x.as_posix() if isinstance(x, Path) else x for x in l]
-    convert = lambda text: int(text) if text.isdigit() else text.lower()
-    alphanum_key = lambda key: [convert(c) for c in re.split("([0-9]+)", key)]
     return sorted(l, key=alphanum_key)
 
 
 def process_image_directory(
-    source_dir, experiment_name, treatment, num_plants, output_dir=None
+    source_dir, experiment_name, treatment, num_plants, greyscale=False, output_dir=None
 ):
-    """Processes a directory of images for a plate over time into an h5 file and a metadata file.
+    """Process a directory of images for a plate over time into an h5 file and metadata.
 
     Args:
         source_dir (Path): Path to the source directory containing images.
         experiment_name (str): The name of the experiment.
         treatment (str): The chemical or physical alterations to the plate media.
         num_plants (int): The number of plants expected on a plate image.
-        greyscale (bool): Whether or not to convert images to greyscale.
-        metadata (bool): Whether or not to save a dataframe of metadata.
-        output_dir (Any): The directory to store the h5 file and metadata file. If none is specified, it is saved to the source directory.
+        greyscale (bool): Whether or not to convert images to greyscale. Defaults to False.
+        output_dir (Path, optional): Directory to store h5 file and metadata.
+            If None, saves to source directory.
     """
 
+    # Convert to Path object if needed
+    source_dir = Path(source_dir)
+    
     # Check if the source directory exists
     if not source_dir.exists():
         print(f"Source directory {source_dir} does not exist.")
@@ -46,10 +58,13 @@ def process_image_directory(
     # Check if the source directory is a directory
     if not source_dir.is_dir():
         print(f"Source path {source_dir} is not a directory.")
+        return
 
     # Use source_dir as default output_dir if not provided
     if output_dir is None:
         output_dir = source_dir
+    else:
+        output_dir = Path(output_dir)
 
     # Make sure output_dir exists
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -85,10 +100,10 @@ def process_image_directory(
 
         # Extract plate number, day, and time from the filename
         # Assuming the filename format is "_set1_day1_timestamp_platenumber.tif"
-
-        timestamp = img_file.split("_")[-2]
-        plate_number = img_file.split("_")[-1].split(".")[0]
-        filename = img_file.split("/")[-1]
+        parts = img_file.name.split("_")
+        timestamp = parts[-2]
+        plate_number = parts[-1].split(".")[0]
+        filename = img_file.name
 
         df_rows.append(
             {
@@ -142,4 +157,4 @@ def process_image_directory(
     df_path = output_dir / ("plate_" + source_dir.name + "_metadata.csv")
     df = pd.DataFrame.from_records(df_rows)
     df.to_csv(df_path, index=False)
-    print(f"Saved DataFrame {df_path} to {df_path}")
+    print(f"Saved DataFrame to {df_path}")
