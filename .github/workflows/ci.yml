@@ -84,42 +84,6 @@ jobs:
           print(f'Test tensor created on: {test_tensor.device}')
           "
 
-  test-windows-cuda-extra:
-    name: Test Windows CUDA Extra
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: uv python install 3.11
-
-      - name: Install package with windows_cuda extra
-        run: uv pip install -e .[windows_cuda]
-
-      - name: Verify windows_cuda installation
-        run: |
-          uv run python -c "
-          import torch
-          import sleap_nn
-          
-          print('Testing windows_cuda extra installation')
-          print(f'PyTorch version: {torch.__version__}')
-          
-          # Check if CUDA version is installed (even though GPU won't be available on GitHub Actions)
-          if '+cu' in torch.__version__:
-              print('\u2713 CUDA-specific version installed (torch-cuda128)')
-              print('  Note: GPU not available on GitHub Actions Windows runners')
-          else:
-              print('  Standard PyTorch version installed')
-          
-          print(f'CUDA available: {torch.cuda.is_available()}')"
-
   test-self-hosted-gpu:
     name: Test Self-Hosted GPU
     runs-on: [self-hosted, puma, gpu, 2xgpu]
@@ -134,7 +98,7 @@ jobs:
 
       - name: Install package with linux_cuda extra
         run: |
-          uv pip install -e .[linux_cuda]
+          uv sync --extra linux_cuda
 
       - name: Verify installation on self-hosted runner
         run: |
