@@ -70,15 +70,15 @@ jobs:
           
           if torch.cuda.is_available():
               device = torch.device('cuda')
-              print(f'✓ GPU detected: {torch.cuda.get_device_name(0)}')
+              print(f'[OK] GPU detected: {torch.cuda.get_device_name(0)}')
               print(f'CUDA version: {torch.version.cuda}')
               print(f'Device count: {torch.cuda.device_count()}')
               
               # Test tensor on GPU
               test_tensor = torch.randn(3, 3).to(device)
-              print(f'✓ Test tensor created on: {test_tensor.device}')
+              print(f'[OK] Test tensor created on: {test_tensor.device}')
           else:
-              raise RuntimeError('⚠ GPU not detected on self-hosted runner!')
+              raise RuntimeError('[WARNING] GPU not detected on self-hosted runner!')
           "
 
   tests:
@@ -153,8 +153,8 @@ jobs:
           
           # Test tensor creation
           test_tensor = torch.randn(3, 3).to(device)
-          print(f'✓ Test tensor created on: {test_tensor.device}')
-          print('✓ All packages imported successfully')
+          print(f'[OK] Test tensor created on: {test_tensor.device}')
+          print('[OK] All packages imported successfully')
           "
 
       - name: Run pytest
