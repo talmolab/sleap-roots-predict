@@ -42,7 +42,9 @@ dev = [
     "twine",
     "build",
     "ipython",
-    "ruff"
+    "ruff",
+    "jupyterlab>=4.4.6",
+    "ipykernel>=6.30.1",
 ]
 # Alternative installation options for explicit GPU control
 windows_cuda = ["sleap-nn[torch-cuda128]"]
