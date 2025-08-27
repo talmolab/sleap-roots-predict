@@ -1,15 +1,19 @@
 """Utilities for processing directories of images into H5 files with metadata."""
 
 import logging
+import os
 import re
-from pathlib import Path
-from typing import List, Optional, Tuple, Union
-
 import h5py
 import imageio.v3 as iio
 import numpy as np
 import pandas as pd
 
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+
+# Initialize logger
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
