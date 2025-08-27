@@ -125,6 +125,46 @@ def sample_h5_file(temp_dir: Path, sample_4d_array: np.ndarray) -> Path:
 
 
 @pytest.fixture
+def metadata_csv(temp_dir: Path) -> Path:
+    """Create a sample metadata CSV file for testing."""
+    import pandas as pd
+
+    csv_path = temp_dir / "metadata.csv"
+
+    # Create metadata matching test plate numbers
+    metadata = pd.DataFrame(
+        {
+            "plate_number": [1, 2, 3],
+            "treatment": ["control", "treatment_A", "treatment_B"],
+            "num_plants": [1, 3, 6],
+            "accesion": ["KitaakeX", "hk1-3", "KitaakeX"],
+            "num_images": [100, 100, 100],
+            "growth_media": ["1/2 MS", "1/2 MS", "1/2 MS"],
+            "experiment_start": ["2025-01-01", "2025-01-01", "2025-01-01"],
+        }
+    )
+
+    metadata.to_csv(csv_path, index=False)
+    return csv_path
+
+
+@pytest.fixture
+def metadata_csv_missing_columns(temp_dir: Path) -> Path:
+    """Create a metadata CSV with missing required columns."""
+    import pandas as pd
+
+    csv_path = temp_dir / "bad_metadata.csv"
+
+    # Missing 'num_plants' column
+    metadata = pd.DataFrame(
+        {"plate_number": [1, 2], "treatment": ["control", "treatment_A"]}
+    )
+
+    metadata.to_csv(csv_path, index=False)
+    return csv_path
+
+
+@pytest.fixture
 def malformed_image_directory(temp_dir: Path) -> Path:
     """Create a directory with malformed image filenames."""
     bad_dir = temp_dir / "malformed"
