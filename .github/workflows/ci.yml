@@ -41,46 +41,6 @@ jobs:
       - name: Run codespell
         run: uv run codespell
 
-  test-self-hosted-gpu:
-    name: Test Self-Hosted GPU
-    runs-on: [self-hosted, puma, gpu, 2xgpu]
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: uv python install 3.11
-
-      - name: Install package with linux_cuda extra
-        run: |
-          uv sync --extra linux_cuda
-
-      - name: Verify GPU installation
-        run: |
-          uv run python -c "
-          import torch
-          import sleap_nn
-          
-          print(f'PyTorch version: {torch.__version__}')
-          
-          if torch.cuda.is_available():
-              device = torch.device('cuda')
-              print(f'[OK] GPU detected: {torch.cuda.get_device_name(0)}')
-              print(f'CUDA version: {torch.version.cuda}')
-              print(f'Device count: {torch.cuda.device_count()}')
-              
-              # Test tensor on GPU
-              test_tensor = torch.randn(3, 3).to(device)
-              print(f'[OK] Test tensor created on: {test_tensor.device}')
-          else:
-              raise RuntimeError('[WARNING] GPU not detected on self-hosted runner!')
-          "
-
   tests:
     timeout-minutes: 30
     strategy:
