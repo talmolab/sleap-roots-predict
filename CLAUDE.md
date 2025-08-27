@@ -67,7 +67,14 @@ The modules provide modular functions for processing timelapse experiments:
 
 ### Testing
 - Comprehensive test suite with fixtures in `conftest.py`
-- 100% code coverage target
+- 95%+ code coverage target
 - Tests for edge cases, error handling, and various image formats
 - Fixtures for RGB, greyscale, RGBA, and large images
 - Tests for Unicode paths and malformed filenames
+
+### CI/CD
+GitHub Actions workflow runs on every pull request:
+- **Linting**: black formatting, ruff linting, codespell
+- **Testing**: Full test suite on Ubuntu, Windows, macOS, and self-hosted GPU runners
+- Platform-specific installations with appropriate hardware acceleration
+- All tests run with pytest and coverage reporting
