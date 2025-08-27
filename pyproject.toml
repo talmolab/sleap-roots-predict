@@ -37,6 +37,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "black",
+    "codespell",
     "pydocstyle",
     "toml",
     "twine",
@@ -71,7 +72,7 @@ convention = "google"
 
 [tool.codespell]
 # Ref: https://github.com/codespell-project/codespell#using-a-config-file
-skip = '.git*,*.css'
+skip = '.git*,*.css,.venv,htmlcov,*.lock,*.html,.ruff_cache,.pytest_cache,.serena,.claude,*.ipynb'
 check-hidden = true
 # ignore-regex = ''
 # ignore-words-list = ''
