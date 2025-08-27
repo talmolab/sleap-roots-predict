@@ -36,12 +36,20 @@ def natural_sort(items: List[Union[str, Path]]) -> List[str]:
 
     def alphanum_key(key: str) -> List[Union[int, str]]:
         """Split string into list of ints and strings for sorting."""
+        if key is None:
+            return [""]  # Sort None values first
         return [convert(c) for c in re.split(r"([0-9]+)", key)]
 
-    # Convert Path objects to strings
-    string_items = [
-        item.as_posix() if isinstance(item, Path) else item for item in items
-    ]
+    # Convert Path objects to strings, handle None
+    string_items = []
+    for item in items:
+        if item is None:
+            string_items.append(None)
+        elif isinstance(item, Path):
+            string_items.append(item.as_posix())
+        else:
+            string_items.append(item)
+
     return sorted(string_items, key=alphanum_key)
 
 
