@@ -1,3 +1,10 @@
+"""Functions for processing plate-based timelapse experiments.
+
+This module provides functionality for processing directories of timelapse images
+from plate-based experiments, including metadata extraction, validation, and
+conversion to H5 format with associated metadata CSV files.
+"""
+
 import logging
 import imageio.v3 as iio
 import numpy as np
@@ -479,7 +486,7 @@ def process_timelapse_experiment(
     dry_run: bool = False,
     log_file: Optional[Union[str, Path]] = None,  # Add log file parameter
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """Process an entire experiment with multiple image directories using metadata from CSV.
+    r"""Process an entire experiment with multiple image directories using metadata from CSV.
 
     This function:
     1. Loads plate metadata from a CSV file
@@ -495,21 +502,15 @@ def process_timelapse_experiment(
                      May also have: accesion, num_images, experiment_start, growth_media, etc.
         experiment_name: Name of the experiment for metadata.
         output_dir: Output directory for H5 and CSV files (defaults to base_dir).
-
-        Processing parameters:
-            greyscale: Whether to convert images to greyscale.
-            image_pattern: Glob pattern for finding image files.
-
-        Validation parameters:
-            expected_suffix_pattern: Regex pattern for suffix validation (default r'^\\d{3}$').
-            min_images: Minimum number of images required per directory.
-            max_images: Maximum number of images allowed per directory.
-            check_datetime: Whether to check for valid datetime in filenames.
-            check_suffix_consistency: Whether all files should have the same suffix.
-
-        Control parameters:
-            dry_run: If True, only perform checks without processing.
-            log_file: Optional path to save log output to a file.
+        greyscale: Whether to convert images to greyscale.
+        image_pattern: Glob pattern for finding image files (default "*.tif").
+        expected_suffix_pattern: Regex pattern for suffix validation (default r'^\d{3}$').
+        min_images: Minimum number of images required per directory (default 1).
+        max_images: Maximum number of images allowed per directory (default None).
+        check_datetime: Whether to check for valid datetime in filenames (default True).
+        check_suffix_consistency: Whether all files should have the same suffix (default True).
+        dry_run: If True, only perform checks without processing (default False).
+        log_file: Optional path to save log output to a file (default None).
 
     Returns:
         Dictionary with:
