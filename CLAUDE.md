@@ -25,8 +25,9 @@ This is `sleap-roots-predict`, a lightweight CLI and library that uses sleap-nn 
 
 ### Package Structure
 The main package is `sleap_roots_predict/` which contains:
-- `video_utils.py`: Modular utilities for processing directories of images into H5 files with metadata
-- `__init__.py`: Package initialization with version and exports
+- `video_utils.py`: Core utilities for image processing (natural_sort, convert_to_greyscale, load_images, make_h5_from_images, find_image_directories)
+- `plates_timelapse_experiment.py`: Experiment processing functions (extract_metadata_from_filename, create_metadata_dataframe, check_image_directory, process_timelapse_image_directory, process_experiment)
+- `__init__.py`: Package initialization with version and exports from both modules
 
 ### Key Dependencies
 - **Core**: sleap-nn, sleap-io for pose estimation
@@ -40,16 +41,21 @@ The main package is `sleap_roots_predict/` which contains:
 - Platform-specific extras: `cpu`, `windows_cuda`, `linux_cuda`, `macos`
 
 ### Image Processing Pipeline
-The `video_utils.py` module provides modular functions:
+The modules provide modular functions for processing timelapse experiments:
 
-#### Core Functions
+#### Core Functions (video_utils.py)
 - `natural_sort()`: Natural sorting for filenames with numbers
 - `convert_to_greyscale()`: Proper RGB to greyscale conversion with channel preservation
 - `load_images()`: Batch loading of images with optional greyscale conversion
-- `extract_metadata_from_filename()`: Parse timestamp and plate number from filenames
 - `make_h5_from_images()`: Create compressed H5 files from 4D image arrays
-- `create_metadata_dataframe()`: Generate metadata CSV from filenames
-- `process_timelapse_image_directory()`: Main pipeline orchestrator
+- `find_image_directories()`: Recursively find directories containing TIFF images
+
+#### Timelapse Experiment Processing Functions (plates_timelapse_experiment.py)
+- `extract_timelapse_metadata_from_filename()`: Parse timestamp and plate number from timelapse filenames
+- `create_timelapse_metadata_dataframe()`: Generate metadata CSV from timelapse filenames
+- `check_timelapse_image_directory()`: Validate timelapse image directories (suffix consistency, datetime presence, file counts)
+- `process_timelapse_image_directory()`: Main pipeline orchestrator for single timelapse directory
+- `process_timelapse_experiment()`: Process entire timelapse experiments with CSV metadata, including validation and logging
 
 #### Processing Flow
 1. Validates and reads images from directory using glob patterns
