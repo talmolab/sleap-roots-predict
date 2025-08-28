@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "sleap_roots_predict/**"
+      - "tests/**"
+      - ".github/workflows/ci.yml"
+      - "pyproject.toml"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev --extra cpu
+
+      - name: Run Black
+        run: uv run black --check sleap_roots_predict tests
+
+      - name: Run Ruff
+        run: uv run ruff check sleap_roots_predict/
+
+      - name: Run codespell
+        run: uv run codespell
+
+  tests:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu", "windows", "mac", "self-hosted-gpu"]
+        include:
+          - os: ubuntu
+            runs-on: ubuntu-latest
+          - os: windows
+            runs-on: windows-latest
+          - os: mac
+            runs-on: macos-14
+          - os: self-hosted-gpu
+            runs-on: [self-hosted, puma, gpu, 2xgpu]
+        python: [3.12]
+
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.runs-on }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: |
+          if [ "${{ matrix.os }}" = "self-hosted-gpu" ]; then
+            uv sync --extra dev --extra linux_cuda
+          elif [ "${{ matrix.os }}" = "mac" ]; then
+            uv sync --extra dev --extra macos
+          else
+            uv sync --extra dev --extra cpu
+          fi
+
+      - name: Verify installation
+        run: |
+          uv run python -c "
+          import sys
+          import torch
+          import sleap_nn
+          import sleap_io
+          import numpy
+          
+          print(f'Python: {sys.version}')
+          print(f'PyTorch: {torch.__version__}')
+          print(f'NumPy: {numpy.__version__}')
+          
+          # Detect best available device
+          if torch.cuda.is_available():
+              device = torch.device('cuda')
+              device_name = torch.cuda.get_device_name(0)
+              device_info = f'CUDA GPU ({device_name})'
+              print(f'CUDA version: {torch.version.cuda}')
+          elif torch.backends.mps.is_available():
+              device = torch.device('mps')
+              device_info = 'Apple Metal Performance Shaders'
+          else:
+              device = torch.device('cpu')
+              device_info = 'CPU'
+          
+          print(f'Device: {device} - {device_info}')
+          
+          # Test tensor creation
+          test_tensor = torch.randn(3, 3).to(device)
+          print(f'[OK] Test tensor created on: {test_tensor.device}')
+          print('[OK] All packages imported successfully')
+          "
+
+      - name: Run pytest
+        run: |
+          echo "=== Final environment check before tests ==="
+          uv run python -c "import sys; print(f'Python: {sys.version}')"
+          uv run python -c "import numpy, torch, sleap_nn, sleap_io; print(f'numpy={numpy.__version__}, torch={torch.__version__}, sleap_nn={sleap_nn.__version__}, sleap_io={sleap_io.__version__}')"
+          uv run pip list
+          echo "=== Running pytest ==="
+          uv run pytest --cov=sleap_roots_predict --cov-report=xml --durations=-1 tests/
+
+    #   - name: Upload coverage
+    #     uses: codecov/codecov-action@v5
+    #     with:
+    #       fail_ci_if_error: true
+    #       verbose: false
+    #       token: ${{ secrets.CODECOV_TOKEN }}

@@ -1,0 +1,55 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Force the following files to have LF line endings (Unix/Mac/Linux style)
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+*.sh text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+
+# CSV files should use LF
+*.csv text eol=lf
+
+# Jupyter notebooks are JSON
+*.ipynb text eol=lf
+
+# Windows specific files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files that should not be modified
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.tif binary
+*.tiff binary
+*.h5 binary
+*.hdf5 binary
+*.pkl binary
+*.pickle binary
+*.npy binary
+*.npz binary
+*.pyc binary
+*.pyd binary
+*.pyo binary
+*.db binary
+*.sqlite binary
+*.so binary
+*.dll binary
+*.exe binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.bz2 binary
+*.7z binary
+*.rar binary
