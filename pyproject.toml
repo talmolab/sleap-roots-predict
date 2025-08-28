@@ -56,8 +56,8 @@ cpu = ["sleap-nn[torch-cpu]"]
 [project.scripts]
 
 [project.urls]
-Homepage = "https://github.com/talmolab/sleap-roots-predict"
-Repository = "https://github.com/talmolab/sleap-roots-predict/issues"
+Repository = "https://github.com/talmolab/sleap-roots-predict"
+Issues = "https://github.com/talmolab/sleap-roots-predict/issues"
 
 [tool.black]
 line-length = 88
