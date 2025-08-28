@@ -1,0 +1,45 @@
+# Package builds
+name: Build and Publish
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      testpypi:
+        description: 'Publish to TestPyPI'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  pypi:
+    name: PyPI Wheel
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for PyPI trusted publishing
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Setup UV
+      uses: astral-sh/setup-uv@v6
+      with:
+        python-version: "3.12"
+
+    - name: Build distributions
+      run: |
+        uv build
+
+    - name: Determine index and publish
+      run: |
+        # Manual override for TestPyPI
+        if [[ "${{ github.event.inputs.testpypi }}" == "true" ]]; then
+          echo "Manual TestPyPI publishing..."
+          uv publish --index testpypi --trusted-publishing always
+        else
+          echo "Publishing to PyPI..."
+          uv publish
+        fi
