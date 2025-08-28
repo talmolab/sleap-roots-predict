@@ -12,27 +12,43 @@ A lightweight CLI and library that uses sleap-nn for prediction and produces art
 
 ## Installation
 
-### Using uv (recommended)
+We recommend doing this in an isolated environment.
+
+Install using [uv](https://docs.astral.sh/uv/getting-started/installation/) for faster, more reliable package management.
+
+Create an isolated environment using uv:
+```bash
+# Create and activate a new virtual environment
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
+
+Then install the package:
 
 ```bash
-# Install with CPU support
-uv sync --extra cpu
+# CPU-only installation (all platforms)
+uv pip install sleap-roots-predict[cpu]
 
-# Install with CUDA support (Windows)
-uv sync --extra windows_cuda
+# Windows with CUDA support
+uv pip install sleap-roots-predict[windows_cuda]
 
-# Install with CUDA support (Linux)
-uv sync --extra linux_cuda
+# Linux with CUDA support
+uv pip install sleap-roots-predict[linux_cuda]
 
-# Install with Apple Silicon support (macOS)
-uv sync --extra macos
+# macOS (Apple Silicon or Intel)
+uv pip install sleap-roots-predict[macos]
 ```
+
+Otherwise just use `pip`. 
 
 ### Development Setup
 
 ```bash
-# Install with development dependencies
-uv sync --extra dev --extra windows_cuda  # or your platform's extra
+# Install with development dependencies (replace with your platform's extra)
+uv sync --extra dev --extra cpu         # For CPU-only
+uv sync --extra dev --extra windows_cuda  # For Windows with CUDA
+uv sync --extra dev --extra linux_cuda    # For Linux with CUDA
+uv sync --extra dev --extra macos         # For macOS
 
 # Run tests
 uv run pytest
@@ -79,24 +95,33 @@ image_dirs = find_image_directories("path/to/experiment")
 
 ## CI/CD
 
-The project uses GitHub Actions for continuous integration with the following checks:
+The project uses GitHub Actions for continuous integration and deployment:
 
-### Linting
-- **black**: Code formatting
-- **ruff**: Python linting
-- **codespell**: Spell checking
+### Continuous Integration
+On every pull request:
+- **Linting**: black formatting, ruff linting, codespell
+- **Testing**: Full test suite on multiple platforms
+  - Ubuntu (latest)
+  - Windows (latest)
+  - macOS (Apple Silicon)
+  - Self-hosted GPU runners (Linux with CUDA)
 
-### Testing
-Tests run on multiple platforms:
-- Ubuntu (latest)
-- Windows (latest)
-- macOS (Apple Silicon)
-- Self-hosted GPU runners (Linux with CUDA)
-
-All platforms run the full test suite with appropriate hardware acceleration:
+All platforms run with appropriate hardware acceleration:
 - CPU-only on GitHub-hosted runners
 - CUDA on self-hosted GPU runners
 - Metal Performance Shaders on macOS
+
+### Build and Publish
+On release or manual trigger:
+- **PyPI Publishing**: Automated wheel building and publishing using uv
+- **Trusted Publishing**: Uses PyPI trusted publishing (no API tokens needed)
+- **TestPyPI Support**: Manual workflow dispatch option for test publishing
+
+To publish a new release:
+0. For testing, manually trigger the workflow with TestPyPI option enabled
+1. Update the semantic version in `sleap_roots_predict/__init__.py`.
+2. Create a new GitHub release with the same semantic version tag (e.g., `v0.1.0`)
+3. The workflow automatically builds and publishes to PyPI
 
 ## Project Structure
 

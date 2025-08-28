@@ -8,6 +8,13 @@ This is `sleap-roots-predict`, a lightweight CLI and library that uses sleap-nn 
 
 ## Development Commands
 
+### Installation
+Install with platform-specific extras for proper hardware acceleration:
+- **CPU-only**: `uv sync --extra dev --extra cpu`
+- **Windows with CUDA**: `uv sync --extra dev --extra windows_cuda`
+- **Linux with CUDA**: `uv sync --extra dev --extra linux_cuda`
+- **macOS**: `uv sync --extra dev --extra macos`
+
 ### Linting and Formatting
 - **Format code**: `black .` (configured for 88-character line length)
 - **Lint code**: `ruff check .` (configured for Google-style docstrings)
@@ -18,8 +25,9 @@ This is `sleap-roots-predict`, a lightweight CLI and library that uses sleap-nn 
 - **Run tests with coverage**: `pytest --cov`
 
 ### Build and Package
-- **Build package**: `python -m build`
-- **Upload to TestPyPI**: `twine upload --repository testpypi dist/*`
+- **Build package**: `uv build`
+- **Upload to TestPyPI**: `uv publish --index testpypi --trusted-publishing always`
+- **Upload to PyPI**: `uv publish`
 
 ## Architecture
 
