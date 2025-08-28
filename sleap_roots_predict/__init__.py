@@ -1,6 +1,6 @@
 """sleap-roots-predict package for SLEAP-based root system analysis."""
 
-__version__ = "0.1.0"
+__version__ = "0.0.1a0"
 
 from .video_utils import (  # noqa: F401
     convert_to_greyscale,
