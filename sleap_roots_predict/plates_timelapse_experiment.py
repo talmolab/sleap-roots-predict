@@ -5,6 +5,7 @@ from plate-based experiments, including metadata extraction, validation, and
 conversion to H5 format with associated metadata CSV files.
 """
 
+import json
 import logging
 import imageio.v3 as iio
 import numpy as np
@@ -23,6 +24,7 @@ from .video_utils import (
 )
 from sleap_roots_predict.predict import (
     predict_on_h5,
+    predict_on_video,
     make_predictor,
 )
 
