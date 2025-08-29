@@ -1,3 +1,10 @@
+"""SLEAP-NN prediction interface for pose estimation on videos and H5 files.
+
+This module provides functions to create SLEAP predictors and run inference on
+various data formats. It handles automatic device selection (CPU, CUDA, MPS) and
+supports both single file and batch processing.
+"""
+
 import numpy as np
 import sleap_io as sio
 

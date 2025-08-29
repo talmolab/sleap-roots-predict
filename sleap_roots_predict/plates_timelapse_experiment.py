@@ -405,6 +405,7 @@ def process_timelapse_image_directory(
         experiment_name: Name of the experiment.
         treatment: Chemical or physical alterations to the plate media.
         num_plants: Number of plants expected on a plate image.
+        save_h5: If True, save as H5 file; if False, return Video object.
         greyscale: Whether to convert images to greyscale.
         output_dir: Directory to store output files. If None, uses source directory.
         image_pattern: Glob pattern for finding image files.
