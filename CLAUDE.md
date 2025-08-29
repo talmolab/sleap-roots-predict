@@ -36,7 +36,7 @@ The main package is `sleap_roots_predict/` which contains:
 - `predict.py`: SLEAP-NN prediction interface (make_predictor, predict_on_video, predict_on_h5, batch_predict)
 - `video_utils.py`: Core utilities for image processing (natural_sort, convert_to_greyscale, load_images, make_video_from_images, save_array_as_h5, find_image_directories)
 - `plates_timelapse_experiment.py`: Experiment processing functions (extract_timelapse_metadata_from_filename, create_timelapse_metadata_dataframe, check_timelapse_image_directory, process_timelapse_image_directory, process_timelapse_experiment)
-- `__init__.py`: Package initialization with version and exports from all modules
+- `__init__.py`: Package initialization exposing only high-level API: `process_timelapse_experiment`, `make_predictor`, `predict_on_video`
 
 ### Key Dependencies
 - **Core**: sleap-nn, sleap-io for pose estimation
