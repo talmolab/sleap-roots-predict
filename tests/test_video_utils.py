@@ -840,6 +840,168 @@ class TestProcessTimelapseImageDirectory:
         assert h5_path is not None  # H5 should still be created
         assert csv_path is None  # CSV should fail
 
+    def test_load_images_failure_returns_none_h5_path(self, temp_dir, monkeypatch):
+        """Test that h5_path is None when load_images fails (would catch unbound variable)."""
+        test_dir = temp_dir / "test_images"
+        test_dir.mkdir()
+
+        # Create valid image files
+        img = np.ones((10, 10, 3), dtype=np.uint8) * 100
+        for i in range(3):
+            filepath = test_dir / f"image_{i:03d}.tif"
+            Image.fromarray(img).save(filepath)
+
+        # Mock load_images to raise an exception
+        def mock_load_images(*args, **kwargs):
+            raise MemoryError("Cannot allocate memory for images")
+
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.load_images",
+            mock_load_images,
+        )
+
+        # Process with save_h5=True to test the H5 path
+        h5_path, csv_path = process_timelapse_image_directory(
+            source_dir=test_dir,
+            experiment_name="test",
+            treatment="control",
+            num_plants=1,
+            output_dir=temp_dir,
+            save_h5=True,
+        )
+
+        # Should return None for h5_path without raising UnboundLocalError
+        assert h5_path is None
+        assert csv_path is not None  # CSV should still work
+
+    def test_partial_h5_creation_failure(self, temp_dir, monkeypatch):
+        """Test handling when load_images succeeds but save_array_as_h5 fails."""
+        test_dir = temp_dir / "test_images"
+        test_dir.mkdir()
+
+        img = np.ones((10, 10, 3), dtype=np.uint8) * 100
+        for i in range(3):
+            filepath = test_dir / f"image_{i:03d}.tif"
+            Image.fromarray(img).save(filepath)
+
+        # Counter to track calls
+        call_count = {"load": 0, "save": 0}
+
+        # Mock load_images to succeed
+        original_load = load_images
+        def mock_load_images(*args, **kwargs):
+            call_count["load"] += 1
+            return original_load(*args, **kwargs)
+
+        # Mock save_array_as_h5 to fail
+        def mock_save_h5(*args, **kwargs):
+            call_count["save"] += 1
+            raise OSError("Disk full")
+
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.load_images",
+            mock_load_images,
+        )
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.save_array_as_h5",
+            mock_save_h5,
+        )
+
+        h5_path, csv_path = process_timelapse_image_directory(
+            source_dir=test_dir,
+            experiment_name="test",
+            treatment="control",
+            num_plants=1,
+            output_dir=temp_dir,
+            save_h5=True,
+        )
+
+        # Verify both functions were called
+        assert call_count["load"] == 1
+        assert call_count["save"] == 1
+        
+        # Should handle the save failure gracefully
+        assert h5_path is None
+        assert csv_path is not None
+
+    def test_video_creation_failure(self, temp_dir, monkeypatch):
+        """Test handling when video creation fails."""
+        test_dir = temp_dir / "test_images"
+        test_dir.mkdir()
+
+        img = np.ones((10, 10, 3), dtype=np.uint8) * 100
+        for i in range(3):
+            filepath = test_dir / f"image_{i:03d}.tif"
+            Image.fromarray(img).save(filepath)
+
+        # Mock make_video_from_images to fail
+        def mock_make_video(*args, **kwargs):
+            raise RuntimeError("Failed to create video object")
+
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.make_video_from_images",
+            mock_make_video,
+        )
+
+        # Process with save_h5=False to test video path
+        video, csv_path = process_timelapse_image_directory(
+            source_dir=test_dir,
+            experiment_name="test",
+            treatment="control",
+            num_plants=1,
+            output_dir=temp_dir,
+            save_h5=False,  # Test video creation path
+        )
+
+        # Should return None for video without errors
+        assert video is None
+        assert csv_path is not None  # CSV should still work
+
+    def test_multiple_errors_in_pipeline(self, temp_dir, monkeypatch):
+        """Test handling multiple errors in the processing pipeline."""
+        test_dir = temp_dir / "test_images"
+        test_dir.mkdir()
+
+        img = np.ones((10, 10, 3), dtype=np.uint8) * 100
+        for i in range(2):  # Just 2 images
+            filepath = test_dir / f"image_{i:03d}.tif"
+            Image.fromarray(img).save(filepath)
+
+        errors_encountered = []
+
+        # Mock both CSV creation and H5 saving to fail
+        def mock_create_csv(*args, **kwargs):
+            errors_encountered.append("csv_error")
+            raise ValueError("CSV creation failed")
+
+        def mock_save_h5(*args, **kwargs):
+            errors_encountered.append("h5_error")
+            raise IOError("H5 save failed")
+
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.create_timelapse_metadata_dataframe",
+            mock_create_csv,
+        )
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.save_array_as_h5",
+            mock_save_h5,
+        )
+
+        h5_path, csv_path = process_timelapse_image_directory(
+            source_dir=test_dir,
+            experiment_name="test",
+            treatment="control",
+            num_plants=1,
+            output_dir=temp_dir,
+            save_h5=True,
+        )
+
+        # Both should fail but not crash
+        assert h5_path is None
+        assert csv_path is None
+        assert "csv_error" in errors_encountered
+        assert "h5_error" in errors_encountered
+
 
 class TestFindImageDirectories:
     """Test find_image_directories function."""
