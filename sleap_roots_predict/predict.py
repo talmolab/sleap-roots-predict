@@ -86,42 +86,10 @@ def predict_on_video(
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        sio.save_file(labels, str(save_path))
+        sio.save_file(labels, save_path.as_posix())
         return save_path
 
     return labels
-
-
-def predict_on_images(
-    predictor: Predictor,
-    images: Union[np.ndarray, List[Union[str, Path]]],
-    greyscale: bool = False,
-    save_path: Optional[Union[str, Path]] = None,
-) -> Union[Path, "sio.Labels"]:
-    """Run prediction on images (either array or file paths).
-
-    Args:
-        predictor: The Predictor instance to use for inference.
-        images: Either a numpy array (frames, height, width, channels) or
-                list of image file paths.
-        greyscale: Whether to convert images to greyscale (only used if images are paths).
-        save_path: Optional path to save predictions as .slp file.
-
-    Returns:
-        Either the path to the saved .slp file or the Labels object with predictions.
-    """
-    # Convert to Video object
-    if isinstance(images, np.ndarray):
-        # Create Video from numpy array
-        video = sio.Video.from_numpy(images)
-    else:
-        # Assume it's a list of paths
-        from .video_utils import make_video_from_images
-
-        video = make_video_from_images(images, greyscale=greyscale)
-
-    # Run prediction on the video
-    return predict_on_video(predictor, video, save_path=save_path)
 
 
 def predict_on_h5(
@@ -209,9 +177,9 @@ def batch_predict(
 
             # Run prediction
             predict_on_h5(predictor, input_path, dataset=dataset, save_path=output_path)
-            results[str(input_path)] = str(output_path)
+            results[input_path.as_posix()] = output_path.as_posix()
 
         except Exception as e:
-            results[str(input_path)] = f"Error: {str(e)}"
+            results[input_path.as_posix()] = f"Error: {str(e)}"
 
     return results
