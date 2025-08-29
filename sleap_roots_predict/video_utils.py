@@ -2,14 +2,16 @@
 
 import logging
 import os
+import io
 import re
 import h5py
 import imageio.v3 as iio
 import numpy as np
 import pandas as pd
+import sleap_io as sio
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Literal
 
 
 # Initialize logger
@@ -127,40 +129,79 @@ def load_images(
     return volume, filenames
 
 
-def make_h5_from_images(
-    images: np.ndarray,
-    output_path: Path,
-    compression: str = "gzip",
-    compression_opts: int = 1,
-) -> Path:
-    """Create an H5 file from a numpy array of images.
+def make_video_from_images(
+    image_files: List[Union[str, Path]],
+    greyscale: bool = False,
+) -> sio.Video:
+    """Create a sleap_io.Video object from a list of image files.
 
     Args:
-        images: Array of images with shape (frames, height, width, channels).
-        output_path: Path where the H5 file will be saved.
-        compression: Compression algorithm to use.
-        compression_opts: Compression level (1-9, where 1 is fastest, 9 is best compression).
+        image_files: List of paths to image files.
+        greyscale: Whether to convert images to greyscale.
 
     Returns:
-        Path to the created H5 file.
+        A sleap_io.Video object containing the images.
+
+    Raises:
+        ValueError: If no image files provided.
+        ImportError: If sleap_io is not installed.
     """
-    if images.ndim != 4:
-        raise ValueError(
-            f"Expected 4D array (frames, height, width, channels), got shape {images.shape}"
-        )
+    logger.debug(f"Creating Video from {len(file_paths)} image files")
+
+    # Create Video object from image files
+    # sleap_io.Video can be created from a list of image filenames
+    video = sio.Video.from_filename(
+        filenames=image_files,
+        grayscale=greyscale,  # Note: sleap_io uses 'grayscale' not 'greyscale'
+    )
+
+    logger.info(f"Created Video with {len(video)} frames")
+    return video
+
+
+def save_array_as_h5(
+    array: np.ndarray,
+    output_path: Union[str, Path],
+    dataset_name: str = "vol",
+    compression: str = "gzip",
+    compression_opts: int = 1,
+    chunks: Optional[Union[bool, tuple]] = True,
+) -> Path:
+    """Save a numpy array as an H5 file.
+
+    This is a utility function for cases where H5 export is still desired,
+    but the main workflow uses sleap_io.Video objects.
+
+    Args:
+        array: Array to save, typically with shape (frames, height, width, channels).
+        output_path: Path where the H5 file will be saved.
+        dataset_name: Name of the dataset inside the HDF5 file.
+        compression: Compression algorithm for the dataset.
+        compression_opts: Compression level (1-9 for gzip).
+        chunks: True/tuple for chunking; None/False disables chunking.
+
+    Returns:
+        Path to the saved H5 file.
+
+    Raises:
+        ValueError: If array is empty or output_path is not provided.
+    """
+    if array.size == 0:
+        raise ValueError("Cannot save empty array")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with h5py.File(output_path, "w") as f:
         f.create_dataset(
-            "vol",
-            data=images,
+            dataset_name,
+            data=array,
             compression=compression,
             compression_opts=compression_opts,
+            chunks=chunks,
         )
-        logger.info(f"Saved volume with shape {images.shape} to {output_path}")
 
+    logger.info(f"Saved array with shape {array.shape} to {output_path}")
     return output_path
 
 
