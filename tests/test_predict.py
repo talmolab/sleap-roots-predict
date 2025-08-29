@@ -118,14 +118,14 @@ class TestMakePredictor:
             # Device will be auto-detected based on the actual hardware
             mock_predictor.assert_called_once()
             call_args = mock_predictor.call_args
-            
+
             # Check the paths
             assert call_args[0][0] == [model1.as_posix(), model2.as_posix()]
-            
+
             # Check other parameters
             assert call_args[1]["peak_threshold"] == 0.2
             assert call_args[1]["batch_size"] == 4
-            
+
             # Device should be one of the valid options based on hardware
             assert call_args[1]["device"] in ["cpu", "cuda", "mps"]
 

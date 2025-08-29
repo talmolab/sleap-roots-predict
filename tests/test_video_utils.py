@@ -889,6 +889,7 @@ class TestProcessTimelapseImageDirectory:
 
         # Mock load_images to succeed
         original_load = load_images
+
         def mock_load_images(*args, **kwargs):
             call_count["load"] += 1
             return original_load(*args, **kwargs)
@@ -919,7 +920,7 @@ class TestProcessTimelapseImageDirectory:
         # Verify both functions were called
         assert call_count["load"] == 1
         assert call_count["save"] == 1
-        
+
         # Should handle the save failure gracefully
         assert h5_path is None
         assert csv_path is not None
