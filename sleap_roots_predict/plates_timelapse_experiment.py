@@ -916,7 +916,7 @@ def process_timelapse_experiment(
             logger.error(f"Error processing {image_dir}: {e}")
             results["skipped"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "reason": str(e),
                     "check_results": check_results,
                     "plate_metadata": (
@@ -930,6 +930,33 @@ def process_timelapse_experiment(
     logger.info(f"  - Processed: {len(results['processed'])} directories")
     logger.info(f"  - Failed validation: {len(results['failed'])} directories")
     logger.info(f"  - Skipped: {len(results['skipped'])} directories")
+
+    # Save results to JSON if requested
+    if results_json:
+        results_json = Path(results_json)
+        results_json.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert Path objects and other non-serializable objects for JSON
+        def make_json_serializable(obj):
+            if isinstance(obj, Path):
+                return obj.as_posix()
+            elif isinstance(obj, set):
+                return list(obj)
+            elif isinstance(obj, pd.Timestamp):
+                return obj.isoformat() if pd.notna(obj) else None
+            elif isinstance(obj, dict):
+                return {k: make_json_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [make_json_serializable(item) for item in obj]
+            else:
+                return obj
+
+        json_results = make_json_serializable(results)
+
+        with open(results_json, "w") as f:
+            json.dump(json_results, f, indent=2, default=str)
+
+        logger.info(f"Saved results to JSON: {results_json.as_posix()}")
 
     # Clean up file handler if it was added
     if file_handler:
