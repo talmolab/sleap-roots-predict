@@ -33,9 +33,10 @@ Install with platform-specific extras for proper hardware acceleration:
 
 ### Package Structure
 The main package is `sleap_roots_predict/` which contains:
-- `video_utils.py`: Core utilities for image processing (natural_sort, convert_to_greyscale, load_images, make_h5_from_images, find_image_directories)
-- `plates_timelapse_experiment.py`: Experiment processing functions (extract_metadata_from_filename, create_metadata_dataframe, check_image_directory, process_timelapse_image_directory, process_experiment)
-- `__init__.py`: Package initialization with version and exports from both modules
+- `predict.py`: SLEAP-NN prediction interface (make_predictor, predict_on_video, predict_on_h5, batch_predict)
+- `video_utils.py`: Core utilities for image processing (natural_sort, convert_to_greyscale, load_images, make_video_from_images, save_array_as_h5, find_image_directories)
+- `plates_timelapse_experiment.py`: Experiment processing functions (extract_timelapse_metadata_from_filename, create_timelapse_metadata_dataframe, check_timelapse_image_directory, process_timelapse_image_directory, process_timelapse_experiment)
+- `__init__.py`: Package initialization with version and exports from all modules
 
 ### Key Dependencies
 - **Core**: sleap-nn, sleap-io for pose estimation
@@ -51,11 +52,18 @@ The main package is `sleap_roots_predict/` which contains:
 ### Image Processing Pipeline
 The modules provide modular functions for processing timelapse experiments:
 
+#### Prediction Functions (predict.py)
+- `make_predictor()`: Create SLEAP predictor with automatic device selection
+- `predict_on_video()`: Run inference on sleap_io.Video objects
+- `predict_on_h5()`: Run inference on H5 files (backward compatibility)
+- `batch_predict()`: Process multiple H5 files in batch
+
 #### Core Functions (video_utils.py)
 - `natural_sort()`: Natural sorting for filenames with numbers
 - `convert_to_greyscale()`: Proper RGB to greyscale conversion with channel preservation
 - `load_images()`: Batch loading of images with optional greyscale conversion
-- `make_h5_from_images()`: Create compressed H5 files from 4D image arrays
+- `make_video_from_images()`: Create sleap_io.Video objects from image sequences
+- `save_array_as_h5()`: Save numpy arrays as compressed H5 files
 - `find_image_directories()`: Recursively find directories containing TIFF images
 
 #### Timelapse Experiment Processing Functions (plates_timelapse_experiment.py)
@@ -69,13 +77,18 @@ The modules provide modular functions for processing timelapse experiments:
 1. Validates and reads images from directory using glob patterns
 2. Naturally sorts filenames to maintain temporal order
 3. Optionally converts to greyscale using standard RGB weights
-4. Stacks images into 4D volume (frames, height, width, channels)
-5. Saves as compressed H5 file with configurable compression
-6. Generates accompanying CSV with experimental metadata
+4. Creates either:
+   - sleap_io.Video object for direct prediction (default)
+   - Compressed H5 file for storage (optional)
+5. Generates accompanying CSV with experimental metadata
+6. Optionally runs SLEAP predictions if models provided
+7. Exports results as JSON for downstream analysis
 
 ### Testing
 - Comprehensive test suite with fixtures in `conftest.py`
-- 95%+ code coverage target
+- 105 tests passing with high coverage
+- Separate test modules for predict and video_utils
+- GPU tests marked with `@pytest.mark.gpu` for conditional execution
 - Tests for edge cases, error handling, and various image formats
 - Fixtures for RGB, greyscale, RGBA, and large images
 - Tests for Unicode paths and malformed filenames
