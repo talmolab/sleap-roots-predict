@@ -9,6 +9,7 @@ import logging
 import imageio.v3 as iio
 import numpy as np
 import pandas as pd
+import sleap_io as sio
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -16,8 +17,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .video_utils import (
     find_image_directories,
     load_images,
-    make_h5_from_images,
+    make_video_from_images,
+    save_array_as_h5,
     natural_sort,
+)
+from sleap_roots_predict.predict import (
+    predict_on_h5,
+    make_predictor,
 )
 
 # Initialize logger
@@ -383,11 +389,14 @@ def process_timelapse_image_directory(
     experiment_name: str,
     treatment: str,
     num_plants: int,
+    save_h5: bool = False,
     greyscale: bool = False,
     output_dir: Optional[Union[str, Path]] = None,
     image_pattern: str = "*.tif",
-) -> Tuple[Optional[Path], Optional[Path]]:
-    """Process a directory of timelapse images into an H5 file and metadata CSV.
+) -> Union[
+    Tuple[Optional[Path], Optional[Path]], Tuple[Optional[sio.Video], Optional[Path]]
+]:
+    """Process a directory of timelapse images into an H5 file or Video and metadata CSV.
 
     Args:
         source_dir: Path to the source directory containing images.
@@ -399,7 +408,8 @@ def process_timelapse_image_directory(
         image_pattern: Glob pattern for finding image files.
 
     Returns:
-        Tuple of (H5 file path, metadata CSV path), or (None, None) if processing failed.
+        Tuple of (H5 file path, metadata CSV path), or (`sio.Video`, metadata CSV path)
+            or (None, None) if processing failed.
     """
     # Convert to Path objects
     source_dir = Path(source_dir)
@@ -407,6 +417,8 @@ def process_timelapse_image_directory(
         output_dir = source_dir
     else:
         output_dir = Path(output_dir)
+        # Create output directory if it doesn't exist
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     # Validate source directory
     if not source_dir.exists():
@@ -430,49 +442,60 @@ def process_timelapse_image_directory(
 
     # Sort files naturally
     sorted_files = natural_sort(image_files)
-    image_files = [Path(f) for f in sorted_files]
-
-    # Load and process images
-    try:
-        volume, filenames = load_images(image_files, greyscale=greyscale)
-    except Exception as e:
-        logger.error(f"Failed to load images: {e}")
-        return None, None
-
-    # Create output paths
-    suffix = "_greyscale" if greyscale else "_color"
-    h5_name = f"plate_{source_dir.name}{suffix}.h5"
-    h5_path = output_dir / h5_name
+    sorted_image_paths = [Path(f) for f in sorted_files]
+    sorted_image_names = [Path(f).name for f in sorted_files]
 
     csv_name = f"plate_{source_dir.name}_metadata.csv"
     csv_path = output_dir / csv_name
 
-    # Save H5 file
-    try:
-        make_h5_from_images(volume, h5_path)
-    except Exception as e:
-        logger.error(f"Failed to create H5 file: {e}")
-        return None, None
-
     # Create and save metadata
     try:
         metadata_df = create_timelapse_metadata_dataframe(
-            filenames, experiment_name, treatment, num_plants
+            sorted_image_names, experiment_name, treatment, num_plants
         )
         metadata_df.to_csv(csv_path, index=False)
         logger.info(f"Saved metadata to {csv_path}")
     except Exception as e:
         logger.error(f"Failed to save metadata: {e}")
-        return h5_path, None
+        csv_path = None
 
-    return h5_path, csv_path
+    if save_h5:
+        try:
+            # Load and process images
+            try:
+                volume, filenames = load_images(sorted_image_paths, greyscale=greyscale)
+            except Exception as e:
+                logger.error(f"Failed to load images: {e}")
+                h5_path = None
+            # Create output paths
+            suffix = "_greyscale" if greyscale else "_color"
+            h5_name = f"plate_{source_dir.name}{suffix}.h5"
+            h5_path = output_dir / h5_name
+            save_array_as_h5(volume, h5_path)
+        except Exception as e:
+            logger.error(f"Failed to create H5 file: {e}")
+            h5_path = None
+        return h5_path, csv_path
+
+    else:
+        try:
+            # Make `sio.Video`
+            video = make_video_from_images(
+                image_files=sorted_image_paths, greyscale=greyscale
+            )
+        except Exception as e:
+            logger.error(f"Failed to create video: {e}")
+            video = None
+        return video, csv_path
 
 
 def process_timelapse_experiment(
     base_dir: Union[str, Path],
     metadata_csv: Union[str, Path],
     experiment_name: str,
+    save_h5: bool = False,
     output_dir: Optional[Union[str, Path]] = None,
+    model_paths: List[Union[str, Path]] = [],
     # Optional processing parameters
     greyscale: bool = False,
     image_pattern: str = "*.tif",
@@ -757,18 +780,16 @@ def process_timelapse_experiment(
             num_plants = plate_metadata.get("num_plants", 1)
 
             # Call process_timelapse_image_directory with plate-specific parameters
-            h5_path, csv_path = process_timelapse_image_directory(
+            video, csv_path = process_timelapse_image_directory(
                 source_dir=image_dir,
                 experiment_name=experiment_name,
                 treatment=treatment,
+                save_h5=save_h5,
                 num_plants=int(num_plants) if pd.notna(num_plants) else 1,
                 greyscale=greyscale,
                 output_dir=output_subdir,
                 image_pattern=image_pattern,
             )
-
-            if h5_path:
-                logger.info(f"  [SUCCESS] Successfully created H5 file: {h5_path.name}")
 
                 # If processing succeeded, append additional metadata to the CSV
                 if csv_path and csv_path.exists():

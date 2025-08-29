@@ -146,7 +146,7 @@ def make_video_from_images(
         ValueError: If no image files provided.
         ImportError: If sleap_io is not installed.
     """
-    logger.debug(f"Creating Video from {len(file_paths)} image files")
+    logger.debug(f"Creating Video from {len(image_files)} image files")
 
     # Create Video object from image files
     # sleap_io.Video can be created from a list of image filenames
@@ -168,9 +168,6 @@ def save_array_as_h5(
     chunks: Optional[Union[bool, tuple]] = True,
 ) -> Path:
     """Save a numpy array as an H5 file.
-
-    This is a utility function for cases where H5 export is still desired,
-    but the main workflow uses sleap_io.Video objects.
 
     Args:
         array: Array to save, typically with shape (frames, height, width, channels).

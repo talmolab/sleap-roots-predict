@@ -62,7 +62,7 @@ def make_predictor(
 
 def predict_on_video(
     predictor: Predictor,
-    video: "sio.Video", 
+    video: "sio.Video",
     save_path: Optional[Union[str, Path]] = None,
 ) -> Union[Path, "sio.Labels"]:
     """Run prediction on a sleap_io.Video object using a Predictor.
@@ -78,7 +78,7 @@ def predict_on_video(
     """
     # Create VideoReader from Video object
     video_reader = VideoReader(video, queue_maxsize=8)
-    
+
     # Run inference
     labels = predictor.predict(video_reader)
 
@@ -102,7 +102,7 @@ def predict_on_images(
 
     Args:
         predictor: The Predictor instance to use for inference.
-        images: Either a numpy array (frames, height, width, channels) or 
+        images: Either a numpy array (frames, height, width, channels) or
                 list of image file paths.
         greyscale: Whether to convert images to greyscale (only used if images are paths).
         save_path: Optional path to save predictions as .slp file.
@@ -117,8 +117,9 @@ def predict_on_images(
     else:
         # Assume it's a list of paths
         from .video_utils import make_video_from_images
+
         video = make_video_from_images(images, greyscale=greyscale)
-    
+
     # Run prediction on the video
     return predict_on_video(predictor, video, save_path=save_path)
 
@@ -130,7 +131,7 @@ def predict_on_h5(
     save_path: Optional[Union[str, Path]] = None,
 ) -> Union[Path, "sio.Labels"]:
     """Run prediction on an H5 file using a Predictor.
-    
+
     This function is kept for backward compatibility.
 
     Args:
@@ -149,7 +150,7 @@ def predict_on_h5(
     h5_path = Path(h5)
     if not h5_path.exists():
         raise FileNotFoundError(f"H5 file not found: {h5_path}")
-    
+
     # Create VideoReader from H5 file
     video_reader = VideoReader.from_filename(
         filename=h5_path.as_posix(),
@@ -164,7 +165,7 @@ def predict_on_h5(
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        sio.save_file(labels, str(save_path))
+        sio.save_file(labels, save_path.as_posix())
         return save_path
 
     return labels
