@@ -813,7 +813,7 @@ def process_timelapse_experiment(
             num_plants = plate_metadata.get("num_plants", 1)
 
             # Call process_timelapse_image_directory with plate-specific parameters
-            video, csv_path = process_timelapse_image_directory(
+            result = process_timelapse_image_directory(
                 source_dir=image_dir,
                 experiment_name=experiment_name,
                 treatment=treatment,
@@ -824,52 +824,87 @@ def process_timelapse_experiment(
                 image_pattern=image_pattern,
             )
 
-                # If processing succeeded, append additional metadata to the CSV
-                if csv_path and csv_path.exists():
-                    try:
-                        # Read the generated CSV
-                        generated_df = pd.read_csv(csv_path)
+            # Unpack result based on save_h5 flag
+            if save_h5:
+                h5_path, csv_path = result
+                video = None
+            else:
+                video, csv_path = result
+                h5_path = None
+
+            # Run predictions if predictor is available and processing succeeded
+            predictions_path = None
+            if predictor and (video is not None or h5_path is not None):
+                try:
+                    predictions_name = f"plate_{image_dir.name}_predictions.slp"
+                    predictions_path = output_subdir / predictions_name
+
+                    if save_h5 and h5_path:
+                        # Predict on H5 file
+                        logger.info(f"  [PREDICTION] Running predictions on H5 file")
+                        predict_on_h5(predictor, h5_path, save_path=predictions_path)
+                    elif video:
+                        # Predict on Video object
+                        logger.info(
+                            f"  [PREDICTION] Running predictions on Video object"
+                        )
+                        predict_on_video(predictor, video, save_path=predictions_path)
+
+                    logger.info(
+                        f"  [SUCCESS] Saved predictions to {predictions_path.name}"
+                    )
+                except Exception as e:
+                    logger.error(f"  [ERROR] Failed to run predictions: {e}")
+                    predictions_path = None
+
+            # If processing succeeded, append additional metadata to the CSV
+            if csv_path and csv_path.exists():
+                try:
+                    # Read the generated CSV
+                    generated_df = pd.read_csv(csv_path)
+                    logger.debug(f"    Enhancing CSV with additional metadata columns")
+
+                    # Add additional metadata columns from the metadata CSV
+                    added_cols = []
+                    for col, val in plate_metadata.items():
+                        if col not in [
+                            "treatment",
+                            "num_plants",
+                            "plate_number",
+                        ]:  # Don't duplicate
+                            generated_df[col] = val
+                            added_cols.append(col)
+
+                    # Save the enhanced CSV
+                    generated_df.to_csv(csv_path, index=False)
+                    if added_cols:
                         logger.debug(
-                            f"    Enhancing CSV with additional metadata columns"
+                            f"    Added {len(added_cols)} additional columns: {', '.join(added_cols)}"
                         )
 
-                        # Add additional metadata columns from the metadata CSV
-                        added_cols = []
-                        for col, val in plate_metadata.items():
-                            if col not in [
-                                "treatment",
-                                "num_plants",
-                                "plate_number",
-                            ]:  # Don't duplicate
-                                generated_df[col] = val
-                                added_cols.append(col)
+                except Exception as e:
+                    logger.warning(f"    [WARNING] Could not enhance metadata CSV: {e}")
 
-                        # Save the enhanced CSV
-                        generated_df.to_csv(csv_path, index=False)
-                        if added_cols:
-                            logger.debug(
-                                f"    Added {len(added_cols)} additional columns: {', '.join(added_cols)}"
-                            )
-
-                    except Exception as e:
-                        logger.warning(
-                            f"    [WARNING] Could not enhance metadata CSV: {e}"
-                        )
-
+            # Check if processing was successful
+            if (save_h5 and h5_path) or (not save_h5 and video):
                 results["processed"].append(
                     {
-                        "directory": str(image_dir),
-                        "h5_path": str(h5_path),
-                        "csv_path": str(csv_path) if csv_path else None,
+                        "directory": image_dir.as_posix(),
+                        "h5_path": h5_path.as_posix() if h5_path else None,
+                        "video_frames": len(video) if video else None,
+                        "csv_path": csv_path.as_posix() if csv_path else None,
+                        "predictions_path": (
+                            predictions_path.as_posix() if predictions_path else None
+                        ),
                         "check_results": check_results,
                         "plate_metadata": plate_metadata,
                     }
                 )
-                logger.info(f"Successfully processed {image_dir}")
+                logger.info(f"  [SUCCESS] Successfully processed {image_dir.name}")
             else:
                 results["skipped"].append(
                     {
-                        "directory": str(image_dir),
+                        "directory": image_dir.as_posix(),
                         "reason": "processing_failed",
                         "check_results": check_results,
                         "plate_metadata": plate_metadata,
