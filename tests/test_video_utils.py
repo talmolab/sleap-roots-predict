@@ -639,11 +639,11 @@ class TestProcessTimelapseImageDirectory:
 
         assert h5_path is not None
         assert h5_path.parent == image_directory_with_tiffs
-    
+
     def test_video_output_processing(self, image_directory_with_tiffs, temp_dir):
         """Test processing that returns Video object instead of H5."""
         pytest.importorskip("sleap_io")
-        
+
         output_dir = temp_dir / "output"
         # Test with save_h5=False (default) to get Video object
         video, csv_path = process_timelapse_image_directory(
@@ -659,11 +659,11 @@ class TestProcessTimelapseImageDirectory:
         assert video is not None
         assert csv_path is not None
         assert csv_path.exists()
-        
+
         # Check Video object properties
         assert len(video) == 5  # 5 frames
         assert video.shape[0] == 5  # 5 frames
-        
+
         # Check CSV contents
         df = pd.read_csv(csv_path)
         assert len(df) == 5
