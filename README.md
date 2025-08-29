@@ -4,11 +4,15 @@ A lightweight CLI and library that uses sleap-nn for prediction and produces art
 
 ## Features
 
-- Process timelapse experiments from plate-based imaging systems
-- Extract metadata from standardized filenames (datetime, plate numbers, etc.)
-- Convert image directories to compressed H5 format with metadata CSV files
-- Validate experimental data with comprehensive checks
-- Support for multi-plate experiments with CSV-based metadata
+- **SLEAP-NN Integration**: Direct inference using SLEAP neural network models
+- **Flexible Video Processing**: Create `sleap_io.Video` objects from image sequences for prediction
+- **Timelapse Experiment Support**: Process plate-based imaging systems with automated metadata extraction
+- **Metadata Extraction**: Parse datetime, plate numbers, and experimental conditions from standardized filenames
+- **Dual Output Formats**: Generate either Video objects for direct prediction or compressed H5 files for storage
+- **Comprehensive Validation**: Check image directories for consistency, datetime formats, and suffix patterns
+- **Batch Processing**: Handle multi-plate experiments with CSV-based metadata
+- **GPU Acceleration**: Automatic device selection (CUDA, MPS, or CPU) for optimal performance
+- **JSON Export**: Save experiment results and metadata in JSON format for downstream analysis
 
 ## Installation
 
@@ -65,32 +69,124 @@ uv run codespell
 
 ## Usage
 
-### Processing Timelapse Experiments
+### Quick Start - High-Level API
 
 ```python
 from sleap_roots_predict import (
     process_timelapse_experiment,
-    check_timelapse_image_directory,
-    find_image_directories
+    make_predictor,
+    predict_on_video
 )
 
-# Process an entire experiment with metadata
+# Process an entire timelapse experiment with predictions
 results = process_timelapse_experiment(
     base_dir="path/to/experiment",
     metadata_csv="path/to/metadata.csv",
     experiment_name="my_experiment",
-    output_dir="path/to/output"
+    output_dir="path/to/output",
+    model_paths=["path/to/sleap/model"],  # Optional: run predictions
+    device="cuda",  # Use GPU for predictions
+    results_json="results.json"  # Save results as JSON
 )
 
-# Check a single directory for validity
+# Or use the prediction API directly
+predictor = make_predictor(
+    model_path=["path/to/model"],
+    peak_threshold=0.2,
+    batch_size=4,
+    device="auto"  # Automatically selects GPU if available
+)
+
+# Create a Video object and run predictions
+from sleap_roots_predict.video_utils import make_video_from_images
+image_files = sorted(Path("path/to/images").glob("*.tif"))
+video = make_video_from_images(image_files, greyscale=False)
+
+predictions = predict_on_video(
+    predictor,
+    video,
+    save_path="predictions.slp"  # Optional: save predictions
+)
+```
+
+### Advanced Usage - Utility Functions
+
+For more control, you can import utility functions directly from their modules:
+
+```python
+# Import utility functions from their modules
+from sleap_roots_predict.plates_timelapse_experiment import (
+    process_timelapse_image_directory,
+    check_timelapse_image_directory,
+    find_image_directories,
+    extract_timelapse_metadata_from_filename,
+    create_timelapse_metadata_dataframe
+)
+
+from sleap_roots_predict.predict import (
+    predict_on_h5,
+    batch_predict
+)
+
+from sleap_roots_predict.video_utils import (
+    make_video_from_images,
+    load_images,
+    convert_to_greyscale,
+    save_array_as_h5,
+    natural_sort
+)
+
+# Process a single directory
+video, csv_path = process_timelapse_image_directory(
+    source_dir="path/to/plate_001",
+    experiment_name="exp1",
+    treatment="control",
+    num_plants=3,
+    save_h5=False,  # Returns Video object
+    output_dir="output/"
+)
+
+# Validate directories before processing
 check_results = check_timelapse_image_directory(
     image_dir="path/to/plate_001",
+    expected_suffix_pattern=r'^\d{3}$',  # e.g., "001", "002"
+    min_images=5,
+    max_images=1000,
     check_datetime=True,
     check_suffix_consistency=True
 )
 
-# Find all directories containing TIFF images
-image_dirs = find_image_directories("path/to/experiment")
+# Batch process H5 files
+results = batch_predict(
+    predictor,
+    input_paths=["file1.h5", "file2.h5"],
+    output_dir="predictions/",
+    dataset="vol"
+)
+
+# Load and process images
+image_paths = ["img1.tif", "img2.tif", "img3.tif"]
+volume, filenames = load_images(image_paths, greyscale=True)
+print(f"Loaded volume shape: {volume.shape}")  # (frames, height, width, channels)
+
+# Convert RGB to greyscale with proper weights
+grey_image = convert_to_greyscale(
+    rgb_image,
+    method="weights"  # Uses standard RGB weights (0.299, 0.587, 0.114)
+)
+
+# Save processed data as H5
+save_array_as_h5(
+    volume,
+    output_path="processed_data.h5",
+    compression="gzip",
+    compression_opts=4
+)
+
+# Natural sorting for filenames with numbers
+files = ["img_2.tif", "img_10.tif", "img_1.tif"]
+sorted_files = natural_sort(files)
+# Result: ["img_1.tif", "img_2.tif", "img_10.tif"]
 ```
 
 ## CI/CD
@@ -101,15 +197,14 @@ The project uses GitHub Actions for continuous integration and deployment:
 On every pull request:
 - **Linting**: black formatting, ruff linting, codespell
 - **Testing**: Full test suite on multiple platforms
-  - Ubuntu (latest)
-  - Windows (latest)
-  - macOS (Apple Silicon)
+  - Ubuntu (latest) - CPU only
+  - Windows (latest) - CPU only
+  - macOS (Apple Silicon) - with Metal Performance Shaders (MPS) GPU support
   - Self-hosted GPU runners (Linux with CUDA)
 
-All platforms run with appropriate hardware acceleration:
-- CPU-only on GitHub-hosted runners
-- CUDA on self-hosted GPU runners
-- Metal Performance Shaders on macOS
+GPU tests are automatically run on:
+- macOS runners using Metal Performance Shaders
+- Self-hosted Linux runners with CUDA support
 
 ### Build and Publish
 On release or manual trigger:
@@ -127,16 +222,19 @@ To publish a new release:
 
 ```
 sleap_roots_predict/
-├── video_utils.py              # Core image processing utilities
+├── predict.py                      # SLEAP-NN prediction interface
+├── video_utils.py                  # Core image processing utilities
 ├── plates_timelapse_experiment.py  # Timelapse experiment processing
-└── __init__.py                 # Package exports
+└── __init__.py                     # Package exports and version
 
 tests/
-├── test_video_utils.py         # Comprehensive test suite
+├── test_predict.py             # Prediction module tests
+├── test_video_utils.py         # Video utilities tests
 └── conftest.py                 # Shared test fixtures
 
-examples/
-└── example_process_experiment.py  # Usage examples
+.github/workflows/
+├── ci.yml                      # Continuous integration
+└── publish.yml                 # PyPI publishing workflow
 ```
 
 ## Contributing

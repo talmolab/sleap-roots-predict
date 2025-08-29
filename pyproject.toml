@@ -76,3 +76,9 @@ skip = '.git*,*.css,.venv,htmlcov,*.lock,*.html,.ruff_cache,.pytest_cache,.seren
 check-hidden = true
 # ignore-regex = ''
 # ignore-words-list = ''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: marks tests that require GPU/CUDA (deselect with '-m \"not gpu\"')",
+]

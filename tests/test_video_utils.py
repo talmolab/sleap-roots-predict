@@ -10,16 +10,23 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from sleap_roots_predict import (
-    check_timelapse_image_directory,
+# Import high-level API functions
+from sleap_roots_predict import process_timelapse_experiment
+
+# Import utility functions from their specific modules
+from sleap_roots_predict.video_utils import (
     convert_to_greyscale,
-    create_timelapse_metadata_dataframe,
-    extract_timelapse_metadata_from_filename,
     find_image_directories,
     load_images,
-    make_h5_from_images,
+    make_video_from_images,
     natural_sort,
-    process_timelapse_experiment,
+    save_array_as_h5,
+)
+
+from sleap_roots_predict.plates_timelapse_experiment import (
+    check_timelapse_image_directory,
+    create_timelapse_metadata_dataframe,
+    extract_timelapse_metadata_from_filename,
     process_timelapse_image_directory,
 )
 
@@ -369,13 +376,13 @@ class TestExtractTimelapseMetadataFromFilename:
                 assert isinstance(metadata["datetime"], datetime)
 
 
-class TestMakeH5FromImages:
-    """Test the make_h5_from_images function."""
+class TestSaveArrayAsH5:
+    """Test the save_array_as_h5 function."""
 
     def test_create_h5_file(self, sample_4d_array, temp_dir):
         """Test creating H5 file from 4D array."""
         output_path = temp_dir / "test_output.h5"
-        result_path = make_h5_from_images(sample_4d_array, output_path)
+        result_path = save_array_as_h5(sample_4d_array, output_path)
 
         assert result_path == output_path
         assert output_path.exists()
@@ -389,7 +396,7 @@ class TestMakeH5FromImages:
     def test_compression_options(self, sample_4d_array, temp_dir):
         """Test different compression options."""
         output_path = temp_dir / "compressed.h5"
-        make_h5_from_images(
+        save_array_as_h5(
             sample_4d_array, output_path, compression="gzip", compression_opts=9
         )
 
@@ -397,18 +404,18 @@ class TestMakeH5FromImages:
             assert f["vol"].compression == "gzip"
             assert f["vol"].compression_opts == 9
 
-    def test_invalid_shape(self, temp_dir):
-        """Test error handling for invalid array shape."""
-        bad_array = np.zeros((10, 10, 3))  # 3D instead of 4D
+    def test_invalid_empty_array(self, temp_dir):
+        """Test error handling for empty array."""
+        bad_array = np.array([])
         output_path = temp_dir / "bad.h5"
 
-        with pytest.raises(ValueError, match="Expected 4D array"):
-            make_h5_from_images(bad_array, output_path)
+        with pytest.raises(ValueError, match="Cannot save empty array"):
+            save_array_as_h5(bad_array, output_path)
 
     def test_create_parent_directories(self, sample_4d_array, temp_dir):
         """Test that parent directories are created if needed."""
         output_path = temp_dir / "nested" / "dirs" / "output.h5"
-        make_h5_from_images(sample_4d_array, output_path)
+        save_array_as_h5(sample_4d_array, output_path)
         assert output_path.exists()
 
     def test_overwrite_existing(self, sample_4d_array, temp_dir):
@@ -416,14 +423,30 @@ class TestMakeH5FromImages:
         output_path = temp_dir / "existing.h5"
 
         # Create first file
-        make_h5_from_images(sample_4d_array, output_path)
+        save_array_as_h5(sample_4d_array, output_path)
 
         # Overwrite with different data
         new_array = np.ones_like(sample_4d_array)
-        make_h5_from_images(new_array, output_path)
+        save_array_as_h5(new_array, output_path)
 
         with h5py.File(output_path, "r") as f:
             assert np.array_equal(f["vol"][:], new_array)
+
+
+class TestMakeVideoFromImages:
+    """Test the make_video_from_images function."""
+
+    def test_create_video_from_images(self, temp_image_dir_tiff):
+        """Test creating Video object from image files."""
+        # Note: This test would require sleap_io to be installed
+        # For now, we'll skip it if sleap_io is not available
+        pytest.importorskip("sleap_io")
+
+        image_files = list(temp_image_dir_tiff.glob("*.tif"))
+        video = make_video_from_images(image_files)
+
+        assert video is not None
+        assert len(video) == len(image_files)
 
 
 class TestCreateTimelapseMetadataDataframe:
@@ -506,8 +529,9 @@ class TestProcessTimelapseImageDirectory:
     """Test the main processing function."""
 
     def test_successful_processing(self, image_directory_with_tiffs, temp_dir):
-        """Test successful processing of image directory."""
+        """Test successful processing of image directory with H5 output."""
         output_dir = temp_dir / "output"
+        # Test with save_h5=True to get H5 file
         h5_path, csv_path = process_timelapse_image_directory(
             image_directory_with_tiffs,
             "test_exp",
@@ -515,6 +539,7 @@ class TestProcessTimelapseImageDirectory:
             3,
             greyscale=False,
             output_dir=output_dir,
+            save_h5=True,  # Save as H5
         )
 
         assert h5_path is not None
@@ -537,6 +562,7 @@ class TestProcessTimelapseImageDirectory:
 
     def test_greyscale_processing(self, image_directory_with_tiffs, temp_dir):
         """Test processing with greyscale conversion."""
+        # Test with save_h5=True
         h5_path, csv_path = process_timelapse_image_directory(
             image_directory_with_tiffs,
             "test_exp",
@@ -544,6 +570,7 @@ class TestProcessTimelapseImageDirectory:
             3,
             greyscale=True,
             output_dir=temp_dir,
+            save_h5=True,  # Save as H5
         )
 
         assert h5_path is not None
@@ -590,12 +617,14 @@ class TestProcessTimelapseImageDirectory:
 
     def test_custom_image_pattern(self, mixed_format_directory):
         """Test processing with custom image pattern."""
+        # Test with save_h5=True
         h5_path, csv_path = process_timelapse_image_directory(
             mixed_format_directory,
             "test_exp",
             "control",
             3,
             image_pattern="*.png",
+            save_h5=True,  # Save as H5
         )
 
         assert h5_path is not None
@@ -604,38 +633,72 @@ class TestProcessTimelapseImageDirectory:
 
     def test_default_output_directory(self, image_directory_with_tiffs):
         """Test that output defaults to source directory."""
+        # Test with save_h5=True
         h5_path, csv_path = process_timelapse_image_directory(
             image_directory_with_tiffs,
             "test_exp",
             "control",
             3,
             output_dir=None,  # Should default to source_dir
+            save_h5=True,  # Save as H5
         )
 
         assert h5_path is not None
         assert h5_path.parent == image_directory_with_tiffs
 
+    def test_video_output_processing(self, image_directory_with_tiffs, temp_dir):
+        """Test processing that returns Video object instead of H5."""
+        pytest.importorskip("sleap_io")
+
+        output_dir = temp_dir / "output"
+        # Test with save_h5=False (default) to get Video object
+        video, csv_path = process_timelapse_image_directory(
+            image_directory_with_tiffs,
+            "test_exp",
+            "control",
+            3,
+            greyscale=False,
+            output_dir=output_dir,
+            save_h5=False,  # Get Video object
+        )
+
+        assert video is not None
+        assert csv_path is not None
+        assert csv_path.exists()
+
+        # Check Video object properties
+        assert len(video) == 5  # 5 frames
+        assert video.shape[0] == 5  # 5 frames
+
+        # Check CSV contents
+        df = pd.read_csv(csv_path)
+        assert len(df) == 5
+        assert df["experiment"].unique()[0] == "test_exp"
+
     def test_logging_output(self, image_directory_with_tiffs, caplog):
         """Test that appropriate log messages are generated."""
         with caplog.at_level(logging.INFO):
+            # Test with save_h5=True to ensure we get H5 logging
             process_timelapse_image_directory(
                 image_directory_with_tiffs,
                 "test_exp",
                 "control",
                 3,
+                save_h5=True,
             )
 
         assert "Found 5 image files" in caplog.text
-        assert "Saved volume with shape" in caplog.text
         assert "Saved metadata to" in caplog.text
 
     def test_malformed_filenames(self, malformed_image_directory):
         """Test processing with malformed filenames."""
+        # Test with save_h5=True to get H5 path
         h5_path, csv_path = process_timelapse_image_directory(
             malformed_image_directory,
             "test_exp",
             "control",
             3,
+            save_h5=True,
         )
 
         # Should still process, using fallback for metadata
@@ -700,16 +763,18 @@ class TestProcessTimelapseImageDirectory:
         )
 
         # Should handle error gracefully
-        h5_path, csv_path = process_timelapse_image_directory(
+        result = process_timelapse_image_directory(
             source_dir=test_dir,
             experiment_name="test",
             treatment="control",
             num_plants=1,
             output_dir=temp_dir,
+            save_h5=True,  # Force H5 saving to test the error path
         )
 
+        h5_path, csv_path = result
         assert h5_path is None
-        assert csv_path is None
+        assert csv_path is not None  # CSV should still be created
 
     def test_error_during_h5_creation(self, temp_dir, monkeypatch):
         """Test error handling during H5 creation."""
@@ -721,26 +786,28 @@ class TestProcessTimelapseImageDirectory:
             filepath = test_dir / f"image_{i:03d}.tif"
             Image.fromarray(img).save(filepath)
 
-        # Mock make_h5_from_images to raise an error
-        def mock_make_h5(*args, **kwargs):
+        # Mock save_array_as_h5 to raise an error
+        def mock_save_h5(*args, **kwargs):
             raise IOError("Test error during H5 creation")
 
         monkeypatch.setattr(
-            "sleap_roots_predict.plates_timelapse_experiment.make_h5_from_images",
-            mock_make_h5,
+            "sleap_roots_predict.plates_timelapse_experiment.save_array_as_h5",
+            mock_save_h5,
         )
 
         # Should handle error gracefully
-        h5_path, csv_path = process_timelapse_image_directory(
+        result = process_timelapse_image_directory(
             source_dir=test_dir,
             experiment_name="test",
             treatment="control",
             num_plants=1,
             output_dir=temp_dir,
+            save_h5=True,  # Force H5 saving to test the error path
         )
 
+        h5_path, csv_path = result
         assert h5_path is None
-        assert csv_path is None
+        assert csv_path is not None  # CSV should still be created
 
     def test_error_during_csv_creation(self, temp_dir, monkeypatch):
         """Test error handling during CSV creation."""
@@ -772,6 +839,169 @@ class TestProcessTimelapseImageDirectory:
 
         assert h5_path is not None  # H5 should still be created
         assert csv_path is None  # CSV should fail
+
+    def test_load_images_failure_returns_none_h5_path(self, temp_dir, monkeypatch):
+        """Test that h5_path is None when load_images fails (would catch unbound variable)."""
+        test_dir = temp_dir / "test_images"
+        test_dir.mkdir()
+
+        # Create valid image files
+        img = np.ones((10, 10, 3), dtype=np.uint8) * 100
+        for i in range(3):
+            filepath = test_dir / f"image_{i:03d}.tif"
+            Image.fromarray(img).save(filepath)
+
+        # Mock load_images to raise an exception
+        def mock_load_images(*args, **kwargs):
+            raise MemoryError("Cannot allocate memory for images")
+
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.load_images",
+            mock_load_images,
+        )
+
+        # Process with save_h5=True to test the H5 path
+        h5_path, csv_path = process_timelapse_image_directory(
+            source_dir=test_dir,
+            experiment_name="test",
+            treatment="control",
+            num_plants=1,
+            output_dir=temp_dir,
+            save_h5=True,
+        )
+
+        # Should return None for h5_path without raising UnboundLocalError
+        assert h5_path is None
+        assert csv_path is not None  # CSV should still work
+
+    def test_partial_h5_creation_failure(self, temp_dir, monkeypatch):
+        """Test handling when load_images succeeds but save_array_as_h5 fails."""
+        test_dir = temp_dir / "test_images"
+        test_dir.mkdir()
+
+        img = np.ones((10, 10, 3), dtype=np.uint8) * 100
+        for i in range(3):
+            filepath = test_dir / f"image_{i:03d}.tif"
+            Image.fromarray(img).save(filepath)
+
+        # Counter to track calls
+        call_count = {"load": 0, "save": 0}
+
+        # Mock load_images to succeed
+        original_load = load_images
+
+        def mock_load_images(*args, **kwargs):
+            call_count["load"] += 1
+            return original_load(*args, **kwargs)
+
+        # Mock save_array_as_h5 to fail
+        def mock_save_h5(*args, **kwargs):
+            call_count["save"] += 1
+            raise OSError("Disk full")
+
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.load_images",
+            mock_load_images,
+        )
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.save_array_as_h5",
+            mock_save_h5,
+        )
+
+        h5_path, csv_path = process_timelapse_image_directory(
+            source_dir=test_dir,
+            experiment_name="test",
+            treatment="control",
+            num_plants=1,
+            output_dir=temp_dir,
+            save_h5=True,
+        )
+
+        # Verify both functions were called
+        assert call_count["load"] == 1
+        assert call_count["save"] == 1
+
+        # Should handle the save failure gracefully
+        assert h5_path is None
+        assert csv_path is not None
+
+    def test_video_creation_failure(self, temp_dir, monkeypatch):
+        """Test handling when video creation fails."""
+        test_dir = temp_dir / "test_images"
+        test_dir.mkdir()
+
+        img = np.ones((10, 10, 3), dtype=np.uint8) * 100
+        for i in range(3):
+            filepath = test_dir / f"image_{i:03d}.tif"
+            Image.fromarray(img).save(filepath)
+
+        # Mock make_video_from_images to fail
+        def mock_make_video(*args, **kwargs):
+            raise RuntimeError("Failed to create video object")
+
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.make_video_from_images",
+            mock_make_video,
+        )
+
+        # Process with save_h5=False to test video path
+        video, csv_path = process_timelapse_image_directory(
+            source_dir=test_dir,
+            experiment_name="test",
+            treatment="control",
+            num_plants=1,
+            output_dir=temp_dir,
+            save_h5=False,  # Test video creation path
+        )
+
+        # Should return None for video without errors
+        assert video is None
+        assert csv_path is not None  # CSV should still work
+
+    def test_multiple_errors_in_pipeline(self, temp_dir, monkeypatch):
+        """Test handling multiple errors in the processing pipeline."""
+        test_dir = temp_dir / "test_images"
+        test_dir.mkdir()
+
+        img = np.ones((10, 10, 3), dtype=np.uint8) * 100
+        for i in range(2):  # Just 2 images
+            filepath = test_dir / f"image_{i:03d}.tif"
+            Image.fromarray(img).save(filepath)
+
+        errors_encountered = []
+
+        # Mock both CSV creation and H5 saving to fail
+        def mock_create_csv(*args, **kwargs):
+            errors_encountered.append("csv_error")
+            raise ValueError("CSV creation failed")
+
+        def mock_save_h5(*args, **kwargs):
+            errors_encountered.append("h5_error")
+            raise IOError("H5 save failed")
+
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.create_timelapse_metadata_dataframe",
+            mock_create_csv,
+        )
+        monkeypatch.setattr(
+            "sleap_roots_predict.plates_timelapse_experiment.save_array_as_h5",
+            mock_save_h5,
+        )
+
+        h5_path, csv_path = process_timelapse_image_directory(
+            source_dir=test_dir,
+            experiment_name="test",
+            treatment="control",
+            num_plants=1,
+            output_dir=temp_dir,
+            save_h5=True,
+        )
+
+        # Both should fail but not crash
+        assert h5_path is None
+        assert csv_path is None
+        assert "csv_error" in errors_encountered
+        assert "h5_error" in errors_encountered
 
 
 class TestFindImageDirectories:
@@ -832,7 +1062,7 @@ class TestCheckTimelapseImageDirectory:
         assert results["image_count"] == 5
         assert results["suffixes"] == {"001"}
         assert len(results["errors"]) == 0
-        assert results["directory"] == str(image_dir)
+        assert results["directory"] == image_dir.as_posix()
 
     def test_inconsistent_suffixes(self, temp_dir):
         """Test detection of inconsistent suffixes."""
@@ -1000,12 +1230,13 @@ class TestProcessTimelapseExperiment:
             filename = f"exp_20250101-13000{i}_002.tif"
             img.save(plate2_dir / filename)
 
-        # Process the experiment with CSV metadata
+        # Process the experiment with CSV metadata - test with save_h5=True
         results = process_timelapse_experiment(
             exp_dir,
             metadata_csv=metadata_csv,
             experiment_name="test_exp",
             output_dir=temp_dir / "output",
+            save_h5=True,  # Save as H5
         )
 
         assert len(results["processed"]) == 2
@@ -1065,6 +1296,7 @@ class TestProcessTimelapseExperiment:
             metadata_csv=metadata_csv,
             experiment_name="test",
             check_suffix_consistency=True,
+            save_h5=True,  # Save as H5
         )
 
         assert len(results["failed"]) == 1
@@ -1109,6 +1341,7 @@ class TestProcessTimelapseExperiment:
             metadata_csv=metadata_csv,
             experiment_name="nested_test",
             output_dir=temp_dir / "output",
+            save_h5=True,  # Save as H5
         )
 
         assert len(results["processed"]) == 2
@@ -1229,7 +1462,7 @@ class TestProcessTimelapseExperiment:
         img.save(plate_dir / "image_20250101-120000_004.tif")
 
         results = process_timelapse_experiment(
-            exp_dir, metadata_csv=csv_path, experiment_name="test"
+            exp_dir, metadata_csv=csv_path, experiment_name="test", save_h5=True
         )
 
         assert len(results["processed"]) == 1
@@ -1366,11 +1599,13 @@ class TestEdgeCases:
         img_dir.mkdir()
         Image.fromarray(sample_rgb_image).save(img_dir / "img_20240101_001.tif")
 
+        # Test with save_h5=True to get H5 path
         h5_path, csv_path = process_timelapse_image_directory(
             img_dir,
             "test_exp",
             "control",
             1,
+            save_h5=True,
         )
 
         assert h5_path is not None

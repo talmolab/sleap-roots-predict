@@ -93,6 +93,22 @@ def image_directory_with_tiffs(
 
 
 @pytest.fixture
+def temp_image_dir_tiff(
+    temp_dir: Path, sample_image_sequence: List[np.ndarray]
+) -> Path:
+    """Create a directory with simple TIFF images for testing."""
+    image_dir = temp_dir / "test_images"
+    image_dir.mkdir()
+
+    for idx, img in enumerate(sample_image_sequence):
+        filename = f"image_{idx:03d}.tif"
+        filepath = image_dir / filename
+        Image.fromarray(img).save(filepath)
+
+    return image_dir
+
+
+@pytest.fixture
 def empty_directory(temp_dir: Path) -> Path:
     """Create an empty directory for testing."""
     empty_dir = temp_dir / "empty"

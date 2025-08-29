@@ -5,10 +5,12 @@ from plate-based experiments, including metadata extraction, validation, and
 conversion to H5 format with associated metadata CSV files.
 """
 
+import json
 import logging
 import imageio.v3 as iio
 import numpy as np
 import pandas as pd
+import sleap_io as sio
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -16,8 +18,14 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .video_utils import (
     find_image_directories,
     load_images,
-    make_h5_from_images,
+    make_video_from_images,
+    save_array_as_h5,
     natural_sort,
+)
+from sleap_roots_predict.predict import (
+    predict_on_h5,
+    predict_on_video,
+    make_predictor,
 )
 
 # Initialize logger
@@ -234,7 +242,7 @@ def check_timelapse_image_directory(
         "errors": [],
         "warnings": [],
         "metadata": [],
-        "directory": str(image_dir),
+        "directory": image_dir.as_posix(),
     }
 
     # Check directory exists
@@ -383,23 +391,28 @@ def process_timelapse_image_directory(
     experiment_name: str,
     treatment: str,
     num_plants: int,
+    save_h5: bool = False,
     greyscale: bool = False,
     output_dir: Optional[Union[str, Path]] = None,
     image_pattern: str = "*.tif",
-) -> Tuple[Optional[Path], Optional[Path]]:
-    """Process a directory of timelapse images into an H5 file and metadata CSV.
+) -> Union[
+    Tuple[Optional[Path], Optional[Path]], Tuple[Optional[sio.Video], Optional[Path]]
+]:
+    """Process a directory of timelapse images into an H5 file or Video and metadata CSV.
 
     Args:
         source_dir: Path to the source directory containing images.
         experiment_name: Name of the experiment.
         treatment: Chemical or physical alterations to the plate media.
         num_plants: Number of plants expected on a plate image.
+        save_h5: If True, save as H5 file; if False, return Video object.
         greyscale: Whether to convert images to greyscale.
         output_dir: Directory to store output files. If None, uses source directory.
         image_pattern: Glob pattern for finding image files.
 
     Returns:
-        Tuple of (H5 file path, metadata CSV path), or (None, None) if processing failed.
+        Tuple of (H5 file path, metadata CSV path), or (`sio.Video`, metadata CSV path)
+            or (None, None) if processing failed.
     """
     # Convert to Path objects
     source_dir = Path(source_dir)
@@ -407,6 +420,8 @@ def process_timelapse_image_directory(
         output_dir = source_dir
     else:
         output_dir = Path(output_dir)
+        # Create output directory if it doesn't exist
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     # Validate source directory
     if not source_dir.exists():
@@ -430,49 +445,66 @@ def process_timelapse_image_directory(
 
     # Sort files naturally
     sorted_files = natural_sort(image_files)
-    image_files = [Path(f) for f in sorted_files]
-
-    # Load and process images
-    try:
-        volume, filenames = load_images(image_files, greyscale=greyscale)
-    except Exception as e:
-        logger.error(f"Failed to load images: {e}")
-        return None, None
-
-    # Create output paths
-    suffix = "_greyscale" if greyscale else "_color"
-    h5_name = f"plate_{source_dir.name}{suffix}.h5"
-    h5_path = output_dir / h5_name
+    sorted_image_paths = [Path(f) for f in sorted_files]
+    sorted_image_names = [Path(f).name for f in sorted_files]
 
     csv_name = f"plate_{source_dir.name}_metadata.csv"
     csv_path = output_dir / csv_name
 
-    # Save H5 file
-    try:
-        make_h5_from_images(volume, h5_path)
-    except Exception as e:
-        logger.error(f"Failed to create H5 file: {e}")
-        return None, None
-
     # Create and save metadata
     try:
         metadata_df = create_timelapse_metadata_dataframe(
-            filenames, experiment_name, treatment, num_plants
+            sorted_image_names, experiment_name, treatment, num_plants
         )
         metadata_df.to_csv(csv_path, index=False)
         logger.info(f"Saved metadata to {csv_path}")
     except Exception as e:
         logger.error(f"Failed to save metadata: {e}")
-        return h5_path, None
+        csv_path = None
 
-    return h5_path, csv_path
+    if save_h5:
+        h5_path = None  # Initialize to None in case of errors
+        try:
+            # Load and process images
+            volume, filenames = load_images(sorted_image_paths, greyscale=greyscale)
+
+            # Create output paths
+            suffix = "_greyscale" if greyscale else "_color"
+            h5_name = f"plate_{source_dir.name}{suffix}.h5"
+            h5_path = output_dir / h5_name
+
+            # Save the volume to H5
+            save_array_as_h5(volume, h5_path)
+
+        except Exception as e:
+            logger.error(f"Failed to create H5 file: {e}")
+            h5_path = None
+
+        return h5_path, csv_path
+
+    else:
+        try:
+            # Make `sio.Video`
+            video = make_video_from_images(
+                image_files=sorted_image_paths, greyscale=greyscale
+            )
+        except Exception as e:
+            logger.error(f"Failed to create video: {e}")
+            video = None
+        return video, csv_path
 
 
 def process_timelapse_experiment(
     base_dir: Union[str, Path],
     metadata_csv: Union[str, Path],
     experiment_name: str,
+    save_h5: bool = False,
     output_dir: Optional[Union[str, Path]] = None,
+    model_paths: List[Union[str, Path]] = [],
+    # Predictor parameters
+    peak_threshold: float = 0.2,
+    batch_size: int = 4,
+    device: str = "auto",
     # Optional processing parameters
     greyscale: bool = False,
     image_pattern: str = "*.tif",
@@ -484,7 +516,8 @@ def process_timelapse_experiment(
     check_suffix_consistency: bool = True,
     # Control parameters
     dry_run: bool = False,
-    log_file: Optional[Union[str, Path]] = None,  # Add log file parameter
+    log_file: Optional[Union[str, Path]] = None,
+    results_json: Optional[Union[str, Path]] = None,  # Add JSON output parameter
 ) -> Dict[str, List[Dict[str, Any]]]:
     r"""Process an entire experiment with multiple image directories using metadata from CSV.
 
@@ -501,7 +534,12 @@ def process_timelapse_experiment(
                      Must have columns: plate_number, treatment, num_plants
                      May also have: accesion, num_images, experiment_start, growth_media, etc.
         experiment_name: Name of the experiment for metadata.
+        save_h5: Whether to save H5 files (if False, uses Video objects directly).
         output_dir: Output directory for H5 and CSV files (defaults to base_dir).
+        model_paths: List of paths to SLEAP model directories for prediction.
+        peak_threshold: Confidence threshold for peak detection in predictions.
+        batch_size: Number of samples per batch for inference.
+        device: Device for inference ("auto", "cpu", "cuda", or "mps").
         greyscale: Whether to convert images to greyscale.
         image_pattern: Glob pattern for finding image files (default "*.tif").
         expected_suffix_pattern: Regex pattern for suffix validation (default r'^\d{3}$').
@@ -511,6 +549,7 @@ def process_timelapse_experiment(
         check_suffix_consistency: Whether all files should have the same suffix (default True).
         dry_run: If True, only perform checks without processing (default False).
         log_file: Optional path to save log output to a file (default None).
+        results_json: Optional path to save results as JSON file (default None).
 
     Returns:
         Dictionary with:
@@ -558,6 +597,26 @@ def process_timelapse_experiment(
         "failed": [],
         "skipped": [],
     }
+
+    # Initialize predictor if model paths provided
+    predictor = None
+    if model_paths:
+        logger.info(f"Initializing predictor with {len(model_paths)} model(s)")
+        logger.info(f"  - Device: {device}")
+        logger.info(f"  - Peak threshold: {peak_threshold}")
+        logger.info(f"  - Batch size: {batch_size}")
+        try:
+            predictor = make_predictor(
+                model_path=model_paths,
+                peak_threshold=peak_threshold,
+                batch_size=batch_size,
+                device=device,
+            )
+            logger.info("[OK] Predictor initialized successfully")
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to initialize predictor: {e}")
+            logger.error("Continuing without predictions")
+            predictor = None
 
     # Load metadata from CSV
     logger.info(f"Loading metadata from CSV: {metadata_csv.name}")
@@ -662,7 +721,7 @@ def process_timelapse_experiment(
                 logger.error(f"    - {error}")
             results["failed"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "check_results": check_results,
                 }
             )
@@ -685,7 +744,7 @@ def process_timelapse_experiment(
             logger.debug(f"    Directory: {image_dir}")
             results["skipped"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "reason": "no_suffix_for_metadata_matching",
                     "check_results": check_results,
                 }
@@ -702,7 +761,7 @@ def process_timelapse_experiment(
             logger.debug(f"    Available plates in CSV: {sorted(metadata_dict.keys())}")
             results["skipped"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "reason": f"no_metadata_for_plate_{plate_suffix}",
                     "check_results": check_results,
                 }
@@ -730,7 +789,7 @@ def process_timelapse_experiment(
             )
             results["skipped"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "reason": "dry_run",
                     "check_results": check_results,
                     "plate_metadata": plate_metadata,
@@ -757,65 +816,98 @@ def process_timelapse_experiment(
             num_plants = plate_metadata.get("num_plants", 1)
 
             # Call process_timelapse_image_directory with plate-specific parameters
-            h5_path, csv_path = process_timelapse_image_directory(
+            result = process_timelapse_image_directory(
                 source_dir=image_dir,
                 experiment_name=experiment_name,
                 treatment=treatment,
+                save_h5=save_h5,
                 num_plants=int(num_plants) if pd.notna(num_plants) else 1,
                 greyscale=greyscale,
                 output_dir=output_subdir,
                 image_pattern=image_pattern,
             )
 
-            if h5_path:
-                logger.info(f"  [SUCCESS] Successfully created H5 file: {h5_path.name}")
+            # Unpack result based on save_h5 flag
+            if save_h5:
+                h5_path, csv_path = result
+                video = None
+            else:
+                video, csv_path = result
+                h5_path = None
 
-                # If processing succeeded, append additional metadata to the CSV
-                if csv_path and csv_path.exists():
-                    try:
-                        # Read the generated CSV
-                        generated_df = pd.read_csv(csv_path)
+            # Run predictions if predictor is available and processing succeeded
+            predictions_path = None
+            if predictor and (video is not None or h5_path is not None):
+                try:
+                    predictions_name = f"plate_{image_dir.name}_predictions.slp"
+                    predictions_path = output_subdir / predictions_name
+
+                    if save_h5 and h5_path:
+                        # Predict on H5 file
+                        logger.info(f"  [PREDICTION] Running predictions on H5 file")
+                        predict_on_h5(predictor, h5_path, save_path=predictions_path)
+                    elif video:
+                        # Predict on Video object
+                        logger.info(
+                            f"  [PREDICTION] Running predictions on Video object"
+                        )
+                        predict_on_video(predictor, video, save_path=predictions_path)
+
+                    logger.info(
+                        f"  [SUCCESS] Saved predictions to {predictions_path.name}"
+                    )
+                except Exception as e:
+                    logger.error(f"  [ERROR] Failed to run predictions: {e}")
+                    predictions_path = None
+
+            # If processing succeeded, append additional metadata to the CSV
+            if csv_path and csv_path.exists():
+                try:
+                    # Read the generated CSV
+                    generated_df = pd.read_csv(csv_path)
+                    logger.debug(f"    Enhancing CSV with additional metadata columns")
+
+                    # Add additional metadata columns from the metadata CSV
+                    added_cols = []
+                    for col, val in plate_metadata.items():
+                        if col not in [
+                            "treatment",
+                            "num_plants",
+                            "plate_number",
+                        ]:  # Don't duplicate
+                            generated_df[col] = val
+                            added_cols.append(col)
+
+                    # Save the enhanced CSV
+                    generated_df.to_csv(csv_path, index=False)
+                    if added_cols:
                         logger.debug(
-                            f"    Enhancing CSV with additional metadata columns"
+                            f"    Added {len(added_cols)} additional columns: {', '.join(added_cols)}"
                         )
 
-                        # Add additional metadata columns from the metadata CSV
-                        added_cols = []
-                        for col, val in plate_metadata.items():
-                            if col not in [
-                                "treatment",
-                                "num_plants",
-                                "plate_number",
-                            ]:  # Don't duplicate
-                                generated_df[col] = val
-                                added_cols.append(col)
+                except Exception as e:
+                    logger.warning(f"    [WARNING] Could not enhance metadata CSV: {e}")
 
-                        # Save the enhanced CSV
-                        generated_df.to_csv(csv_path, index=False)
-                        if added_cols:
-                            logger.debug(
-                                f"    Added {len(added_cols)} additional columns: {', '.join(added_cols)}"
-                            )
-
-                    except Exception as e:
-                        logger.warning(
-                            f"    [WARNING] Could not enhance metadata CSV: {e}"
-                        )
-
+            # Check if processing was successful
+            if (save_h5 and h5_path) or (not save_h5 and video):
                 results["processed"].append(
                     {
-                        "directory": str(image_dir),
-                        "h5_path": str(h5_path),
-                        "csv_path": str(csv_path) if csv_path else None,
+                        "directory": image_dir.as_posix(),
+                        "h5_path": h5_path.as_posix() if h5_path else None,
+                        "video_frames": len(video) if video else None,
+                        "csv_path": csv_path.as_posix() if csv_path else None,
+                        "predictions_path": (
+                            predictions_path.as_posix() if predictions_path else None
+                        ),
                         "check_results": check_results,
                         "plate_metadata": plate_metadata,
                     }
                 )
-                logger.info(f"Successfully processed {image_dir}")
+                logger.info(f"  [SUCCESS] Successfully processed {image_dir.name}")
             else:
                 results["skipped"].append(
                     {
-                        "directory": str(image_dir),
+                        "directory": image_dir.as_posix(),
                         "reason": "processing_failed",
                         "check_results": check_results,
                         "plate_metadata": plate_metadata,
@@ -827,7 +919,7 @@ def process_timelapse_experiment(
             logger.error(f"Error processing {image_dir}: {e}")
             results["skipped"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "reason": str(e),
                     "check_results": check_results,
                     "plate_metadata": (
@@ -841,6 +933,33 @@ def process_timelapse_experiment(
     logger.info(f"  - Processed: {len(results['processed'])} directories")
     logger.info(f"  - Failed validation: {len(results['failed'])} directories")
     logger.info(f"  - Skipped: {len(results['skipped'])} directories")
+
+    # Save results to JSON if requested
+    if results_json:
+        results_json = Path(results_json)
+        results_json.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert Path objects and other non-serializable objects for JSON
+        def make_json_serializable(obj):
+            if isinstance(obj, Path):
+                return obj.as_posix()
+            elif isinstance(obj, set):
+                return list(obj)
+            elif isinstance(obj, pd.Timestamp):
+                return obj.isoformat() if pd.notna(obj) else None
+            elif isinstance(obj, dict):
+                return {k: make_json_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [make_json_serializable(item) for item in obj]
+            else:
+                return obj
+
+        json_results = make_json_serializable(results)
+
+        with open(results_json, "w") as f:
+            json.dump(json_results, f, indent=2, default=str)
+
+        logger.info(f"Saved results to JSON: {results_json.as_posix()}")
 
     # Clean up file handler if it was added
     if file_handler:
