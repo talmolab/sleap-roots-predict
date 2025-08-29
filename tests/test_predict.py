@@ -111,14 +111,23 @@ class TestMakePredictor:
         with patch(
             "sleap_roots_predict.predict.Predictor.from_model_paths"
         ) as mock_predictor:
+            # Don't specify device, let it auto-detect
             make_predictor([model1, model2])
 
-            mock_predictor.assert_called_once_with(
-                [model1.as_posix(), model2.as_posix()],
-                peak_threshold=0.2,
-                batch_size=4,
-                device="cpu",
-            )
+            # Check that the predictor was called with correct paths and parameters
+            # Device will be auto-detected based on the actual hardware
+            mock_predictor.assert_called_once()
+            call_args = mock_predictor.call_args
+            
+            # Check the paths
+            assert call_args[0][0] == [model1.as_posix(), model2.as_posix()]
+            
+            # Check other parameters
+            assert call_args[1]["peak_threshold"] == 0.2
+            assert call_args[1]["batch_size"] == 4
+            
+            # Device should be one of the valid options based on hardware
+            assert call_args[1]["device"] in ["cpu", "cuda", "mps"]
 
 
 class TestPredictOnVideo:
