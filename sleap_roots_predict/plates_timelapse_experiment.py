@@ -240,7 +240,7 @@ def check_timelapse_image_directory(
         "errors": [],
         "warnings": [],
         "metadata": [],
-        "directory": str(image_dir),
+        "directory": image_dir.as_posix(),
     }
 
     # Check directory exists
