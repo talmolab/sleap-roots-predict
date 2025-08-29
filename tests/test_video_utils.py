@@ -10,17 +10,23 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from sleap_roots_predict import (
-    check_timelapse_image_directory,
+# Import high-level API functions
+from sleap_roots_predict import process_timelapse_experiment
+
+# Import utility functions from their specific modules
+from sleap_roots_predict.video_utils import (
     convert_to_greyscale,
-    create_timelapse_metadata_dataframe,
-    extract_timelapse_metadata_from_filename,
     find_image_directories,
     load_images,
     make_video_from_images,
-    save_array_as_h5,
     natural_sort,
-    process_timelapse_experiment,
+    save_array_as_h5,
+)
+
+from sleap_roots_predict.plates_timelapse_experiment import (
+    check_timelapse_image_directory,
+    create_timelapse_metadata_dataframe,
+    extract_timelapse_metadata_from_filename,
     process_timelapse_image_directory,
 )
 
