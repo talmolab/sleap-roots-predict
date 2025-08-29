@@ -718,7 +718,7 @@ def process_timelapse_experiment(
                 logger.error(f"    - {error}")
             results["failed"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "check_results": check_results,
                 }
             )
@@ -741,7 +741,7 @@ def process_timelapse_experiment(
             logger.debug(f"    Directory: {image_dir}")
             results["skipped"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "reason": "no_suffix_for_metadata_matching",
                     "check_results": check_results,
                 }
@@ -758,7 +758,7 @@ def process_timelapse_experiment(
             logger.debug(f"    Available plates in CSV: {sorted(metadata_dict.keys())}")
             results["skipped"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "reason": f"no_metadata_for_plate_{plate_suffix}",
                     "check_results": check_results,
                 }
@@ -786,7 +786,7 @@ def process_timelapse_experiment(
             )
             results["skipped"].append(
                 {
-                    "directory": str(image_dir),
+                    "directory": image_dir.as_posix(),
                     "reason": "dry_run",
                     "check_results": check_results,
                     "plate_metadata": plate_metadata,
