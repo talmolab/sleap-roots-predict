@@ -132,7 +132,7 @@ def load_images(
 def make_video_from_images(
     image_files: List[Union[str, Path]],
     greyscale: bool = False,
-) -> sio.Video:
+) -> "sio.Video":
     """Create a sleap_io.Video object from a list of image files.
 
     Args:
@@ -146,14 +146,23 @@ def make_video_from_images(
         ValueError: If no image files provided.
         ImportError: If sleap_io is not installed.
     """
-    logger.debug(f"Creating Video from {len(image_files)} image files")
+    if not image_files:
+        raise ValueError("No image files provided")
 
-    # Create Video object from image files
-    # sleap_io.Video can be created from a list of image filenames
-    video = sio.Video.from_filename(
-        filenames=image_files,
-        grayscale=greyscale,  # Note: sleap_io uses 'grayscale' not 'greyscale'
-    )
+    try:
+        import sleap_io as sio
+    except ImportError:
+        raise ImportError("sleap_io is required for creating Video objects")
+
+    # Convert to string paths and sort naturally
+    sorted_files = natural_sort(image_files)
+    file_paths = [Path(f).absolute().as_posix() for f in sorted_files]
+
+    logger.debug(f"Creating Video from {len(file_paths)} image files")
+
+    # Create Video object from list of image files
+    # Video.from_filename accepts a list of filenames
+    video = sio.Video.from_filename(filename=file_paths, grayscale=greyscale)
 
     logger.info(f"Created Video with {len(video)} frames")
     return video
