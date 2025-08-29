@@ -498,6 +498,10 @@ def process_timelapse_experiment(
     save_h5: bool = False,
     output_dir: Optional[Union[str, Path]] = None,
     model_paths: List[Union[str, Path]] = [],
+    # Predictor parameters
+    peak_threshold: float = 0.2,
+    batch_size: int = 4,
+    device: str = "auto",
     # Optional processing parameters
     greyscale: bool = False,
     image_pattern: str = "*.tif",
@@ -509,7 +513,8 @@ def process_timelapse_experiment(
     check_suffix_consistency: bool = True,
     # Control parameters
     dry_run: bool = False,
-    log_file: Optional[Union[str, Path]] = None,  # Add log file parameter
+    log_file: Optional[Union[str, Path]] = None,
+    results_json: Optional[Union[str, Path]] = None,  # Add JSON output parameter
 ) -> Dict[str, List[Dict[str, Any]]]:
     r"""Process an entire experiment with multiple image directories using metadata from CSV.
 
@@ -526,7 +531,12 @@ def process_timelapse_experiment(
                      Must have columns: plate_number, treatment, num_plants
                      May also have: accesion, num_images, experiment_start, growth_media, etc.
         experiment_name: Name of the experiment for metadata.
+        save_h5: Whether to save H5 files (if False, uses Video objects directly).
         output_dir: Output directory for H5 and CSV files (defaults to base_dir).
+        model_paths: List of paths to SLEAP model directories for prediction.
+        peak_threshold: Confidence threshold for peak detection in predictions.
+        batch_size: Number of samples per batch for inference.
+        device: Device for inference ("auto", "cpu", "cuda", or "mps").
         greyscale: Whether to convert images to greyscale.
         image_pattern: Glob pattern for finding image files (default "*.tif").
         expected_suffix_pattern: Regex pattern for suffix validation (default r'^\d{3}$').
@@ -536,6 +546,7 @@ def process_timelapse_experiment(
         check_suffix_consistency: Whether all files should have the same suffix (default True).
         dry_run: If True, only perform checks without processing (default False).
         log_file: Optional path to save log output to a file (default None).
+        results_json: Optional path to save results as JSON file (default None).
 
     Returns:
         Dictionary with:
@@ -583,6 +594,26 @@ def process_timelapse_experiment(
         "failed": [],
         "skipped": [],
     }
+
+    # Initialize predictor if model paths provided
+    predictor = None
+    if model_paths:
+        logger.info(f"Initializing predictor with {len(model_paths)} model(s)")
+        logger.info(f"  - Device: {device}")
+        logger.info(f"  - Peak threshold: {peak_threshold}")
+        logger.info(f"  - Batch size: {batch_size}")
+        try:
+            predictor = make_predictor(
+                model_path=model_paths,
+                peak_threshold=peak_threshold,
+                batch_size=batch_size,
+                device=device,
+            )
+            logger.info("[OK] Predictor initialized successfully")
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to initialize predictor: {e}")
+            logger.error("Continuing without predictions")
+            predictor = None
 
     # Load metadata from CSV
     logger.info(f"Loading metadata from CSV: {metadata_csv.name}")
