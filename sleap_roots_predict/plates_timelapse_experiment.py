@@ -462,21 +462,23 @@ def process_timelapse_image_directory(
         csv_path = None
 
     if save_h5:
+        h5_path = None  # Initialize to None in case of errors
         try:
             # Load and process images
-            try:
-                volume, filenames = load_images(sorted_image_paths, greyscale=greyscale)
-            except Exception as e:
-                logger.error(f"Failed to load images: {e}")
-                h5_path = None
+            volume, filenames = load_images(sorted_image_paths, greyscale=greyscale)
+            
             # Create output paths
             suffix = "_greyscale" if greyscale else "_color"
             h5_name = f"plate_{source_dir.name}{suffix}.h5"
             h5_path = output_dir / h5_name
+            
+            # Save the volume to H5
             save_array_as_h5(volume, h5_path)
+            
         except Exception as e:
             logger.error(f"Failed to create H5 file: {e}")
             h5_path = None
+            
         return h5_path, csv_path
 
     else:
