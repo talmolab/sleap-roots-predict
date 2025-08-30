@@ -27,6 +27,7 @@ from sleap_roots_predict.predict import (
     predict_on_video,
     make_predictor,
 )
+from sleap_roots_predict.tracking import validate_predictor_for_tracking
 
 # Initialize logger
 logging.basicConfig(level=logging.DEBUG)
