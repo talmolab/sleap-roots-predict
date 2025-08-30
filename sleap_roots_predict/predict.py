@@ -8,12 +8,13 @@ supports both single file and batch processing.
 import numpy as np
 import sleap_io as sio
 
-from typing import Union, Optional, List, Dict
+from typing import Union, Optional, List, Dict, Any
 from pathlib import Path
 from sleap_nn.inference.predictors import (
     Predictor,
 )
 from sleap_nn.data.providers import VideoReader
+from sleap_roots_predict.tracking import add_tracking_to_labels
 
 # https://github.com/talmolab/sleap-nn/blob/78b90e1b964ecc10639d9560c79872c2f9f1ec67/sleap_nn/inference/predictors.py#L504
 
