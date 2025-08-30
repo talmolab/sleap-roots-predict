@@ -1,5 +1,9 @@
 # API Reference
 
+## Prerequisites
+
+This package requires `sleap-nn` and `sleap-io` to be installed. These libraries provide the core neural network inference and data I/O capabilities. All functions in this package depend on these libraries being available.
+
 ## High-Level API
 
 These are the primary functions exposed directly by the package:
