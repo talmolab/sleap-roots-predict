@@ -149,14 +149,8 @@ def make_video_from_images(
     if not image_files:
         raise ValueError("No image files provided")
 
-    try:
-        import sleap_io as sio
-    except ImportError:
-        raise ImportError("sleap_io is required for creating Video objects")
-
-    # Convert to string paths and sort naturally
-    sorted_files = natural_sort(image_files)
-    file_paths = [Path(f).absolute().as_posix() for f in sorted_files]
+    # Convert to string paths (no sorting - let caller decide order)
+    file_paths = [Path(f).absolute().as_posix() for f in image_files]
 
     logger.debug(f"Creating Video from {len(file_paths)} image files")
 
