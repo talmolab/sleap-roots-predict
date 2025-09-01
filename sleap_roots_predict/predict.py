@@ -16,8 +16,6 @@ from sleap_nn.inference.predictors import (
 from sleap_nn.data.providers import VideoReader
 from sleap_roots_predict.tracking import add_tracking_to_labels
 
-# https://github.com/talmolab/sleap-nn/blob/78b90e1b964ecc10639d9560c79872c2f9f1ec67/sleap_nn/inference/predictors.py#L504
-
 
 def make_predictor(
     model_path: List[Union[str, Path]],

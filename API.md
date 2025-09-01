@@ -28,6 +28,8 @@ process_timelapse_experiment(
     peak_threshold: float = 0.2,
     batch_size: int = 4,
     device: str = "auto",
+    enable_tracking: bool = False,
+    tracking_config: Optional[Dict[str, Any]] = None,
     greyscale: bool = False,
     dry_run: bool = False,
     image_pattern: str = "*.tif",
@@ -50,6 +52,8 @@ process_timelapse_experiment(
 - `output_dir`: Directory for output files
 - `model_paths`: Optional SLEAP model paths for predictions
 - `device`: Device for predictions ("auto", "cpu", "cuda", "mps")
+- `enable_tracking`: Apply tracking to maintain instance IDs across frames
+- `tracking_config`: Tracking parameters (window_size, tracker_method, similarity_method, max_tracks)
 - `results_json`: Optional path to save results as JSON
 
 **Returns:** Dictionary with processed, failed, and skipped directories
@@ -78,15 +82,23 @@ Create a SLEAP predictor with automatic device selection.
 predict_on_video(
     predictor: Predictor,
     video: sio.Video,
-    save_path: Optional[Union[str, Path]] = None
+    save_path: Optional[Union[str, Path]] = None,
+    enable_tracking: bool = False,
+    tracking_config: Optional[Dict[str, Any]] = None
 ) -> Union[Path, sio.Labels]
 ```
-Run prediction on a sleap_io.Video object.
+Run prediction on a sleap_io.Video object with optional tracking.
 
 **Parameters:**
 - `predictor`: Configured Predictor instance
 - `video`: sleap_io.Video object
 - `save_path`: Optional path to save predictions as .slp file
+- `enable_tracking`: If True, apply tracking to maintain instance IDs across frames
+- `tracking_config`: Dictionary of tracking parameters:
+  - `window_size`: Number of frames for matching (default: 5)
+  - `tracker_method`: "hungarian" or "greedy" (default: "hungarian")
+  - `similarity_method`: "centroid", "iou", or "instance" (default: "centroid")
+  - `max_tracks`: Maximum number of tracks (default: None)
 
 **Returns:** Path to saved .slp file or Labels object with predictions
 
