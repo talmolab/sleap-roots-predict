@@ -27,6 +27,7 @@ from sleap_roots_predict.predict import (
     predict_on_video,
     make_predictor,
 )
+from sleap_roots_predict.tracking import validate_predictor_for_tracking
 
 # Initialize logger
 logging.basicConfig(level=logging.DEBUG)
@@ -501,6 +502,21 @@ def process_timelapse_experiment(
     save_h5: bool = False,
     output_dir: Optional[Union[str, Path]] = None,
     model_paths: List[Union[str, Path]] = [],
+    enable_tracking: bool = True,
+    # Tracking parameters
+    window_size: int = 5,
+    candidates_method: str = "local_queue",
+    features: str = "keypoints",
+    scoring_method: str = "oks",
+    scoring_reduction: str = "mean",
+    robust_best_instance: float = 1.0,
+    track_matching_method: str = "hungarian",
+    max_tracks: Optional[int] = None,
+    use_flow: bool = False,
+    of_img_scale: float = 1.0,
+    of_window_size: int = 21,
+    of_max_levels: int = 3,
+    post_connect_single_breaks: bool = False,
     # Predictor parameters
     peak_threshold: float = 0.2,
     batch_size: int = 4,
@@ -517,7 +533,7 @@ def process_timelapse_experiment(
     # Control parameters
     dry_run: bool = False,
     log_file: Optional[Union[str, Path]] = None,
-    results_json: Optional[Union[str, Path]] = None,  # Add JSON output parameter
+    results_json: Optional[Union[str, Path]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     r"""Process an entire experiment with multiple image directories using metadata from CSV.
 
@@ -613,6 +629,17 @@ def process_timelapse_experiment(
                 device=device,
             )
             logger.info("[OK] Predictor initialized successfully")
+
+            # Validate predictor for tracking if enabled
+            if enable_tracking:
+                try:
+                    validate_predictor_for_tracking(predictor, require_topdown=True)
+                    logger.info("[OK] Predictor validated for tracking")
+                except ValueError as ve:
+                    logger.warning(f"[WARNING] Tracking validation: {ve}")
+                    logger.warning("Disabling tracking for this experiment")
+                    enable_tracking = False
+
         except Exception as e:
             logger.error(f"[ERROR] Failed to initialize predictor: {e}")
             logger.error("Continuing without predictions")

@@ -2,6 +2,10 @@
 
 A lightweight CLI and library that uses sleap-nn for prediction and produces artifacts in the format expected by sleap-roots pipelines. Intended to interoperate with the sleap-roots model registry.
 
+## Requirements
+
+**Important**: This package requires `sleap-nn` to be installed. The sleap-nn library provides the core neural network inference capabilities and is a mandatory dependency.
+
 ## Features
 
 - **SLEAP-NN Integration**: Direct inference using SLEAP neural network models
