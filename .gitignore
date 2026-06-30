@@ -208,6 +208,8 @@ __marimo__/
 
 # .venv,htmlcov,*.lock,*.html,.ruff_cache,.pytest_cache,.serena,.claude
 *.lock
+# but DO track uv.lock — reproducible installs + the Docker/CI image build depend on it.
+!uv.lock
 .serena/
 # Track .claude/commands (the shared dev-command suite) but keep local settings private.
 .claude/settings.local.json
