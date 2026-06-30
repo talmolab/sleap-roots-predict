@@ -1,0 +1,29 @@
+# VCS + caches
+.git
+.github
+.serena
+.ruff_cache
+.pytest_cache
+.coverage
+htmlcov
+
+# Virtual env (image builds its own)
+.venv
+
+# Build artifacts
+*.egg-info
+dist
+build
+
+# Python caches
+**/__pycache__
+**/*.pyc
+
+# Dev-only / heavy assets not needed in the image
+tests
+examples
+*.ipynb
+
+# Editor / claude tooling
+.claude
+.vscode

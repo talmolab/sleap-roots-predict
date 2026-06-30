@@ -209,4 +209,5 @@ __marimo__/
 # .venv,htmlcov,*.lock,*.html,.ruff_cache,.pytest_cache,.serena,.claude
 *.lock
 .serena/
-.claude/
+# Track .claude/commands (the shared dev-command suite) but keep local settings private.
+.claude/settings.local.json
