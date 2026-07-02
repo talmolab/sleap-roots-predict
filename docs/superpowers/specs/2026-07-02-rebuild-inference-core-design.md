@@ -65,12 +65,24 @@ Tests assert real behavior against actual CPU inference:
 
 The entire mocked `tests/test_predict.py` is **deleted** and replaced.
 
+### Acceptance test on real cylinder images (guarded, CI-skipped)
+
+A separate `@pytest.mark.acceptance` test verifies the rebuilt core end-to-end on **real** data before merge, without coupling CI to large assets or the model registry. It is **skipped unless** environment variables point to local data:
+
+- `SRP_CYLINDER_DIR` — a directory of real cylinder/plate timelapse `.tif` frames.
+- `SRP_MODEL_DIRS` — one or more real root-model directories (top-down: centroid + centered_instance), os-pathsep-separated.
+
+When set, the test drives the true pipeline path: `make_video_from_images(SRP_CYLINDER_DIR frames)` → `make_predictor(SRP_MODEL_DIRS)` → `predict_on_video(...)`, then asserts a real `sio.Labels` with `PredictedInstance`s and writes a `.slp` to a temp dir. When unset, it skips with a message explaining how to enable it. It never runs in CI (no runner sets those vars); locally it is one command: `uv run pytest -m acceptance`.
+
+**Open question, deliberately surfaced:** whether the production sleap-roots models load under sleap-nn 0.3.0 is *unknown*. sleap-nn 0.3.0 loads native (`training_config.yaml`+`best.ckpt`) or legacy SLEAP (`training_config.json`+`best_model.h5`, UNet only). This harness is built now; it runs once real models are supplied. A **load failure is a valid, expected outcome** that becomes an explicit finding feeding the deferred parity slice — not a blocker for this slice's hermetic tests.
+
 ### Dependencies / CI
 
 - Pin `sleap-nn==0.3.0`; set `sleap-io>=0.8.0,<0.9.0` (0.8.0 is both the latest sleap-io release and exactly what sleap-nn 0.3.0 requires).
 - Fix extras: `linux_cuda` → `sleap-nn[torch-cuda128]` (matches `windows_cuda`); `macos` and `cpu` are already correct (markerless CPU/MPS wheel).
 - Add `[[tool.uv.index]]` (`pytorch-cpu`, `pytorch-cu128`) and `[tool.uv.sources]` routing torch for the CUDA extras, mirroring sleap-nn. Without this, `--extra windows_cuda`/`linux_cuda` silently resolve CPU wheels. Re-lock (`uv.lock`).
 - Ensure the CI **test** job installs the `cpu` extra so real inference runs on all non-GPU runners (already the case: `ci.yml` uses `uv sync --extra dev --extra cpu`).
+- Register the `acceptance` pytest marker in `pyproject.toml` (alongside `gpu`); both are deselected on default/CI runs.
 
 **Verified nuance (do not overstate):** the current `linux_cuda → torch-cpu` mislabel is *cosmetically* wrong but functionally harmless on the Linux self-hosted GPU runner, because this repo has no index routing and PyPI's default **Linux** `torch` wheel is already CUDA-enabled (the locked `manylinux_2_28_x86_64` wheel pulls `nvidia-cu12-*`). The real breakage is **local Windows GPU**: PyPI's Windows `torch` wheel is CPU-only, so the index plumbing above is what actually enables local Windows CUDA.
 
@@ -87,6 +99,7 @@ Run locally with **`uv run pytest -m gpu`**. On Windows+CUDA: `uv sync --extra d
 - The `sleap-io` 0.5.1 → 0.8.x bump can ripple into `video_utils`/`plates_timelapse_experiment` (e.g. `sio.Video.from_filename(..., grayscale=...)`). This slice stays focused on making the prediction path + its video input correct and green; breaks in unrelated `video_utils` functions are noted but not fixed here unless prediction needs them.
 - Vendored `.ckpt` size in git (~2.2 MB) — acceptable, verified.
 - The 0.3.0 API is pinned exactly (`==0.3.0`), protecting the `predict(source, make_labels=True)` contract against further drift.
+- Production sleap-roots models may not load under sleap-nn 0.3.0 (format drift). This is surfaced by the acceptance harness rather than assumed away; a failure is a finding for the parity slice, not a defect in this slice.
 
 ## Out of scope
 
