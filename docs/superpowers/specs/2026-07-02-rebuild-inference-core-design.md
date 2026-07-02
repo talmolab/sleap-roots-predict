@@ -105,6 +105,27 @@ Run locally with **`uv run pytest -m gpu`**. On Windows+CUDA: `uv sync --extra d
 - The 0.3.0 API is pinned exactly (`==0.3.0`), protecting the `predict(source, make_labels=True)` contract against further drift.
 - Production sleap-roots models may not load under sleap-nn 0.3.0 (format drift). This is surfaced by the acceptance harness rather than assumed away; a failure is a finding for the parity slice, not a defect in this slice.
 
+## Findings (acceptance run, 2026-07-02)
+
+Ran the acceptance test on real data: `PGM1-PAC-EFFECT_EXP1`, plate
+`Day21_2026-04-28/ARB103_1P_R1` (72 `.jpg` frames), both production models
+(extracted from `models_downloader_output/*.zip`), on CPU.
+
+- **`primary` (`240611_102513.multi_instance.n=743`): loads and predicts under
+  sleap-nn 0.3.0** — 72 labeled frames, 119 instances, `.slp` written. ✅
+- **`lateral` (`240130_140452.multi_instance.n=337`): fails to load** with
+  `ValueError: 'brightness_min' must be >= 0: -10.0`. Its legacy SLEAP
+  `training_config.json` has `brightness_min_val: -10.0` (primary has `0.0`),
+  and sleap-nn 0.3.0's config schema validates `brightness_min >= 0` even though
+  `brightness` augmentation is disabled (`brightness: false`) so the value is
+  semantically inert. ❌
+
+This is a genuine legacy-config incompatibility, surfaced exactly as intended.
+It is a **parity/conversion-slice finding**, not a defect of this slice: some
+production models load and predict cleanly; others need config sanitization
+(e.g. clamp inert `brightness_min_val` to `>= 0`) or a sleap-nn-side fix before
+they load under 0.3.0. Deferred here unless the user opts to add sanitization.
+
 ## Out of scope
 
 CLI entrypoint, warm GPU worker, parity gate, and any broad refactor of `video_utils`/`plates_timelapse_experiment` beyond what the prediction path requires.
