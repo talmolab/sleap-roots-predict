@@ -74,7 +74,11 @@ A separate `@pytest.mark.acceptance` test verifies the rebuilt core end-to-end o
 
 When set, the test drives the true pipeline path: `make_video_from_images(SRP_CYLINDER_DIR frames)` → `make_predictor(SRP_MODEL_DIRS)` → `predict_on_video(...)`, then asserts a real `sio.Labels` with `PredictedInstance`s and writes a `.slp` to a temp dir. When unset, it skips with a message explaining how to enable it. It never runs in CI (no runner sets those vars); locally it is one command: `uv run pytest -m acceptance`.
 
-**Open question, deliberately surfaced:** whether the production sleap-roots models load under sleap-nn 0.3.0 is *unknown*. sleap-nn 0.3.0 loads native (`training_config.yaml`+`best.ckpt`) or legacy SLEAP (`training_config.json`+`best_model.h5`, UNet only). This harness is built now; it runs once real models are supplied. A **load failure is a valid, expected outcome** that becomes an explicit finding feeding the deferred parity slice — not a blocker for this slice's hermetic tests.
+**Verified real acceptance data** (`Z:\users\eberrigan\20260522_Suyash_Patil_Arabidopsis_PGM1-PAC-EFFECT_EXP1`, a full pipeline-run dir):
+- Images: `.jpg` frames under `images_downloader_output/images/Wave0/Day21_2026-04-28/<plate>/` (per-plate timelapse subdirs, e.g. `ARB103_1P_R1`). So the acceptance test must accept a configurable image pattern (`*.jpg`), not assume `*.tif`.
+- Models: legacy SLEAP **bottom-up** zips in `models_downloader_output/` — `model_paths.csv` maps `primary → 240611_102513.multi_instance.n=743.zip`, `lateral → 240130_140452.multi_instance.n=337.zip`. Each zip contains `training_config.json` + `best_model.h5` (SLEAP `.multi_instance`, UNet). One model per root type; **not** top-down. `SRP_MODEL_DIRS` points at the extracted model dirs (one per root type).
+
+**Open question, deliberately surfaced:** whether these legacy SLEAP UNet bottom-up models load under sleap-nn 0.3.0 is *unknown*. sleap-nn 0.3.0 loads native (`training_config.yaml`+`best.ckpt`) or legacy SLEAP (`training_config.json`+`best_model.h5`, UNet only). This harness is built now; it runs once real models are supplied. A **load failure is a valid, expected outcome** that becomes an explicit finding feeding the deferred parity slice — not a blocker for this slice's hermetic tests.
 
 ### Dependencies / CI
 
