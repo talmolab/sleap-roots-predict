@@ -13,25 +13,25 @@ minimum code to pass, then refactor. Run `/lint` and `/test` after each.
 
 ## 2. Rebuild `make_predictor` (real tests, no mocks)
 
-- [ ] 2.1 **Test first:** `test_make_predictor_builds_real_predictor` — real `make_predictor(native_model_dir)` returns a live sleap-nn `Predictor` (no mocks). Verifies *Predictor Construction*.
-- [ ] 2.2 **Test first:** `test_make_predictor_auto_device` — `device="auto"` returns a valid device string on the host (cuda/mps/cpu), not mocked.
-- [ ] 2.3 **Test first:** `test_make_predictor_missing_dir_raises` — nonexistent model dir raises `FileNotFoundError`.
-- [ ] 2.4 Implement `make_predictor` on `Predictor.from_model_paths(model_dirs, device=resolved, batch_size=, peak_threshold=)` with our own `"auto"` resolution. Make 2.1–2.3 pass.
+- [x] 2.1 **Test first:** `test_make_predictor_builds_real_predictor` — real `make_predictor(native_model_dir)` returns a live sleap-nn `Predictor` (no mocks). Verifies *Predictor Construction*.
+- [x] 2.2 **Test first:** `test_make_predictor_auto_device` — `device="auto"` returns a valid device string on the host (cuda/mps/cpu), not mocked.
+- [x] 2.3 **Test first:** `test_make_predictor_missing_dir_raises` — nonexistent model dir raises `FileNotFoundError`.
+- [x] 2.4 Implement `make_predictor` on `Predictor.from_model_paths(model_dirs, device=resolved, batch_size=, peak_threshold=)` with our own `"auto"` resolution. Make 2.1–2.3 pass.
 
 ## 3. Rebuild `predict_on_video` (real tests, no mocks)
 
-- [ ] 3.1 **Test first:** `test_predict_on_video_returns_labels` — real inference on the vendored native model + `centered_pair_small.mp4` returns `sio.Labels` with predicted instances. Verifies *Video Prediction*.
-- [ ] 3.2 **Test first:** `test_predict_on_video_saves_slp` — with `save_path`, writes a `.slp` reloadable via `sio.load_file` with frames; returns `Path`.
-- [ ] 3.3 **Test first:** `test_predict_on_video_legacy_model` — the vendored legacy SLEAP UNet model loads under 0.3.0 and produces real `sio.Labels`. Verifies *Real Non-Mocked Test Coverage* (legacy path) and de-risks production model format.
-- [ ] 3.4 **Test first:** `test_predictor_reused_across_videos` — one predictor used for two videos returns valid labels both times. Verifies persistent reuse.
-- [ ] 3.5 Implement `predict_on_video` via `predictor.predict(video, make_labels=True)` + optional `sio.save_file`. Make 3.1–3.4 pass.
+- [x] 3.1 **Test first:** `test_predict_on_video_returns_labels` — real inference on the vendored native model + `centered_pair_small.mp4` returns `sio.Labels` with predicted instances. Verifies *Video Prediction*.
+- [x] 3.2 **Test first:** `test_predict_on_video_saves_slp` — with `save_path`, writes a `.slp` reloadable via `sio.load_file` with frames; returns `Path`.
+- [x] 3.3 **Test first:** `test_predict_on_video_legacy_model` — the vendored legacy SLEAP UNet model loads under 0.3.0 and produces real `sio.Labels`. Verifies *Real Non-Mocked Test Coverage* (legacy path) and de-risks production model format.
+- [x] 3.4 **Test first:** `test_predictor_reused_across_videos` — one predictor used for two videos returns valid labels both times. Verifies persistent reuse.
+- [x] 3.5 Implement `predict_on_video` via `predictor.predict(video, make_labels=True)` + optional `sio.save_file`. Make 3.1–3.4 pass.
 
 ## 4. Remove legacy surface; defer timelapse prediction
 
-- [ ] 4.1 Delete `predict_on_h5` and `batch_predict` and the mocked `tests/test_predict.py`.
-- [ ] 4.2 **Test first:** add a test proving `plates_timelapse_experiment` still imports and `process_timelapse_experiment` builds videos/H5/metadata with NO prediction (e.g. supplying `model_paths` logs a "prediction deferred" notice and yields `predictions_path=None`), so the package imports cleanly under 0.3.0.
-- [ ] 4.3 Remove the predict-function imports and prediction branch from `plates_timelapse_experiment.py` (keep the signature; make the prediction path an inert, logged no-op deferred to a future PR); update `__init__.py` exports (drop `predict_on_h5`/`batch_predict`). Make 4.2 pass.
-- [ ] 4.4 Verify `make_video_from_images` still works under sleap-io 0.8 (`sio.Video.from_filename(list, grayscale=)`); adjust only if prediction requires it, and add a real test asserting a Video is built from a small image dir.
+- [x] 4.1 Delete `predict_on_h5` and `batch_predict` and the mocked `tests/test_predict.py`.
+- [x] 4.2 **Test first:** add a test proving `plates_timelapse_experiment` still imports and `process_timelapse_experiment` builds videos/H5/metadata with NO prediction (e.g. supplying `model_paths` logs a "prediction deferred" notice and yields `predictions_path=None`), so the package imports cleanly under 0.3.0.
+- [x] 4.3 Remove the predict-function imports and prediction branch from `plates_timelapse_experiment.py` (keep the signature; make the prediction path an inert, logged no-op deferred to a future PR); update `__init__.py` exports (drop `predict_on_h5`/`batch_predict`). Make 4.2 pass.
+- [x] 4.4 Verify `make_video_from_images` still works under sleap-io 0.8 (`sio.Video.from_filename(list, grayscale=)`); adjust only if prediction requires it, and add a real test asserting a Video is built from a small image dir.
 
 ## 5. GPU tests
 
