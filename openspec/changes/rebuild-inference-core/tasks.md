@@ -5,11 +5,11 @@ minimum code to pass, then refactor. Run `/lint` and `/test` after each.
 
 ## 1. Dependencies, fixtures, and environment
 
-- [ ] 1.1 Pin `sleap-nn==0.3.0` in `pyproject.toml`; keep `sleap-io` as an unpinned direct dep (governed by sleap-nn); fix `linux_cuda` extra (`torch-cpu` → `torch-cuda128`).
-- [ ] 1.2 Add `[[tool.uv.index]]` (`pytorch-cpu`, `pytorch-cu128`) and `[tool.uv.sources]` torch routing mirroring sleap-nn; re-lock with `uv lock`.
-- [ ] 1.3 Register `gpu` and `acceptance` pytest markers in `pyproject.toml`; ensure default `pytest` deselects them.
-- [ ] 1.4 `uv sync --extra dev --extra cpu` and confirm `import sleap_nn` reports `0.3.0` and `import sleap_io` reports `0.8.x` (evidence: version strings).
-- [ ] 1.5 Vendor minimal bottom-up fixtures into `tests/assets/`: native (`best.ckpt` + `training_config.yaml`) and legacy SLEAP UNet (`training_config.json` + `best_model.h5`), plus `centered_pair_small.mp4`. Record provenance (sleap-nn v0.3.0 test assets) in a short `tests/assets/README.md`.
+- [x] 1.1 Pin `sleap-nn==0.3.0` in `pyproject.toml`; keep `sleap-io` as an unpinned direct dep (governed by sleap-nn); fix `linux_cuda` extra (`torch-cpu` → `torch-cuda128`).
+- [x] 1.2 Add `[[tool.uv.index]]` (`pytorch-cpu`, `pytorch-cu128`) and `[tool.uv.sources]` torch routing mirroring sleap-nn; re-lock with `uv lock`.
+- [x] 1.3 Register `gpu` and `acceptance` pytest markers in `pyproject.toml`; ensure default `pytest` deselects them.
+- [x] 1.4 `uv sync --extra dev --extra cpu` and confirm `import sleap_nn` reports `0.3.0` and `import sleap_io` reports `0.8.x` (evidence: version strings).
+- [x] 1.5 Vendor minimal bottom-up fixtures into `tests/assets/`: native (`best.ckpt` + `training_config.yaml`) and legacy SLEAP UNet (`training_config.json` + `best_model.h5`), plus `centered_pair_small.mp4`. Record provenance (sleap-nn v0.3.0 test assets) in a short `tests/assets/README.md`.
 
 ## 2. Rebuild `make_predictor` (real tests, no mocks)
 

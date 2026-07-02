@@ -47,11 +47,18 @@ dev = [
     "jupyterlab>=4.4.6",
     "ipykernel>=6.30.1",
 ]
-# Alternative installation options for explicit GPU control
-windows_cuda = ["sleap-nn[torch-cuda128]"]
-linux_cuda = ["sleap-nn[torch-cpu]"]
-macos = ["sleap-nn[torch-cpu]"]
-cpu = ["sleap-nn[torch-cpu]"]
+# Platform-specific install profiles. Each pins sleap-nn 0.3.0 and selects a
+# torch build; torch/torchvision are routed to the matching PyTorch index via
+# [tool.uv.sources] below (uv index routing is NOT inherited from sleap-nn, so
+# it must be declared here for CUDA wheels to resolve). These are mutually
+# exclusive — see [tool.uv].conflicts.
+# torch/torchvision are listed directly so [tool.uv.sources] can route them to
+# the right PyTorch index per extra (uv requires the package to appear in the
+# extra it is sourced for).
+windows_cuda = ["sleap-nn[torch-cuda128]==0.3.0", "torch", "torchvision>=0.20.0"]
+linux_cuda = ["sleap-nn[torch-cuda128]==0.3.0", "torch", "torchvision>=0.20.0"]
+macos = ["sleap-nn[torch-cpu]==0.3.0", "torch", "torchvision>=0.20.0"]
+cpu = ["sleap-nn[torch-cpu]==0.3.0", "torch", "torchvision>=0.20.0"]
 
 [project.scripts]
 
@@ -79,6 +86,46 @@ check-hidden = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not gpu and not acceptance'"
 markers = [
-    "gpu: marks tests that require GPU/CUDA (deselect with '-m \"not gpu\"')",
+    "gpu: marks tests that require GPU/CUDA (run with '-m gpu'; deselected by default)",
+    "acceptance: real-data acceptance tests gated on SRP_CYLINDER_DIR/SRP_MODEL_DIRS (run with '-m acceptance'; deselected by default)",
+]
+
+# --- uv install configuration -------------------------------------------------
+# The platform extras (cpu/macos/windows_cuda/linux_cuda) are mutually exclusive
+# torch build profiles. uv does not inherit sleap-nn's index routing, so torch
+# and torchvision are pinned to the matching PyTorch index here.
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "macos" },
+        { extra = "windows_cuda" },
+        { extra = "linux_cuda" },
+    ],
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cpu", extra = "macos" },
+    { index = "pytorch-cu128", extra = "windows_cuda" },
+    { index = "pytorch-cu128", extra = "linux_cuda" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cpu", extra = "macos" },
+    { index = "pytorch-cu128", extra = "windows_cuda" },
+    { index = "pytorch-cu128", extra = "linux_cuda" },
 ]
