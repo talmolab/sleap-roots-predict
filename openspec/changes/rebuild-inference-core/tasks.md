@@ -37,20 +37,20 @@ minimum code to pass, then refactor. Run `/lint` and `/test` after each.
 ## 5. GPU tests
 
 - [x] 5.1 **Test first:** `tests/test_gpu.py` (`@pytest.mark.gpu`) — assert an accelerator is present (skip otherwise); `make_predictor(model_dirs, device="cuda")` yields a model on a CUDA device and `predict_on_video` returns real `sio.Labels`. Verifies *GPU Inference Execution*.
-- [ ] 5.2 Confirm `uv run pytest -m gpu` runs them locally (Windows+CUDA: `uv sync --extra dev --extra windows_cuda` first) and they are deselected on default runs. Document the command in `project.md`/README dev commands.
+- [x] 5.2 Confirm `uv run pytest -m gpu` runs them locally (Windows+CUDA: `uv sync --extra dev --extra windows_cuda` first) and they are deselected on default runs. Document the command in `project.md`/README dev commands.
 
 ## 6. Acceptance test on real cylinder data (guarded, CI-skipped)
 
 - [x] 6.1 **Test first:** `tests/test_acceptance.py` (`@pytest.mark.acceptance`) — skips unless `SRP_CYLINDER_DIR` and `SRP_MODEL_DIRS` are set; when set, builds a video (configurable pattern, default `*.jpg`), runs `make_predictor` + `predict_on_video`, asserts real `sio.Labels`, writes a `.slp`; a model-load failure fails clearly naming the model dir. Verifies *Local Acceptance Validation*.
-- [ ] 6.2 Document how to run it against the reference pipeline dir (extract `models_downloader_output/*.zip` to dirs, point `SRP_MODEL_DIRS` at them; `SRP_CYLINDER_DIR` at an `images/.../<plate>/` dir).
+- [x] 6.2 Document how to run it against the reference pipeline dir (extract `models_downloader_output/*.zip` to dirs, point `SRP_MODEL_DIRS` at them; `SRP_CYLINDER_DIR` at an `images/.../<plate>/` dir).
 
 ## 7. Hardware-install verification
 
-- [ ] 7.1 Locally verify `uv sync --extra dev --extra windows_cuda` resolves a CUDA torch build (evidence: `torch.version.cuda` is not None / `torch.cuda.is_available()` on the GPU host). Verifies *Hardware-Appropriate Backend Installation*.
-- [ ] 7.2 Confirm `ci.yml` test job installs `--extra cpu` for non-GPU runners (already present) and that GPU/mac runners run the full suite.
+- [x] 7.1 Locally verify `uv sync --extra dev --extra windows_cuda` resolves a CUDA torch build (evidence: `torch.version.cuda` is not None / `torch.cuda.is_available()` on the GPU host). Verifies *Hardware-Appropriate Backend Installation*.
+- [x] 7.2 Confirm `ci.yml` test job installs `--extra cpu` for non-GPU runners (already present) and that GPU/mac runners run the full suite.
 
 ## 8. Gate and validate
 
-- [ ] 8.1 `openspec validate rebuild-inference-core --strict` passes.
-- [ ] 8.2 Run the real acceptance test on the reference data (`Z:\...PGM1-PAC-EFFECT_EXP1`) and record the outcome — especially whether the legacy production models load under 0.3.0 (a finding for the parity slice if not).
+- [x] 8.1 `openspec validate rebuild-inference-core --strict` passes.
+- [x] 8.2 Run the real acceptance test on the reference data (`Z:\...PGM1-PAC-EFFECT_EXP1`) and record the outcome — especially whether the legacy production models load under 0.3.0 (a finding for the parity slice if not).
 - [ ] 8.3 `/pre-merge` (format + lint + test + build) green; open PR referencing this change-id.

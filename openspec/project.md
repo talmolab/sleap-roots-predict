@@ -46,9 +46,17 @@ importable library.
   the right hardware acceleration; the container uses the CPU extra by default.
 
 ### Testing Strategy
-- pytest, tests in `tests/`; fixtures in `tests/conftest.py`.
-- GPU tests are marked `@pytest.mark.gpu` and deselected with `-m "not gpu"` on non-GPU
-  runners; the self-hosted-gpu and macOS (MPS) runners run the full suite.
+- pytest, tests in `tests/`; fixtures in `tests/conftest.py`. Inference tests are
+  **real (no mocks)** — they run actual sleap-nn CPU inference against vendored
+  minimal models in `tests/assets/` (see `tests/assets/README.md`).
+- Default run deselects `gpu` and `acceptance` markers (`addopts` in `pyproject.toml`).
+- **GPU tests** (`@pytest.mark.gpu`): run locally with `uv run pytest -m gpu`. On
+  Windows+CUDA install the profile first: `uv sync --extra dev --extra windows_cuda`.
+  They skip cleanly with no accelerator; the self-hosted-gpu and macOS runners run
+  the full suite in CI.
+- **Acceptance test** (`@pytest.mark.acceptance`): real-data, CI-skipped. Gate with
+  `SRP_CYLINDER_DIR` (image frames) and `SRP_MODEL_DIRS` (os-pathsep-joined model
+  dirs; extract legacy `.zip` models first), then `uv run pytest -m acceptance -s`.
 - Coverage via `pytest --cov=sleap_roots_predict`.
 
 ### Git Workflow
