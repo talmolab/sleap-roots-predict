@@ -1,6 +1,7 @@
-# Upstream issue draft: legacy config load rejects inert `brightness_min_val < 0`
+# Upstream issue: legacy config load rejects inert `brightness_min_val < 0`
 
 **Target repo:** talmolab/sleap-nn (observed on v0.3.0)
+**Filed:** https://github.com/talmolab/sleap-nn/issues/684
 
 ## Summary
 
