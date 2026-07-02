@@ -12,6 +12,7 @@ This is the first slice of roadmap tier **A3-predict**. It rebuilds the inferenc
 - **BREAKING (deps):** Pin `sleap-nn==0.3.0`; re-lock `uv.lock`. Keep `sleap-io` as an explicit but **unpinned** direct dependency — sleap-nn 0.3.0 already governs it to `>=0.8.0,<0.9.0`, so pinning here would only duplicate that bound.
 - Fix the `linux_cuda` extra (`torch-cpu` → `torch-cuda128`) and add `[[tool.uv.index]]` (`pytorch-cpu`, `pytorch-cu128`) + `[tool.uv.sources]` torch routing so CUDA extras resolve CUDA wheels (currently a no-op → CPU-only torch on Windows).
 - Add local **GPU tests** (`@pytest.mark.gpu`) runnable via `uv run pytest -m gpu`, and a **CI-skipped acceptance test** (`@pytest.mark.acceptance`) gated on `SRP_CYLINDER_DIR` / `SRP_MODEL_DIRS` that runs the full image-dir → video → prediction path on real cylinder data. Register both markers in `pyproject.toml`.
+- Add **legacy SLEAP config sanitization** in `make_predictor`: load from a sanitized temporary copy when a legacy `training_config.json` carries inert out-of-range augmentation values that sleap-nn 0.3.0 rejects (currently `brightness_min_val < 0`), never mutating the original. This unblocks production root models (verified: the `lateral` model loads + predicts after sanitization). Upstream fix drafted in `docs/upstream/sleap-nn-legacy-brightness-issue.md`.
 
 ## Impact
 

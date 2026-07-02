@@ -19,6 +19,29 @@ The system SHALL provide `make_predictor(model_paths, peak_threshold=0.2, batch_
 - **WHEN** `make_predictor` is called with a path that does not exist
 - **THEN** it raises `FileNotFoundError`
 
+### Requirement: Legacy SLEAP Config Sanitization
+
+The system SHALL sanitize legacy SLEAP model configs before loading. When
+`make_predictor` is given a legacy model directory (contains
+`training_config.json` and no `training_config.yaml`) whose config carries inert
+augmentation values that sleap-nn 0.3.0's schema rejects (currently
+`brightness_min_val < 0`), it SHALL load from a sanitized copy with those values
+clamped into range (`>= 0`). The original model directory MUST NOT be modified.
+Configs already within range SHALL be loaded directly without copying.
+
+#### Scenario: Legacy model with inert out-of-range value loads
+
+- **WHEN** `make_predictor` is given a legacy model whose config has
+  `brightness_min_val < 0` (with brightness augmentation disabled)
+- **THEN** the model loads under sleap-nn 0.3.0 and produces real `sio.Labels`,
+  and the original model directory is left unchanged
+
+#### Scenario: In-range legacy config is not copied
+
+- **WHEN** `make_predictor` is given a legacy model whose augmentation values are
+  already within the sleap-nn 0.3.0 schema ranges
+- **THEN** the model directory is used as-is (no sanitized copy is created)
+
 ### Requirement: Video Prediction
 
 The system SHALL provide `predict_on_video(predictor, video, save_path=None)` that runs inference on an in-memory `sio.Video` using the sleap-nn 0.3.0 API (`predictor.predict(video, make_labels=True)`) and returns predicted `sio.Labels`. When `save_path` is given, it SHALL write a `.slp` file and return its `Path`; otherwise it SHALL return the `sio.Labels`.

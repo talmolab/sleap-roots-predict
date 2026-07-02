@@ -25,6 +25,7 @@ minimum code to pass, then refactor. Run `/lint` and `/test` after each.
 - [x] 3.3 **Test first:** `test_predict_on_video_legacy_model` — the vendored legacy SLEAP UNet model loads under 0.3.0 and produces real `sio.Labels`. Verifies *Real Non-Mocked Test Coverage* (legacy path) and de-risks production model format.
 - [x] 3.4 **Test first:** `test_predictor_reused_across_videos` — one predictor used for two videos returns valid labels both times. Verifies persistent reuse.
 - [x] 3.5 Implement `predict_on_video` via `predictor.predict(video, make_labels=True)` + optional `sio.save_file`. Make 3.1–3.4 pass.
+- [x] 3.6 **Test first:** legacy config sanitization — inject `brightness_min_val=-10.0` into a copy of the vendored legacy model; assert `make_predictor` loads + predicts and the original dir is untouched; unit-test the clamp helper. Implement `_maybe_sanitize_legacy_config`/`_clamp_legacy_aug`. Draft the upstream sleap-nn issue.
 
 ## 4. Remove legacy surface; defer timelapse prediction
 

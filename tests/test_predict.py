@@ -5,13 +5,19 @@ bottom-up models (see ``tests/assets/README.md``). Nothing here mocks the
 sleap-nn or sleap-io boundary — a passing test means real inference ran.
 """
 
+import json
+import shutil
 from pathlib import Path
 
 import pytest
 import sleap_io as sio
 from sleap_nn.inference import Predictor
 
-from sleap_roots_predict.predict import make_predictor, predict_on_video
+from sleap_roots_predict.predict import (
+    _clamp_legacy_aug,
+    make_predictor,
+    predict_on_video,
+)
 from sleap_roots_predict.video_utils import make_video_from_images
 
 
@@ -74,6 +80,46 @@ def test_predict_on_video_legacy_model(legacy_model_dir: Path, centered_pair_vid
     predictor = make_predictor([legacy_model_dir])
     labels = predict_on_video(predictor, centered_pair_video)
     assert isinstance(labels, sio.Labels)
+    assert sum(len(lf.instances) for lf in labels) > 0
+
+
+def _make_bad_legacy_model(legacy_model_dir: Path, dest: Path) -> Path:
+    """Copy a legacy model and set an out-of-range (inert) brightness_min_val."""
+    shutil.copytree(legacy_model_dir, dest)
+    cfg_path = dest / "training_config.json"
+    cfg = json.loads(cfg_path.read_text())
+    cfg["optimization"]["augmentation_config"]["brightness_min_val"] = -10.0
+    cfg_path.write_text(json.dumps(cfg))
+    return dest
+
+
+def test_clamp_legacy_aug_clamps_negative_brightness():
+    """The clamp helper raises a negative brightness_min_val to the floor."""
+    cfg = {"optimization": {"augmentation_config": {"brightness_min_val": -10.0}}}
+    changed = _clamp_legacy_aug(cfg)
+    assert changed is True
+    assert cfg["optimization"]["augmentation_config"]["brightness_min_val"] == 0.0
+
+
+def test_clamp_legacy_aug_leaves_valid_values():
+    """A valid config is left unchanged (no needless sanitization)."""
+    cfg = {"optimization": {"augmentation_config": {"brightness_min_val": 0.9}}}
+    assert _clamp_legacy_aug(cfg) is False
+    assert cfg["optimization"]["augmentation_config"]["brightness_min_val"] == 0.9
+
+
+def test_make_predictor_sanitizes_legacy_config(
+    legacy_model_dir: Path, tmp_path: Path, centered_pair_video
+):
+    """A legacy model with an inert negative brightness value loads and predicts.
+
+    This reproduces the real production 'lateral' model failure: sleap-nn 0.3.0
+    rejects brightness_min_val < 0. make_predictor must sanitize and load it.
+    """
+    bad_model = _make_bad_legacy_model(legacy_model_dir, tmp_path / "legacy_bad")
+    predictor = make_predictor([bad_model])
+    assert isinstance(predictor, Predictor)
+    labels = predict_on_video(predictor, centered_pair_video)
     assert sum(len(lf.instances) for lf in labels) > 0
 
 

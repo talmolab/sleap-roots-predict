@@ -120,11 +120,25 @@ Ran the acceptance test on real data: `PGM1-PAC-EFFECT_EXP1`, plate
   `brightness` augmentation is disabled (`brightness: false`) so the value is
   semantically inert. ❌
 
-This is a genuine legacy-config incompatibility, surfaced exactly as intended.
-It is a **parity/conversion-slice finding**, not a defect of this slice: some
-production models load and predict cleanly; others need config sanitization
-(e.g. clamp inert `brightness_min_val` to `>= 0`) or a sleap-nn-side fix before
-they load under 0.3.0. Deferred here unless the user opts to add sanitization.
+**Root cause (traced in sleap-nn v0.3.0):** the legacy mapper
+`sleap_nn/config/data_config.py:429` copies legacy `brightness_min_val` into the
+new **multiplicative** `brightness_min` field (validated `>= 0`) with only an
+*upper* clamp `min(x, 2.0)` — no lower clamp. Classic SLEAP brightness was
+additive/imgaug-style and could hold negative or inert placeholder values, so a
+disabled-augmentation `-10.0` violates the new schema. sleep-nn's documented
+"conversion" (`TrainingJobConfig.load_sleap_config` + `OmegaConf.save`) runs the
+same mapper and fails identically — there is no offline converter that avoids it.
+
+**Resolution (this slice):** `make_predictor` now sanitizes legacy configs before
+load — `_maybe_sanitize_legacy_config` clamps inert out-of-range augmentation
+values (currently `brightness_min_val >= 0`) on a **temporary copy**, never
+mutating the original model dir. Augmentation never runs at inference, so this is
+behavior-preserving. After the fix, the acceptance run loads **both** production
+models: `primary` (119 instances) and `lateral` (2791 instances) on the same
+plate. A hermetic CI test reproduces the failure (negative value injected into
+the vendored legacy model) and asserts the sanitizer loads + predicts. The
+proper upstream fix (symmetric lower clamp in `data_mapper`) is drafted for
+sleap-nn in `docs/upstream/sleap-nn-legacy-brightness-issue.md`.
 
 ## Out of scope
 
