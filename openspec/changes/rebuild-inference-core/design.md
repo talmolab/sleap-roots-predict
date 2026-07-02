@@ -11,7 +11,8 @@
 
 - **Persistent `Predictor`, not per-call `run_inference`.** `make_predictor` returns a reusable `Predictor` (loaded once), and `predict_on_video` calls `predictor.predict(video, make_labels=True)`. Alternatives: module-level `sleap_nn.inference.predict` per call (rebuilds each time — fights the warm-worker goal) or the legacy `run_inference` (demoted in 0.3.0). Chosen path seats the later warm-worker slice.
 - **0.3.0 API shape.** `Predictor.from_model_paths` is keyword-only after `model_paths` and defaults `device="cpu"`; `make_pipeline`/`VideoReader` are gone; the `sio.Video` is passed straight into `predict()`.
-- **Lean surface.** Remove `predict_on_h5`/`batch_predict`; route the orchestrator through `predict_on_video`. Every retained function has a real test.
+- **Lean surface + deferred timelapse.** Remove `predict_on_h5`/`batch_predict` (they depend on the removed `VideoReader` import). Rather than rewire the timelapse orchestrator now, **drop its prediction branch** (keep video/H5/metadata building; make the prediction path an inert logged no-op) and defer real timelapse-prediction rework to a future PR. The cylinder-data path is exercised directly (`predict_on_video`) and via the acceptance test, not through the orchestrator. Every retained function has a real test.
+- **sleap-io unpinned.** Declare `sleap-io` as a direct dependency but do not pin it — sleap-nn 0.3.0 already constrains it to `>=0.8.0,<0.9.0`, so a local pin would only duplicate that bound and add maintenance on future sleap-nn bumps.
 - **Vendored fixtures mirror production.** Production root models are legacy SLEAP UNet **bottom-up** (`training_config.json` + `best_model.h5`, per `model_paths.csv`). Vendor both a native bottom-up minimal (`best.ckpt`) and a legacy UNet bottom-up minimal to hermetically cover both loader paths — the legacy one directly de-risks the production format in CI. (This refines the original design's "top-down pair" fixture choice, made before the production model format was known.)
 - **uv index plumbing is required downstream.** uv `[tool.uv.sources]`/index routing is not inherited from sleap-nn, so this repo must declare `[[tool.uv.index]]` + `[tool.uv.sources]` for CUDA extras to resolve CUDA wheels. Without it, Windows resolves CPU-only torch.
 
@@ -23,7 +24,7 @@
 
 ## Migration Plan
 
-Additive within the repo. `predict_on_h5`/`batch_predict` removal is BREAKING for any direct importer; orchestrator is updated in the same change. Dep bumps require a re-lock and a fresh `uv sync`.
+`predict_on_h5`/`batch_predict` removal is BREAKING for any direct importer. `process_timelapse_experiment` keeps its signature but its prediction path becomes an inert logged no-op (prediction deferred to a future PR); callers needing prediction use `predict_on_video` directly. Dep bumps require a re-lock and a fresh `uv sync`.
 
 ## Open Questions
 

@@ -5,7 +5,7 @@ minimum code to pass, then refactor. Run `/lint` and `/test` after each.
 
 ## 1. Dependencies, fixtures, and environment
 
-- [ ] 1.1 Pin `sleap-nn==0.3.0` and `sleap-io>=0.8.0,<0.9.0` in `pyproject.toml`; fix `linux_cuda` extra (`torch-cpu` → `torch-cuda128`).
+- [ ] 1.1 Pin `sleap-nn==0.3.0` in `pyproject.toml`; keep `sleap-io` as an unpinned direct dep (governed by sleap-nn); fix `linux_cuda` extra (`torch-cpu` → `torch-cuda128`).
 - [ ] 1.2 Add `[[tool.uv.index]]` (`pytorch-cpu`, `pytorch-cu128`) and `[tool.uv.sources]` torch routing mirroring sleap-nn; re-lock with `uv lock`.
 - [ ] 1.3 Register `gpu` and `acceptance` pytest markers in `pyproject.toml`; ensure default `pytest` deselects them.
 - [ ] 1.4 `uv sync --extra dev --extra cpu` and confirm `import sleap_nn` reports `0.3.0` and `import sleap_io` reports `0.8.x` (evidence: version strings).
@@ -26,11 +26,11 @@ minimum code to pass, then refactor. Run `/lint` and `/test` after each.
 - [ ] 3.4 **Test first:** `test_predictor_reused_across_videos` — one predictor used for two videos returns valid labels both times. Verifies persistent reuse.
 - [ ] 3.5 Implement `predict_on_video` via `predictor.predict(video, make_labels=True)` + optional `sio.save_file`. Make 3.1–3.4 pass.
 
-## 4. Remove legacy surface and rewire orchestrator
+## 4. Remove legacy surface; defer timelapse prediction
 
 - [ ] 4.1 Delete `predict_on_h5` and `batch_predict` and the mocked `tests/test_predict.py`.
-- [ ] 4.2 **Test first:** add/adjust a test proving `plates_timelapse_experiment` runs its prediction branch through `predict_on_video` on the built `sio.Video` (real predictor, vendored model, tiny image dir), independent of `save_h5`.
-- [ ] 4.3 Update `plates_timelapse_experiment.py` to route prediction through `predict_on_video`; update `__init__.py` exports. Make 4.2 pass.
+- [ ] 4.2 **Test first:** add a test proving `plates_timelapse_experiment` still imports and `process_timelapse_experiment` builds videos/H5/metadata with NO prediction (e.g. supplying `model_paths` logs a "prediction deferred" notice and yields `predictions_path=None`), so the package imports cleanly under 0.3.0.
+- [ ] 4.3 Remove the predict-function imports and prediction branch from `plates_timelapse_experiment.py` (keep the signature; make the prediction path an inert, logged no-op deferred to a future PR); update `__init__.py` exports (drop `predict_on_h5`/`batch_predict`). Make 4.2 pass.
 - [ ] 4.4 Verify `make_video_from_images` still works under sleap-io 0.8 (`sio.Video.from_filename(list, grayscale=)`); adjust only if prediction requires it, and add a real test asserting a Video is built from a small image dir.
 
 ## 5. GPU tests

@@ -40,7 +40,7 @@ The system SHALL provide `predict_on_video(predictor, video, save_path=None)` th
 
 ### Requirement: sleap-nn 0.3.0 Backend
 
-The service SHALL depend on `sleap-nn==0.3.0` and `sleap-io>=0.8.0,<0.9.0`, and the prediction code SHALL invoke the current sleap-nn 0.3.0 inference API rather than the removed 0.0.x API (`VideoReader` + `make_pipeline`). The legacy 0.0.x call path SHALL NOT be used.
+The service SHALL pin `sleap-nn==0.3.0` and declare `sleap-io` as an explicit direct dependency (unpinned; its version is governed transitively by sleap-nn 0.3.0 to `>=0.8.0,<0.9.0`). The prediction code SHALL invoke the current sleap-nn 0.3.0 inference API rather than the removed 0.0.x API (`VideoReader` + `make_pipeline`). The legacy 0.0.x call path SHALL NOT be used.
 
 #### Scenario: Prediction uses the 0.3.0 API
 
