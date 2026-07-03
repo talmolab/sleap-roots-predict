@@ -535,10 +535,12 @@ def process_timelapse_experiment(
         experiment_name: Name of the experiment for metadata.
         save_h5: Whether to save H5 files (if False, uses Video objects directly).
         output_dir: Output directory for H5 and CSV files (defaults to base_dir).
-        model_paths: List of paths to SLEAP model directories for prediction.
-        peak_threshold: Confidence threshold for peak detection in predictions.
-        batch_size: Number of samples per batch for inference.
-        device: Device for inference ("auto", "cpu", "cuda", or "mps").
+        model_paths: Accepted but currently IGNORED. Prediction within this flow
+            is deferred; supplying model paths logs a warning and runs no
+            inference. Use ``predict_on_video`` directly to predict.
+        peak_threshold: Accepted but currently IGNORED (prediction deferred).
+        batch_size: Accepted but currently IGNORED (prediction deferred).
+        device: Accepted but currently IGNORED (prediction deferred).
         greyscale: Whether to convert images to greyscale.
         image_pattern: Glob pattern for finding image files (default "*.tif").
         expected_suffix_pattern: Regex pattern for suffix validation (default r'^\d{3}$').

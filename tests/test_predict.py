@@ -92,12 +92,14 @@ def test_predict_on_video_legacy_model(legacy_model_dir: Path, centered_pair_vid
     assert sum(len(lf.instances) for lf in labels) > 0
 
 
-def _make_bad_legacy_model(legacy_model_dir: Path, dest: Path) -> Path:
-    """Copy a legacy model and set an out-of-range (inert) brightness_min_val."""
+def _make_bad_legacy_model(
+    legacy_model_dir: Path, dest: Path, field: str = "brightness_min_val"
+) -> Path:
+    """Copy a legacy model and set an out-of-range (inert) augmentation value."""
     shutil.copytree(legacy_model_dir, dest)
     cfg_path = dest / "training_config.json"
     cfg = json.loads(cfg_path.read_text())
-    cfg["optimization"]["augmentation_config"]["brightness_min_val"] = -10.0
+    cfg["optimization"]["augmentation_config"][field] = -10.0
     cfg_path.write_text(json.dumps(cfg))
     return dest
 
@@ -110,6 +112,18 @@ def test_clamp_legacy_aug_clamps_negative_brightness():
     assert cfg["optimization"]["augmentation_config"]["brightness_min_val"] == 0.0
 
 
+def test_clamp_legacy_aug_clamps_all_ge0_fields():
+    """All fields mapping to a ge(0) target are clamped, not just brightness."""
+    aug = {
+        "contrast_min_gamma": -5.0,
+        "scale_min": -1.0,
+        "uniform_noise_min_val": -2.0,
+    }
+    cfg = {"optimization": {"augmentation_config": aug}}
+    assert _clamp_legacy_aug(cfg) is True
+    assert all(aug[k] == 0.0 for k in aug)
+
+
 def test_clamp_legacy_aug_leaves_valid_values():
     """A valid config is left unchanged (no needless sanitization)."""
     cfg = {"optimization": {"augmentation_config": {"brightness_min_val": 0.9}}}
@@ -117,19 +131,43 @@ def test_clamp_legacy_aug_leaves_valid_values():
     assert cfg["optimization"]["augmentation_config"]["brightness_min_val"] == 0.9
 
 
+@pytest.mark.parametrize("field", ["brightness_min_val", "contrast_min_gamma"])
 def test_make_predictor_sanitizes_legacy_config(
-    legacy_model_dir: Path, tmp_path: Path, centered_pair_video
+    legacy_model_dir: Path, tmp_path: Path, centered_pair_video, field: str
 ):
-    """A legacy model with an inert negative brightness value loads and predicts.
+    """A legacy model with an inert out-of-range value loads and predicts.
 
-    This reproduces the real production 'lateral' model failure: sleap-nn 0.3.0
-    rejects brightness_min_val < 0. make_predictor must sanitize and load it.
+    Reproduces the real production 'lateral' failure: sleap-nn 0.3.0 rejects
+    ``brightness_min_val < 0`` (and other ge(0) fields). make_predictor must
+    sanitize and load it, without mutating the original model directory.
     """
-    bad_model = _make_bad_legacy_model(legacy_model_dir, tmp_path / "legacy_bad")
+    bad_model = _make_bad_legacy_model(legacy_model_dir, tmp_path / "legacy_bad", field)
     predictor = make_predictor([bad_model])
     assert isinstance(predictor, Predictor)
     labels = predict_on_video(predictor, centered_pair_video)
     assert sum(len(lf.instances) for lf in labels) > 0
+
+    # The original model directory must be left untouched (sanitized on a copy).
+    original = json.loads((bad_model / "training_config.json").read_text())
+    assert original["optimization"]["augmentation_config"][field] == -10.0
+
+
+def test_make_predictor_empty_paths_raises():
+    """An empty model_paths list raises a clear ValueError."""
+    with pytest.raises(ValueError, match="empty"):
+        make_predictor([])
+
+
+def test_resolve_device_rejects_invalid(monkeypatch):
+    """A typo'd device (explicit or via SRP_DEVICE) raises ValueError."""
+    from sleap_roots_predict.predict import _resolve_device
+
+    monkeypatch.delenv("SRP_DEVICE", raising=False)
+    with pytest.raises(ValueError, match="Unsupported device"):
+        _resolve_device("banana")
+    monkeypatch.setenv("SRP_DEVICE", "gpu")
+    with pytest.raises(ValueError, match="Unsupported device"):
+        _resolve_device("auto")
 
 
 def test_predictor_reused_across_videos(native_predictor, centered_pair_image_dir):

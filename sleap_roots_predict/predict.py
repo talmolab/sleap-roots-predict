@@ -6,9 +6,11 @@ videos) and runs inference on in-memory ``sleap_io.Video`` objects, handling
 automatic device selection (CPU, CUDA, MPS).
 """
 
+import atexit
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -19,14 +21,24 @@ from sleap_nn.inference import Predictor
 
 logger = logging.getLogger(__name__)
 
-# Legacy SLEAP augmentation fields whose values must satisfy a lower bound in the
-# sleap-nn 0.3.0 config schema. The 0.3.0 legacy mapper only clamps *upper*
-# bounds, so an inert out-of-range legacy value (e.g. brightness_min_val=-10.0
-# when brightness augmentation is disabled) fails config validation on load.
-# Augmentation never runs at inference, so clamping these is behavior-preserving.
-# Upstream fix tracked separately; extend this map if other fields surface.
+# Accepted device strings: cpu, mps, cuda, or cuda:N.
+_VALID_DEVICE = re.compile(r"^(cpu|mps|cuda(:\d+)?)$")
+
+# Legacy SLEAP augmentation fields whose values must satisfy a ``>= 0`` lower
+# bound in the sleap-nn 0.3.0 config schema. The 0.3.0 legacy mapper only clamps
+# *upper* bounds, so an inert out-of-range legacy value (e.g.
+# brightness_min_val=-10.0 when the augmentation is disabled) fails config
+# validation on load. Every field here maps to a target with a ``ge(0)``
+# validator in sleap_nn/config/data_config.py. Augmentation never runs at
+# inference, so clamping these is behavior-preserving. Upstream fix tracked in
+# docs/upstream/sleap-nn-legacy-brightness-issue.md.
 _LEGACY_AUG_FLOORS = {
     "brightness_min_val": 0.0,
+    "contrast_min_gamma": 0.0,
+    "contrast_max_gamma": 0.0,
+    "scale_min": 0.0,
+    "scale_max": 0.0,
+    "uniform_noise_min_val": 0.0,
 }
 
 
@@ -71,11 +83,20 @@ def _maybe_sanitize_legacy_config(model_dir: Path) -> Path:
     if (model_dir / "training_config.yaml").exists() or not json_path.exists():
         return model_dir
 
-    config = json.loads(json_path.read_text())
+    try:
+        config = json.loads(json_path.read_text())
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Invalid legacy training_config.json in {model_dir}: {e}"
+        ) from e
     if not _clamp_legacy_aug(config):
         return model_dir
 
     tmp_root = Path(tempfile.mkdtemp(prefix="srp_legacy_"))
+    # The sanitized copy is only needed until the predictor loads its weights, but
+    # keep it for the process lifetime (the predictor records the path in its
+    # provenance) and clean it up at exit so it does not leak.
+    atexit.register(shutil.rmtree, tmp_root, ignore_errors=True)
     sanitized_dir = tmp_root / model_dir.name
     shutil.copytree(model_dir, sanitized_dir)
     (sanitized_dir / "training_config.json").write_text(json.dumps(config))
@@ -85,6 +106,16 @@ def _maybe_sanitize_legacy_config(model_dir: Path) -> Path:
         model_dir,
     )
     return sanitized_dir
+
+
+def _validate_device(device: str) -> str:
+    """Return ``device`` if it is a supported string, else raise ``ValueError``."""
+    if not _VALID_DEVICE.match(device):
+        raise ValueError(
+            f"Unsupported device {device!r}; expected 'cpu', 'cuda', 'cuda:N', "
+            "or 'mps'."
+        )
+    return device
 
 
 def _resolve_device(device: str = "auto") -> str:
@@ -99,14 +130,19 @@ def _resolve_device(device: str = "auto") -> str:
             ``"mps"``. ``"auto"`` selects CUDA, then MPS, then CPU.
 
     Returns:
-        A concrete device string. Non-``"auto"`` values are returned unchanged.
+        A concrete device string.
+
+    Raises:
+        ValueError: If the resolved device is not one of ``cpu``, ``mps``,
+            ``cuda``, or ``cuda:N`` (guards typos in an explicit ``device`` or
+            in ``SRP_DEVICE``).
     """
     if device != "auto":
-        return device
+        return _validate_device(device)
 
     override = os.environ.get("SRP_DEVICE")
     if override:
-        return override
+        return _validate_device(override)
 
     import torch
 
@@ -140,8 +176,12 @@ def make_predictor(
         A sleap-nn :class:`~sleap_nn.inference.predictor.Predictor`.
 
     Raises:
+        ValueError: If ``model_paths`` is empty.
         FileNotFoundError: If any model directory does not exist.
     """
+    if not model_paths:
+        raise ValueError("model_paths is empty; provide at least one model directory.")
+
     resolved_paths = []
     for p in model_paths:
         path = Path(p)

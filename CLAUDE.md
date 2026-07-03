@@ -52,7 +52,7 @@ Install with platform-specific extras for proper hardware acceleration:
 
 ### Package Structure
 The main package is `sleap_roots_predict/` which contains:
-- `predict.py`: SLEAP-NN prediction interface (make_predictor, predict_on_video, predict_on_h5, batch_predict)
+- `predict.py`: sleap-nn 0.3.0 prediction interface (make_predictor, predict_on_video; legacy-config sanitization)
 - `video_utils.py`: Core utilities for image processing (natural_sort, convert_to_greyscale, load_images, make_video_from_images, save_array_as_h5, find_image_directories)
 - `plates_timelapse_experiment.py`: Experiment processing functions (extract_timelapse_metadata_from_filename, create_timelapse_metadata_dataframe, check_timelapse_image_directory, process_timelapse_image_directory, process_timelapse_experiment)
 - `__init__.py`: Package initialization exposing only high-level API: `process_timelapse_experiment`, `make_predictor`, `predict_on_video`
@@ -72,10 +72,8 @@ The main package is `sleap_roots_predict/` which contains:
 The modules provide modular functions for processing timelapse experiments:
 
 #### Prediction Functions (predict.py)
-- `make_predictor()`: Create SLEAP predictor with automatic device selection
+- `make_predictor()`: Create a reusable sleap-nn Predictor with automatic device selection (sanitizes legacy SLEAP configs)
 - `predict_on_video()`: Run inference on sleap_io.Video objects
-- `predict_on_h5()`: Run inference on H5 files (backward compatibility)
-- `batch_predict()`: Process multiple H5 files in batch
 
 #### Core Functions (video_utils.py)
 - `natural_sort()`: Natural sorting for filenames with numbers
