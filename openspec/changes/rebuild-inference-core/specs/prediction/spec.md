@@ -24,10 +24,11 @@ The system SHALL provide `make_predictor(model_paths, peak_threshold=0.2, batch_
 The system SHALL sanitize legacy SLEAP model configs before loading. When
 `make_predictor` is given a legacy model directory (contains
 `training_config.json` and no `training_config.yaml`) whose config carries inert
-augmentation values that sleap-nn 0.3.0's schema rejects (currently
-`brightness_min_val < 0`), it SHALL load from a sanitized copy with those values
-clamped into range (`>= 0`). The original model directory MUST NOT be modified.
-Configs already within range SHALL be loaded directly without copying.
+augmentation values that sleap-nn 0.3.0's schema rejects (negative values in
+fields mapped to a `>= 0` target — e.g. `brightness_min_val`, `contrast_min_gamma`,
+`scale_min`, `uniform_noise_min_val`), it SHALL load from a sanitized copy with
+those values clamped into range (`>= 0`). The original model directory MUST NOT
+be modified. Configs already within range SHALL be loaded directly without copying.
 
 #### Scenario: Legacy model with inert out-of-range value loads
 
