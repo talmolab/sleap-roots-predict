@@ -8,6 +8,7 @@ automatic device selection (CPU, CUDA, MPS).
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -89,6 +90,10 @@ def _maybe_sanitize_legacy_config(model_dir: Path) -> Path:
 def _resolve_device(device: str = "auto") -> str:
     """Resolve a device string, expanding ``"auto"`` to a concrete device.
 
+    When ``device`` is ``"auto"``, the ``SRP_DEVICE`` environment variable (if
+    set) takes precedence — useful for forcing ``"cpu"`` in environments where
+    auto-detection picks an unusable accelerator (e.g. MPS on CI mac runners).
+
     Args:
         device: One of ``"auto"``, ``"cpu"``, ``"cuda"`` (or ``"cuda:N"``), or
             ``"mps"``. ``"auto"`` selects CUDA, then MPS, then CPU.
@@ -98,6 +103,10 @@ def _resolve_device(device: str = "auto") -> str:
     """
     if device != "auto":
         return device
+
+    override = os.environ.get("SRP_DEVICE")
+    if override:
+        return override
 
     import torch
 

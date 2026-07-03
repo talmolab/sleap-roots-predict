@@ -55,6 +55,15 @@ def test_make_predictor_missing_dir_raises(tmp_path: Path):
         make_predictor([tmp_path / "does_not_exist"])
 
 
+def test_resolve_device_env_override(monkeypatch):
+    """SRP_DEVICE overrides auto-detection but not an explicit device."""
+    from sleap_roots_predict.predict import _resolve_device
+
+    monkeypatch.setenv("SRP_DEVICE", "cpu")
+    assert _resolve_device("auto") == "cpu"
+    assert _resolve_device("cuda") == "cuda"  # explicit device is respected
+
+
 # --- predict_on_video ---------------------------------------------------------
 
 
