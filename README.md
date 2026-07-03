@@ -78,23 +78,23 @@ from sleap_roots_predict import (
     predict_on_video
 )
 
-# Process an entire timelapse experiment with predictions
+# Process an entire timelapse experiment (video / H5 / metadata).
+# NOTE: prediction within this flow is currently deferred — model_paths/device
+# are accepted but ignored. Use the prediction API below to run inference.
 results = process_timelapse_experiment(
     base_dir="path/to/experiment",
     metadata_csv="path/to/metadata.csv",
     experiment_name="my_experiment",
     output_dir="path/to/output",
-    model_paths=["path/to/sleap/model"],  # Optional: run predictions
-    device="cuda",  # Use GPU for predictions
     results_json="results.json"  # Save results as JSON
 )
 
-# Or use the prediction API directly
+# Run prediction directly
 predictor = make_predictor(
-    model_path=["path/to/model"],
+    model_paths=["path/to/model"],  # one dir per model (e.g. per root type)
     peak_threshold=0.2,
     batch_size=4,
-    device="auto"  # Automatically selects GPU if available
+    device="auto"  # Automatically selects GPU (CUDA/MPS) if available
 )
 
 # Create a Video object and run predictions
@@ -123,11 +123,6 @@ from sleap_roots_predict.plates_timelapse_experiment import (
     create_timelapse_metadata_dataframe
 )
 
-from sleap_roots_predict.predict import (
-    predict_on_h5,
-    batch_predict
-)
-
 from sleap_roots_predict.video_utils import (
     make_video_from_images,
     load_images,
@@ -154,14 +149,6 @@ check_results = check_timelapse_image_directory(
     max_images=1000,
     check_datetime=True,
     check_suffix_consistency=True
-)
-
-# Batch process H5 files
-results = batch_predict(
-    predictor,
-    input_paths=["file1.h5", "file2.h5"],
-    output_dir="predictions/",
-    dataset="vol"
 )
 
 # Load and process images

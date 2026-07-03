@@ -10,6 +10,34 @@ import numpy as np
 import pytest
 from PIL import Image
 
+# Real, vendored inference fixtures (see tests/assets/README.md). Minimal
+# bottom-up models from sleap-nn v0.3.0, used for no-mock inference tests.
+ASSETS_DIR = Path(__file__).parent / "assets"
+
+
+@pytest.fixture(scope="session")
+def native_model_dir() -> Path:
+    """Native sleap-nn model dir (best.ckpt + training_config.yaml)."""
+    return ASSETS_DIR / "models" / "minimal_bottomup_native"
+
+
+@pytest.fixture(scope="session")
+def legacy_model_dir() -> Path:
+    """Legacy SLEAP model dir (training_config.json + best_model.h5)."""
+    return ASSETS_DIR / "models" / "minimal_bottomup_legacy"
+
+
+@pytest.fixture(scope="session")
+def sample_video_path() -> Path:
+    """Small real video (384x384 grayscale)."""
+    return ASSETS_DIR / "videos" / "centered_pair_small.mp4"
+
+
+@pytest.fixture(scope="session")
+def centered_pair_image_dir() -> Path:
+    """Directory of 8 grayscale frames (all contain instances)."""
+    return ASSETS_DIR / "images" / "centered_pair"
+
 
 @pytest.fixture
 def temp_dir() -> Generator[Path, None, None]:

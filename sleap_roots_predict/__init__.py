@@ -1,10 +1,11 @@
 """sleap-roots-predict: SLEAP-NN prediction and timelapse processing for root systems.
 
 This package provides:
-- SLEAP neural network model integration for pose estimation
-- Timelapse experiment processing with metadata extraction
-- Batch prediction on videos and H5 files
-- JSON export for experiment results
+- sleap-nn inference on ``sleap_io.Video`` objects (``make_predictor`` builds a
+  reusable predictor; ``predict_on_video`` runs inference and optionally saves a
+  ``.slp``)
+- Timelapse experiment processing with metadata extraction (video/H5/metadata;
+  prediction within this flow is currently deferred)
 """
 
 __version__ = "0.0.1a0"

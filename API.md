@@ -44,8 +44,7 @@ process_timelapse_experiment(
 - `experiment_name`: Name for the experiment
 - `save_h5`: Save as H5 files (True) or create Video objects (False)
 - `output_dir`: Directory for output files
-- `model_paths`: Optional SLEAP model paths for predictions
-- `device`: Device for predictions ("auto", "cpu", "cuda", "mps")
+- `model_paths`, `peak_threshold`, `batch_size`, `device`: Accepted but currently **ignored** — prediction within this flow is deferred. Use `predict_on_video` directly to run inference.
 - `results_json`: Optional path to save results as JSON
 
 **Returns:** Dictionary with processed, failed, and skipped directories
@@ -53,21 +52,24 @@ process_timelapse_experiment(
 ### `make_predictor`
 ```python
 make_predictor(
-    model_path: List[Union[str, Path]],
+    model_paths: List[Union[str, Path]],
     peak_threshold: float = 0.2,
     batch_size: int = 4,
     device: str = "auto"
 ) -> Predictor
 ```
-Create a SLEAP predictor with automatic device selection.
+Create a reusable sleap-nn predictor with automatic device selection. The
+predictor loads the model(s) once and can be reused across many videos.
 
 **Parameters:**
-- `model_path`: List of paths to trained SLEAP model directories
+- `model_paths`: List of paths to trained model directories (one per model, e.g. per root type)
 - `peak_threshold`: Confidence threshold for peak detection (0.0-1.0)
 - `batch_size`: Number of samples per batch for inference
-- `device`: Device for inference ("auto", "cpu", "cuda", or "mps")
+- `device`: Device for inference ("auto", "cpu", "cuda", "cuda:N", or "mps"). "auto" honors the `SRP_DEVICE` env var if set.
 
 **Returns:** Configured `Predictor` instance
+
+**Raises:** `ValueError` if `model_paths` is empty; `FileNotFoundError` if a model directory does not exist.
 
 ### `predict_on_video`
 ```python
@@ -91,38 +93,6 @@ Run prediction on a sleap_io.Video object.
 ## Utility Modules
 
 For advanced usage, import these functions directly from their modules:
-
-### Prediction Module (`sleap_roots_predict.predict`)
-
-```python
-from sleap_roots_predict.predict import (
-    predict_on_h5,
-    batch_predict
-)
-```
-
-#### `predict_on_h5`
-```python
-predict_on_h5(
-    predictor: Predictor,
-    h5: Union[str, Path],
-    dataset: str = "vol",
-    save_path: Optional[Union[str, Path]] = None
-) -> Union[Path, sio.Labels]
-```
-Run prediction on an H5 file (backward compatibility).
-
-#### `batch_predict`
-```python
-batch_predict(
-    predictor: Predictor,
-    input_paths: List[Union[str, Path]],
-    output_dir: Union[str, Path],
-    dataset: str = "vol",
-    file_suffix: str = ""
-) -> Dict[str, Union[Path, str]]
-```
-Run predictions on multiple H5 files.
 
 ### Video Utilities Module (`sleap_roots_predict.video_utils`)
 
@@ -273,7 +243,7 @@ Create a metadata DataFrame from timelapse filenames.
     "h5_path": Optional[str],        # Path to H5 file (if save_h5=True)
     "video_frames": Optional[int],   # Number of frames (if save_h5=False)
     "csv_path": Optional[str],       # Path to metadata CSV
-    "predictions_path": Optional[str], # Path to predictions (if model provided)
+    "predictions_path": Optional[str], # Always None (prediction in this flow is deferred)
     "check_results": Dict,           # Validation results
     "plate_metadata": Dict           # Metadata from CSV
 }

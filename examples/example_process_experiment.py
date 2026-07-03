@@ -1,4 +1,4 @@
-"""Example usage of the new experiment processing functions.
+r"""Example usage of the new experiment processing functions.
 
 This example shows how to process a directory structure like:
 \\\\multilab-na.ad.salk.edu\\hpi_dev\\users\\eberrigan\\circumnutation\\20250819_Suyash_Patil_CMTN_Kitx_vs_Hk1-3_07-30-25\\004\\_set1_day1_20250730-212759_004.tif

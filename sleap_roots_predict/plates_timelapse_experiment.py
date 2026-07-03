@@ -22,11 +22,10 @@ from .video_utils import (
     save_array_as_h5,
     natural_sort,
 )
-from sleap_roots_predict.predict import (
-    predict_on_h5,
-    predict_on_video,
-    make_predictor,
-)
+
+# NOTE: prediction within the timelapse flow is deferred (see the
+# rebuild-inference-core change). This module builds videos/H5/metadata only;
+# run inference directly via ``sleap_roots_predict.predict.predict_on_video``.
 
 # Initialize logger
 logging.basicConfig(level=logging.DEBUG)
@@ -536,10 +535,12 @@ def process_timelapse_experiment(
         experiment_name: Name of the experiment for metadata.
         save_h5: Whether to save H5 files (if False, uses Video objects directly).
         output_dir: Output directory for H5 and CSV files (defaults to base_dir).
-        model_paths: List of paths to SLEAP model directories for prediction.
-        peak_threshold: Confidence threshold for peak detection in predictions.
-        batch_size: Number of samples per batch for inference.
-        device: Device for inference ("auto", "cpu", "cuda", or "mps").
+        model_paths: Accepted but currently IGNORED. Prediction within this flow
+            is deferred; supplying model paths logs a warning and runs no
+            inference. Use ``predict_on_video`` directly to predict.
+        peak_threshold: Accepted but currently IGNORED (prediction deferred).
+        batch_size: Accepted but currently IGNORED (prediction deferred).
+        device: Accepted but currently IGNORED (prediction deferred).
         greyscale: Whether to convert images to greyscale.
         image_pattern: Glob pattern for finding image files (default "*.tif").
         expected_suffix_pattern: Regex pattern for suffix validation (default r'^\d{3}$').
@@ -598,25 +599,17 @@ def process_timelapse_experiment(
         "skipped": [],
     }
 
-    # Initialize predictor if model paths provided
-    predictor = None
+    # Prediction within the timelapse flow is deferred (rebuild-inference-core).
+    # This function builds videos/H5/metadata only. If model_paths are supplied,
+    # warn and continue without predicting; run inference directly via
+    # sleap_roots_predict.predict.predict_on_video instead.
     if model_paths:
-        logger.info(f"Initializing predictor with {len(model_paths)} model(s)")
-        logger.info(f"  - Device: {device}")
-        logger.info(f"  - Peak threshold: {peak_threshold}")
-        logger.info(f"  - Batch size: {batch_size}")
-        try:
-            predictor = make_predictor(
-                model_path=model_paths,
-                peak_threshold=peak_threshold,
-                batch_size=batch_size,
-                device=device,
-            )
-            logger.info("[OK] Predictor initialized successfully")
-        except Exception as e:
-            logger.error(f"[ERROR] Failed to initialize predictor: {e}")
-            logger.error("Continuing without predictions")
-            predictor = None
+        logger.warning(
+            "Prediction within process_timelapse_experiment is temporarily "
+            "disabled (deferred to a future release). Ignoring %d model_path(s); "
+            "use predict_on_video directly to run inference.",
+            len(model_paths),
+        )
 
     # Load metadata from CSV
     logger.info(f"Loading metadata from CSV: {metadata_csv.name}")
@@ -835,30 +828,9 @@ def process_timelapse_experiment(
                 video, csv_path = result
                 h5_path = None
 
-            # Run predictions if predictor is available and processing succeeded
+            # Prediction is deferred (see rebuild-inference-core); the timelapse
+            # flow no longer runs inference. predictor is always None here.
             predictions_path = None
-            if predictor and (video is not None or h5_path is not None):
-                try:
-                    predictions_name = f"plate_{image_dir.name}_predictions.slp"
-                    predictions_path = output_subdir / predictions_name
-
-                    if save_h5 and h5_path:
-                        # Predict on H5 file
-                        logger.info(f"  [PREDICTION] Running predictions on H5 file")
-                        predict_on_h5(predictor, h5_path, save_path=predictions_path)
-                    elif video:
-                        # Predict on Video object
-                        logger.info(
-                            f"  [PREDICTION] Running predictions on Video object"
-                        )
-                        predict_on_video(predictor, video, save_path=predictions_path)
-
-                    logger.info(
-                        f"  [SUCCESS] Saved predictions to {predictions_path.name}"
-                    )
-                except Exception as e:
-                    logger.error(f"  [ERROR] Failed to run predictions: {e}")
-                    predictions_path = None
 
             # If processing succeeded, append additional metadata to the CSV
             if csv_path and csv_path.exists():

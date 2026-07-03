@@ -1,70 +1,202 @@
-"""SLEAP-NN prediction interface for pose estimation on videos and H5 files.
+"""SLEAP-NN prediction interface for pose estimation on videos.
 
-This module provides functions to create SLEAP predictors and run inference on
-various data formats. It handles automatic device selection (CPU, CUDA, MPS) and
-supports both single file and batch processing.
+Thin wrapper over the sleap-nn 0.3.0 inference API. It builds a reusable
+:class:`~sleap_nn.inference.predictor.Predictor` (loaded once, reused across
+videos) and runs inference on in-memory ``sleap_io.Video`` objects, handling
+automatic device selection (CPU, CUDA, MPS).
 """
 
-import numpy as np
-import sleap_io as sio
-
-from typing import Union, Optional, List, Dict
+import atexit
+import json
+import logging
+import os
+import re
+import shutil
+import tempfile
 from pathlib import Path
-from sleap_nn.inference.predictors import (
-    Predictor,
-)
-from sleap_nn.data.providers import VideoReader
+from typing import List, Optional, Union
 
-# https://github.com/talmolab/sleap-nn/blob/78b90e1b964ecc10639d9560c79872c2f9f1ec67/sleap_nn/inference/predictors.py#L504
+import sleap_io as sio
+from sleap_nn.inference import Predictor
+
+logger = logging.getLogger(__name__)
+
+# Accepted device strings: cpu, mps, cuda, or cuda:N.
+_VALID_DEVICE = re.compile(r"^(cpu|mps|cuda(:\d+)?)$")
+
+# Legacy SLEAP augmentation fields whose values must satisfy a ``>= 0`` lower
+# bound in the sleap-nn 0.3.0 config schema. The 0.3.0 legacy mapper only clamps
+# *upper* bounds, so an inert out-of-range legacy value (e.g.
+# brightness_min_val=-10.0 when the augmentation is disabled) fails config
+# validation on load. Every field here maps to a target with a ``ge(0)``
+# validator in sleap_nn/config/data_config.py. Augmentation never runs at
+# inference, so clamping these is behavior-preserving. Upstream fix tracked in
+# docs/upstream/sleap-nn-legacy-brightness-issue.md.
+_LEGACY_AUG_FLOORS = {
+    "brightness_min_val": 0.0,
+    "contrast_min_gamma": 0.0,
+    "contrast_max_gamma": 0.0,
+    "scale_min": 0.0,
+    "scale_max": 0.0,
+    "uniform_noise_min_val": 0.0,
+}
+
+
+def _clamp_legacy_aug(config: dict) -> bool:
+    """Clamp inert out-of-range legacy augmentation values in place.
+
+    Args:
+        config: A parsed legacy SLEAP ``training_config.json`` dict.
+
+    Returns:
+        ``True`` if any value was changed, else ``False``.
+    """
+    aug = config.get("optimization", {}).get("augmentation_config")
+    if not isinstance(aug, dict):
+        return False
+
+    changed = False
+    for key, floor in _LEGACY_AUG_FLOORS.items():
+        value = aug.get(key)
+        if isinstance(value, (int, float)) and value < floor:
+            aug[key] = floor
+            changed = True
+    return changed
+
+
+def _maybe_sanitize_legacy_config(model_dir: Path) -> Path:
+    """Return a model directory that sleap-nn 0.3.0 can load.
+
+    For legacy SLEAP models (``training_config.json`` and no
+    ``training_config.yaml``) that carry inert out-of-range augmentation values,
+    a temporary copy is made with the config sanitized and its path returned. The
+    original model directory is never modified. Otherwise ``model_dir`` is
+    returned unchanged.
+
+    Args:
+        model_dir: A model directory path.
+
+    Returns:
+        Either ``model_dir`` or a temporary directory holding a sanitized copy.
+    """
+    json_path = model_dir / "training_config.json"
+    if (model_dir / "training_config.yaml").exists() or not json_path.exists():
+        return model_dir
+
+    try:
+        config = json.loads(json_path.read_text())
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Invalid legacy training_config.json in {model_dir}: {e}"
+        ) from e
+    if not _clamp_legacy_aug(config):
+        return model_dir
+
+    tmp_root = Path(tempfile.mkdtemp(prefix="srp_legacy_"))
+    # The sanitized copy is only needed until the predictor loads its weights, but
+    # keep it for the process lifetime (the predictor records the path in its
+    # provenance) and clean it up at exit so it does not leak.
+    atexit.register(shutil.rmtree, tmp_root, ignore_errors=True)
+    sanitized_dir = tmp_root / model_dir.name
+    shutil.copytree(model_dir, sanitized_dir)
+    (sanitized_dir / "training_config.json").write_text(json.dumps(config))
+    logger.warning(
+        "Sanitized legacy augmentation config for %s (clamped inert out-of-range "
+        "value(s) rejected by sleap-nn 0.3.0); loading from a temporary copy.",
+        model_dir,
+    )
+    return sanitized_dir
+
+
+def _validate_device(device: str) -> str:
+    """Return ``device`` if it is a supported string, else raise ``ValueError``."""
+    if not _VALID_DEVICE.match(device):
+        raise ValueError(
+            f"Unsupported device {device!r}; expected 'cpu', 'cuda', 'cuda:N', "
+            "or 'mps'."
+        )
+    return device
+
+
+def _resolve_device(device: str = "auto") -> str:
+    """Resolve a device string, expanding ``"auto"`` to a concrete device.
+
+    When ``device`` is ``"auto"``, the ``SRP_DEVICE`` environment variable (if
+    set) takes precedence — useful for forcing ``"cpu"`` in environments where
+    auto-detection picks an unusable accelerator (e.g. MPS on CI mac runners).
+
+    Args:
+        device: One of ``"auto"``, ``"cpu"``, ``"cuda"`` (or ``"cuda:N"``), or
+            ``"mps"``. ``"auto"`` selects CUDA, then MPS, then CPU.
+
+    Returns:
+        A concrete device string.
+
+    Raises:
+        ValueError: If the resolved device is not one of ``cpu``, ``mps``,
+            ``cuda``, or ``cuda:N`` (guards typos in an explicit ``device`` or
+            in ``SRP_DEVICE``).
+    """
+    if device != "auto":
+        return _validate_device(device)
+
+    override = os.environ.get("SRP_DEVICE")
+    if override:
+        return _validate_device(override)
+
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 def make_predictor(
-    model_path: List[Union[str, Path]],
+    model_paths: List[Union[str, Path]],
     peak_threshold: float = 0.2,
     batch_size: int = 4,
     device: str = "auto",
 ) -> Predictor:
-    """Create a Predictor from a model dir(s).
+    """Create a reusable sleap-nn Predictor from one or more model directories.
+
+    The returned predictor loads the model(s) once and can be reused across many
+    videos (see :func:`predict_on_video`).
 
     Args:
-        model_path: List of Path(s) to the trained model directory.
+        model_paths: Path(s) to trained model director(ies). For top-down models
+            pass both the centroid and centered-instance directories.
         peak_threshold: Confidence threshold for peak detection.
         batch_size: Number of samples per batch for inference.
-        device: Device for inference ("auto", "cpu", "cuda", or "mps").
-               "auto" will select the best available device.
+        device: Device for inference (``"auto"``, ``"cpu"``, ``"cuda"``, or
+            ``"mps"``). ``"auto"`` selects the best available device.
 
     Returns:
-        An instance of Predictor.
+        A sleap-nn :class:`~sleap_nn.inference.predictor.Predictor`.
 
     Raises:
-        FileNotFoundError: If the model file is not found.
-        TypeError: If the loaded predictor is not a Predictor.
+        ValueError: If ``model_paths`` is empty.
+        FileNotFoundError: If any model directory does not exist.
     """
-    model_paths = [Path(p) for p in model_path]
-    for model_path in model_paths:
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model dir not found: {model_path}")
+    if not model_paths:
+        raise ValueError("model_paths is empty; provide at least one model directory.")
 
-    # Determine the best device if auto
-    if device == "auto":
-        import torch
+    resolved_paths = []
+    for p in model_paths:
+        path = Path(p)
+        if not path.exists():
+            raise FileNotFoundError(f"Model dir not found: {path}")
+        resolved_paths.append(_maybe_sanitize_legacy_config(path))
 
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
+    resolved_device = _resolve_device(device)
 
-    # Load the predictor with specified parameters
-    predictor = Predictor.from_model_paths(
-        [model_path.as_posix() for model_path in model_paths],
-        peak_threshold=peak_threshold,
+    return Predictor.from_model_paths(
+        [path.as_posix() for path in resolved_paths],
+        device=resolved_device,
         batch_size=batch_size,
-        device=device,
+        peak_threshold=peak_threshold,
     )
-
-    return predictor
 
 
 def predict_on_video(
@@ -72,24 +204,20 @@ def predict_on_video(
     video: "sio.Video",
     save_path: Optional[Union[str, Path]] = None,
 ) -> Union[Path, "sio.Labels"]:
-    """Run prediction on a sleap_io.Video object using a Predictor.
+    """Run prediction on a ``sleap_io.Video`` using a Predictor.
 
     Args:
-        predictor: The Predictor instance to use for inference.
-        video: A sleap_io.Video object.
-        save_path: Optional path to save predictions as .slp file.
-                  If None, returns the Labels object without saving.
+        predictor: The Predictor to use for inference.
+        video: A ``sleap_io.Video`` object.
+        save_path: Optional path to save predictions as a ``.slp`` file. If
+            ``None``, the ``sio.Labels`` object is returned without saving.
 
     Returns:
-        Either the path to the saved .slp file or the Labels object with predictions.
+        The saved ``.slp`` :class:`~pathlib.Path` if ``save_path`` is given,
+        otherwise the ``sio.Labels`` with predictions.
     """
-    # Create VideoReader from Video object
-    video_reader = VideoReader(video, queue_maxsize=8)
+    labels = predictor.predict(video, make_labels=True)
 
-    # Run inference
-    labels = predictor.predict(video_reader)
-
-    # Save if path provided
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,96 +225,3 @@ def predict_on_video(
         return save_path
 
     return labels
-
-
-def predict_on_h5(
-    predictor: Predictor,
-    h5: Union[str, Path],
-    dataset: str = "vol",
-    save_path: Optional[Union[str, Path]] = None,
-) -> Union[Path, "sio.Labels"]:
-    """Run prediction on an H5 file using a Predictor.
-
-    This function is kept for backward compatibility.
-
-    Args:
-        predictor: The Predictor instance to use for inference.
-        h5: H5 file containing the video data.
-        dataset: Name of the dataset within the H5 file (default: "vol").
-        save_path: Optional path to save predictions as .slp file.
-                  If None, returns the Labels object without saving.
-
-    Returns:
-        Either the path to the saved .slp file or the Labels object with predictions.
-
-    Raises:
-        FileNotFoundError: If the H5 file is not found.
-    """
-    h5_path = Path(h5)
-    if not h5_path.exists():
-        raise FileNotFoundError(f"H5 file not found: {h5_path}")
-
-    # Create VideoReader from H5 file
-    video_reader = VideoReader.from_filename(
-        filename=h5_path.as_posix(),
-        dataset=dataset,
-        queue_maxsize=8,
-    )
-
-    # Run inference
-    labels = predictor.predict(video_reader)
-
-    # Save if path provided
-    if save_path:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        sio.save_file(labels, save_path.as_posix())
-        return save_path
-
-    return labels
-
-
-def batch_predict(
-    predictor: Predictor,
-    input_paths: List[Union[str, Path]],
-    output_dir: Union[str, Path],
-    dataset: str = "vol",
-    file_suffix: str = "",
-) -> Dict[str, Union[Path, str]]:
-    """Run predictions on multiple H5 files.
-
-    Args:
-        predictor: The Predictor instance to use for inference.
-        input_paths: List of paths to H5 files.
-        output_dir: Directory to save prediction files.
-        dataset: Name of the dataset within the H5 files (default: "vol").
-        file_suffix: Optional suffix to add to output filenames.
-
-    Returns:
-        Dictionary mapping input paths to output paths or error messages.
-    """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    results = {}
-
-    for input_path in input_paths:
-        input_path = Path(input_path)
-
-        try:
-            # Generate output filename
-            base_name = input_path.stem
-            if file_suffix:
-                output_name = f"{base_name}{file_suffix}.slp"
-            else:
-                output_name = f"{base_name}.slp"
-            output_path = output_dir / output_name
-
-            # Run prediction
-            predict_on_h5(predictor, input_path, dataset=dataset, save_path=output_path)
-            results[input_path.as_posix()] = output_path.as_posix()
-
-        except Exception as e:
-            results[input_path.as_posix()] = f"Error: {str(e)}"
-
-    return results

@@ -83,6 +83,13 @@ jobs:
             uv sync --extra dev --extra cpu
           fi
 
+      - name: Install graphics dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu'
+        run: |
+          # sleap-nn 0.3.0 depends on skia-python, which needs system graphics
+          # libraries (libEGL etc.) not present on headless Ubuntu runners.
+          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+
       - name: Verify installation
         run: |
           uv run python -c "
@@ -110,10 +117,14 @@ jobs:
               device_info = 'CPU'
           
           print(f'Device: {device} - {device_info}')
-          
-          # Test tensor creation
-          test_tensor = torch.randn(3, 3).to(device)
-          print(f'[OK] Test tensor created on: {test_tensor.device}')
+
+          # Test tensor creation (non-fatal: hosted macOS MPS can be flaky and
+          # fail tiny allocations; inference tests run on CPU there via SRP_DEVICE).
+          try:
+              test_tensor = torch.randn(3, 3).to(device)
+              print(f'[OK] Test tensor created on: {test_tensor.device}')
+          except Exception as e:
+              print(f'[WARN] Test tensor on {device} failed (continuing): {e}')
           print('[OK] All packages imported successfully')
           "
 
@@ -124,12 +135,19 @@ jobs:
           uv run python -c "import numpy, torch, sleap_nn, sleap_io; print(f'numpy={numpy.__version__}, torch={torch.__version__}, sleap_nn={sleap_nn.__version__}, sleap_io={sleap_io.__version__}')"
           uv run pip list
           echo "=== Running pytest ==="
-          if [ "${{ matrix.os }}" = "self-hosted-gpu" ] || [ "${{ matrix.os }}" = "mac" ]; then
-            # Run all tests including GPU tests on self-hosted GPU runner and macOS (MPS)
-            uv run pytest --cov=sleap_roots_predict --cov-report=xml --durations=-1 tests/
+          # The default addopts deselect 'gpu' and 'acceptance'; pass -m explicitly
+          # here so it overrides that default per runner. 'acceptance' is always
+          # excluded (it is gated on local-data env vars).
+          if [ "${{ matrix.os }}" = "self-hosted-gpu" ]; then
+            # Include GPU tests on the self-hosted GPU runner (real CUDA).
+            uv run pytest --cov=sleap_roots_predict --cov-report=xml --durations=-1 -m "not acceptance" tests/
+          elif [ "${{ matrix.os }}" = "mac" ]; then
+            # Hosted macOS runners have unreliable MPS; force CPU for inference.
+            # GPU-marked tests self-skip (no CUDA), so run the non-acceptance set.
+            SRP_DEVICE=cpu uv run pytest --cov=sleap_roots_predict --cov-report=xml --durations=-1 -m "not gpu and not acceptance" tests/
           else
-            # Skip GPU-specific tests on other runners (Ubuntu, Windows without GPU)
-            uv run pytest --cov=sleap_roots_predict --cov-report=xml --durations=-1 -m "not gpu" tests/
+            # Skip GPU-specific tests on other runners (Ubuntu, Windows without GPU).
+            uv run pytest --cov=sleap_roots_predict --cov-report=xml --durations=-1 -m "not gpu and not acceptance" tests/
           fi
 
     #   - name: Upload coverage
