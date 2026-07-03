@@ -53,4 +53,4 @@ minimum code to pass, then refactor. Run `/lint` and `/test` after each.
 
 - [x] 8.1 `openspec validate rebuild-inference-core --strict` passes.
 - [x] 8.2 Run the real acceptance test on the reference data (`Z:\...PGM1-PAC-EFFECT_EXP1`) and record the outcome — especially whether the legacy production models load under 0.3.0 (a finding for the parity slice if not).
-- [ ] 8.3 `/pre-merge` (format + lint + test + build) green; open PR referencing this change-id.
+- [x] 8.3 `/pre-merge` (format + lint + test + build) green; open PR referencing this change-id.
