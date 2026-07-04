@@ -26,6 +26,15 @@ Layer 2 (selection + fetch) and a thin Layer 3 (warm residency) on top of it.
   sleap-nn Predictors; only `WandbRegistrySource` touches the network, and it is covered by gated
   tests. Alternatives (a hand-maintained YAML table; a single monolithic `predict()` that calls
   wandb directly) were rejected — see the design doc.
+- **Pinning lives in the card, not the matcher or a `ModelRef` built by the source.** `ModelCard`
+  (contracts `0.1.0a3`) carries the concrete `registry_id`/`version`/`weights_checksum`;
+  `list_cards()` is where a moving alias (`production`) is resolved to a concrete version and baked
+  into the card. `choose_models` then builds the `ModelRef` via `ModelCard.to_model_ref(runtime)`,
+  which copies the card's pin and stamps the runtime sleap-nn version. The source never constructs
+  `ModelRef`s. The runtime version is resolved once at import so the matcher stays pure per call.
+- **`ModelCard` has no path field**, so `LocalCardSource` is built from `(card, path)` pairs and
+  holds a `(registry_id, version) -> Path` map; `materialize(ref)` resolves through it. This keeps
+  the offline path real (no mocks, no fake path field on the contract model).
 - **Identity-keyed residency.** `WarmModelWorker` caches `Predictor`s by `(registry_id, version)`,
   not by root type or scan, so different scan types that resolve to the same model version are a
   cache hit (e.g. canola/pennycress/arabidopsis share a primary model). Fetch-once, load-once.
@@ -40,15 +49,23 @@ Layer 2 (selection + fetch) and a thin Layer 3 (warm residency) on top of it.
 
 ## Risks / Trade-offs
 
-- **New external dependency (wandb) + network boundary** → confined to `WandbRegistrySource`;
-  unit/warm tests never import the network path's behavior (offline via `LocalCardSource`).
-- **Contracts release coupling** → TDD begins only once `sleap-roots-contracts==0.1.0a3` is
-  published; proposal/spec work is unblocked.
+- **wandb network boundary** → confined to `WandbRegistrySource` with a lazy `import wandb`;
+  unit/warm tests never touch it (offline via `LocalCardSource`). `wandb` is already a transitive
+  sleap-nn dependency, so declaring it direct is honest and does not enlarge the image.
+- **CI marker override** → CI passes an explicit `-m` that overrides `addopts`, so the `wandb`
+  deselection must also be added to `ci.yml`'s `-m` filters (incl. the self-hosted runner), and the
+  gated tests carry `skipif(not WANDB_API_KEY)` so they never hit the network on shared runners.
 - **Concurrency** → v1 assumes sequential scans; the residency cache is unguarded (documented
   limitation; a per-key load lock is future work).
+
+## Migration Plan
+
+N/A — new capability, additive; no existing behavior changes. Rollback = revert the additive commits.
 
 ## Open Questions
 
 - Exact production-registry identity (a dedicated registry vs. curating the `production` alias in
   `sleap-roots-models`) — configurable via `SRP_WANDB_ENTITY`/`SRP_WANDB_REGISTRY`; settled with
   `sleap-roots-training`. Does not block offline work.
+- Best `peak_threshold` per dataset (the output-defining knob) is an open empirical question tracked
+  in issue #8; the worker records whatever value is used, so tuning does not change this design.
