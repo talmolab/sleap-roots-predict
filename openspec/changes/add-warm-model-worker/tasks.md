@@ -76,15 +76,15 @@
 
 ## 5. WandbRegistrySource (network path, gated test-first)
 
-- [ ] 5.1 RED (ungated, offline): assert `WandbRegistrySource` raises a clear error naming
+- [x] 5.1 RED (ungated, offline): assert `WandbRegistrySource` raises a clear error naming
       `WANDB_API_KEY` (before any network call) when the key is unset — this behavior is testable
       without the `wandb` marker.
-- [ ] 5.2 RED (gated): `tests/test_model_registry.py` — a `@pytest.mark.wandb` test carrying a
+- [x] 5.2 RED (gated): `tests/test_model_registry.py` — a `@pytest.mark.wandb` test carrying a
       collection-time `skipif(not WANDB_API_KEY)` (mirror `tests/test_acceptance.py`) that, when creds
       are present, asserts `list_cards()` yields `ModelCard`s with alias→concrete-version pinning and
       that `materialize(ref)` downloads the pinned version into `SRP_MODEL_CACHE_DIR`, reusing the
       cache on a second call.
-- [ ] 5.3 GREEN: implement `WandbRegistrySource` in `model_registry.py` — `wandb.Api()`-based listing
+- [x] 5.3 GREEN: implement `WandbRegistrySource` in `model_registry.py` — `wandb.Api()`-based listing
       + `artifact.download(root=cache_dir)`; read entity/registry/cache from
       `SRP_WANDB_ENTITY`/`SRP_WANDB_REGISTRY`/`SRP_MODEL_CACHE_DIR`; alias→concrete-version pinning +
       `weights_checksum` into the card. All network confined here; `import wandb` stays lazy/local.

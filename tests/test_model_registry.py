@@ -6,14 +6,21 @@ that ``make_predictor`` can load. Gated ``WandbRegistrySource`` tests are added 
 a later task (``@pytest.mark.wandb``).
 """
 
+import os
 from pathlib import Path
 
 import pytest
 from sleap_nn.inference import Predictor
 from sleap_roots_contracts import ModelCard
 
-from sleap_roots_predict.model_registry import LocalCardSource, ModelCardSource
+from sleap_roots_predict.model_registry import (
+    LocalCardSource,
+    ModelCardSource,
+    WandbRegistrySource,
+)
 from sleap_roots_predict.predict import make_predictor
+
+WANDB_API_KEY = os.environ.get("WANDB_API_KEY")
 
 
 def _card(root_type, registry_id, version="v1"):
@@ -64,3 +71,32 @@ def test_materialize_unknown_ref_raises(native_model_dir: Path):
     unknown = _card("crown", "reg/missing").to_model_ref("runtime")
     with pytest.raises(KeyError, match="reg/missing"):
         source.materialize(unknown)
+
+
+# --- WandbRegistrySource ------------------------------------------------------
+
+
+def test_wandb_source_missing_key_raises_before_network(monkeypatch):
+    """With no WANDB_API_KEY, list_cards raises a clear error (no network call)."""
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+    source = WandbRegistrySource(entity="an-entity", registry="a-registry")
+    with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        source.list_cards()
+
+
+@pytest.mark.wandb
+@pytest.mark.skipif(
+    not WANDB_API_KEY,
+    reason="requires WANDB_API_KEY + a populated production registry",
+)
+def test_wandb_source_lists_and_materializes(tmp_path):
+    """With creds, list_cards yields pinned cards and materialize caches the dir."""
+    source = WandbRegistrySource(cache_dir=tmp_path)
+    cards = source.list_cards()
+    assert cards and all(isinstance(c, ModelCard) for c in cards)
+    # Cards are pinned to a concrete version (not a moving alias).
+    assert all(c.version for c in cards)
+    ref = cards[0].to_model_ref("runtime")
+    first = source.materialize(ref)
+    assert Path(first).exists()
+    assert source.materialize(ref) == first  # cached, no re-download
