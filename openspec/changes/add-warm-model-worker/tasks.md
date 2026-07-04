@@ -69,10 +69,10 @@
 
 ## 4. Effective inference-config capture (test-first)
 
-- [ ] 4.1 RED: assert `WarmModelWorker.inference_config()` returns the resolved `device`,
+- [x] 4.1 RED: assert `WarmModelWorker.inference_config()` returns the resolved `device`,
       `peak_threshold`, and `batch_size` actually used, and that the exposed output-defining subset
       contains `peak_threshold` and excludes `device`/`batch_size`.
-- [ ] 4.2 GREEN: implement `inference_config()` and the output-defining-subset accessor.
+- [x] 4.2 GREEN: implement `inference_config()` and the output-defining-subset accessor.
 
 ## 5. WandbRegistrySource (network path, gated test-first)
 

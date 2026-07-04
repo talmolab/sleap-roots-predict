@@ -14,6 +14,7 @@ from sleap_nn.inference import Predictor
 from sleap_roots_contracts import ModelCard, ResolvedParams
 
 from sleap_roots_predict.model_registry import LocalCardSource
+from sleap_roots_predict.predict import _resolve_device
 from sleap_roots_predict.video_utils import make_video_from_images
 from sleap_roots_predict.warm_worker import WarmModelWorker
 
@@ -125,3 +126,36 @@ def test_get_predictors_fails_loud_on_unloadable_model(tmp_path):
     with pytest.raises(RuntimeError, match=r"reg/bad:v9") as exc:
         worker.get_predictors(_params())
     assert "primary" in str(exc.value)
+
+
+# --- effective inference config (group 4) -------------------------------------
+
+
+def test_inference_config_reports_the_values_used():
+    """inference_config returns the resolved device, peak_threshold, batch_size."""
+    worker = WarmModelWorker(
+        LocalCardSource([]), device="cpu", peak_threshold=0.35, batch_size=2
+    )
+    assert worker.inference_config() == {
+        "device": "cpu",
+        "peak_threshold": 0.35,
+        "batch_size": 2,
+    }
+
+
+def test_inference_config_resolves_auto_device():
+    """A device of 'auto' is reported as the concrete resolved device."""
+    worker = WarmModelWorker(LocalCardSource([]), device="auto")
+    reported = worker.inference_config()["device"]
+    assert reported == _resolve_device("auto")
+    assert reported != "auto"
+
+
+def test_output_defining_subset_excludes_hardware_knobs():
+    """The output-defining subset carries peak_threshold, not device/batch_size."""
+    worker = WarmModelWorker(
+        LocalCardSource([]), device="cpu", peak_threshold=0.3, batch_size=8
+    )
+    out = worker.output_params()
+    assert out == {"peak_threshold": 0.3}
+    assert "device" not in out and "batch_size" not in out

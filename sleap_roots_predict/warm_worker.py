@@ -16,7 +16,7 @@ If any resolved root type cannot be materialized or loaded, the worker fails lou
 """
 
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import sleap_io as sio
 from sleap_nn.inference import Predictor
@@ -24,7 +24,11 @@ from sleap_roots_contracts import ModelRef, ResolvedParams, RootType
 
 from sleap_roots_predict.model_registry import ModelCardSource
 from sleap_roots_predict.model_selection import choose_models
-from sleap_roots_predict.predict import make_predictor, predict_on_video
+from sleap_roots_predict.predict import (
+    _resolve_device,
+    make_predictor,
+    predict_on_video,
+)
 
 
 class WarmModelWorker:
@@ -149,3 +153,30 @@ class WarmModelWorker:
                 save_path = Path(save_dir) / f"{root_type}.slp"
             results[root_type] = predict_on_video(predictor, video, save_path)
         return results
+
+    def inference_config(self) -> Dict[str, Any]:
+        """Return the full effective inference config used to build predictors.
+
+        The resolved (concrete) device is reported, not ``"auto"``. This is the
+        audit record; downstream layers fold the output-defining subset (see
+        :meth:`output_params`) into the reproducibility hash and keep the
+        hardware/throughput knobs as diagnostics.
+
+        Returns:
+            A mapping with ``device`` (resolved), ``peak_threshold``, and
+            ``batch_size``.
+        """
+        return {
+            "device": _resolve_device(self._device),
+            "peak_threshold": self._peak_threshold,
+            "batch_size": self._batch_size,
+        }
+
+    def output_params(self) -> Dict[str, Any]:
+        """Return the output-defining subset of the inference config.
+
+        Only knobs that change the predictions belong here (``peak_threshold``);
+        hardware/throughput knobs (``device``, ``batch_size``) are excluded so a
+        rerun on different hardware still dedups on the reproducibility hash.
+        """
+        return {"peak_threshold": self._peak_threshold}
