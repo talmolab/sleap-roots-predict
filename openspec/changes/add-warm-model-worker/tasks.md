@@ -91,9 +91,9 @@
 
 ## 6. Public API + wiring
 
-- [ ] 6.1 RED: add a test asserting the package imports with **no network and no `WANDB_API_KEY`** and
+- [x] 6.1 RED: add a test asserting the package imports with **no network and no `WANDB_API_KEY`** and
       that the public surface is importable from the package root.
-- [ ] 6.2 GREEN: export the public surface from `sleap_roots_predict/__init__.py`
+- [x] 6.2 GREEN: export the public surface from `sleap_roots_predict/__init__.py`
       (`WarmModelWorker`, `choose_models`, `LocalCardSource`, `WandbRegistrySource`, `ModelCardSource`)
       and update the module docstring to name the model-management capability.
 
