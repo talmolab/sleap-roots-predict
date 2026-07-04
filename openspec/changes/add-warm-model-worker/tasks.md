@@ -99,7 +99,7 @@
 
 ## 7. Docs
 
-- [ ] 7.1 Run `/docs-review` and sync the living docs to the new inventory: `CLAUDE.md` (Package
+- [x] 7.1 Run `/docs-review` and sync the living docs to the new inventory: `CLAUDE.md` (Package
       Structure — add the 3 modules; Key Dependencies — add `wandb`, `sleap-roots-contracts`; the
       public-API line; a new "Runtime configuration (env)" subsection documenting `WANDB_API_KEY`,
       `SRP_WANDB_ENTITY`, `SRP_WANDB_REGISTRY`, `SRP_MODEL_CACHE_DIR`); `openspec/project.md`

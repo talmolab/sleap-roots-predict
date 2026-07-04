@@ -11,11 +11,11 @@ It is a **service** (runs in a container, GPU-capable), not a pure library: the 
 distribution artifact is a GHCR Docker image. A PyPI wheel is also published for use as an
 importable library.
 
-> **Roadmap note:** the rebuild of the inference core on the new `sleap-nn` API and the
-> warm long-running GPU worker shape belong to a **later tier (A3-predict)** in the
-> bloom-pipeline-integration roadmap. This repo is currently at the **A0 tooling baseline**
-> (OpenSpec + dev commands + Dockerfile + GHCR). Do **not** undertake the sleap-nn rewrite
-> or warm-worker work as part of A0.
+> **Roadmap note:** tier **A3-predict** is landing. The inference core was rebuilt on the
+> sleap-nn 0.3.0 API (PR #6), and the warm in-memory model worker + wandb model-management
+> layer (the `model-management` capability) followed. Remaining A3/A4 work: the serving
+> protocol/CLI, the `predictions.csv` output contract + `.slp` naming, emitting
+> `Provenance`/`ResultEnvelope`, and the prediction-parity harness.
 
 ## Tech Stack
 - **Python** ≥ 3.11 (CI matrix: 3.11, 3.12)
@@ -37,8 +37,11 @@ importable library.
 
 ### Architecture Patterns
 - Package `sleap_roots_predict/`:
-  - `predict.py` — sleap-nn prediction interface (`make_predictor`, `predict_on_video`,
-    `predict_on_h5`, `batch_predict`)
+  - `predict.py` — sleap-nn prediction interface (`make_predictor`, `predict_on_video`)
+  - `model_selection.py` — pure model-selection matcher (`choose_models`)
+  - `model_registry.py` — model-card sources (`ModelCardSource`, `LocalCardSource`,
+    `WandbRegistrySource`); all wandb/network access confined here (lazy import)
+  - `warm_worker.py` — `WarmModelWorker`, keeps sleap-nn `Predictor`s resident across scans
   - `video_utils.py` — image I/O utilities (natural sort, greyscale, load/save, video build)
   - `plates_timelapse_experiment.py` — timelapse experiment orchestration
   - `__init__.py` — exposes the high-level API only
@@ -49,7 +52,9 @@ importable library.
 - pytest, tests in `tests/`; fixtures in `tests/conftest.py`. Inference tests are
   **real (no mocks)** — they run actual sleap-nn CPU inference against vendored
   minimal models in `tests/assets/` (see `tests/assets/README.md`).
-- Default run deselects `gpu` and `acceptance` markers (`addopts` in `pyproject.toml`).
+- Default run deselects `gpu`, `acceptance`, and `wandb` markers (`addopts` in `pyproject.toml`;
+  CI's explicit `-m` filters exclude them too). The `wandb` tests hit the model registry and are
+  gated on `WANDB_API_KEY` (they skip cleanly without it).
 - **GPU tests** (`@pytest.mark.gpu`): run locally with `uv run pytest -m gpu`. On
   Windows+CUDA install the profile first: `uv sync --extra dev --extra windows_cuda`.
   They skip cleanly with no accelerator; the self-hosted-gpu and macOS runners run
@@ -78,6 +83,11 @@ downstream join.
 
 ## External Dependencies
 - **sleap-nn / sleap-io** — inference engine and label I/O.
-- **sleap-roots model registry** — source of trained models.
+- **sleap-roots-contracts** (`==0.1.0a3`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`.
+- **wandb** — the model registry the warm worker fetches root models from (network confined to
+  `WandbRegistrySource`). Also a transitive sleap-nn dependency.
+- **sleap-roots model registry** — source of trained models (the wandb registry above).
+- **sleap-roots-training** — *coordinating writer*: emits the `ModelCard` selection fields as
+  wandb artifact metadata at model promotion (must match the contract's field names).
 - **GHCR** (`ghcr.io/talmolab/sleap-roots-predict`) — service image registry.
 - **PyPI** — importable wheel distribution.

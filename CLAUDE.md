@@ -53,14 +53,24 @@ Install with platform-specific extras for proper hardware acceleration:
 ### Package Structure
 The main package is `sleap_roots_predict/` which contains:
 - `predict.py`: sleap-nn 0.3.0 prediction interface (make_predictor, predict_on_video; legacy-config sanitization)
+- `model_selection.py`: pure model-selection matcher (`choose_models`: scan params + `ModelCard`s → `ModelRef` per root type)
+- `model_registry.py`: model-card sources — `ModelCardSource` protocol, offline `LocalCardSource`, and networked `WandbRegistrySource` (all wandb access confined here, lazy import)
+- `warm_worker.py`: `WarmModelWorker` — resolves, fetches-once, loads-once, and keeps sleap-nn `Predictor`s resident across scans (fail-loud)
 - `video_utils.py`: Core utilities for image processing (natural_sort, convert_to_greyscale, load_images, make_video_from_images, save_array_as_h5, find_image_directories)
 - `plates_timelapse_experiment.py`: Experiment processing functions (extract_timelapse_metadata_from_filename, create_timelapse_metadata_dataframe, check_timelapse_image_directory, process_timelapse_image_directory, process_timelapse_experiment)
-- `__init__.py`: Package initialization exposing only high-level API: `process_timelapse_experiment`, `make_predictor`, `predict_on_video`
+- `__init__.py`: Package initialization exposing the high-level API: `process_timelapse_experiment`, `make_predictor`, `predict_on_video`, `choose_models`, `ModelCardSource`, `LocalCardSource`, `WandbRegistrySource`, `WarmModelWorker`
 
 ### Key Dependencies
-- **Core**: sleap-nn, sleap-io for pose estimation
+- **Core**: sleap-nn, sleap-io for pose estimation; sleap-roots-contracts for shared `ModelCard`/`ModelRef`/`ResolvedParams`; wandb for the model registry
 - **Data Processing**: numpy, pandas, h5py, imageio
 - **Testing**: pytest, pytest-cov, PIL
+
+### Runtime configuration (env)
+The warm model worker / wandb registry source read these environment variables:
+- `WANDB_API_KEY`: authenticates registry access (a k8s secret in deployment)
+- `SRP_WANDB_ENTITY`, `SRP_WANDB_REGISTRY`: the production registry to fetch models from
+- `SRP_MODEL_CACHE_DIR`: local artifact download cache (falls back to `WANDB_CACHE_DIR`); point at a persistent/hostPath volume in k8s
+- `SRP_DEVICE`: overrides inference device auto-detection (from `predict.py`)
 
 ### Configuration
 - Uses `pyproject.toml` for all project configuration
@@ -74,6 +84,11 @@ The modules provide modular functions for processing timelapse experiments:
 #### Prediction Functions (predict.py)
 - `make_predictor()`: Create a reusable sleap-nn Predictor with automatic device selection (sanitizes legacy SLEAP configs)
 - `predict_on_video()`: Run inference on sleap_io.Video objects
+
+#### Model Management (model_selection.py / model_registry.py / warm_worker.py)
+- `choose_models()`: pure matcher — scan params (species/mode/age) + `ModelCard`s → `ModelRef` per root type (override wins; else `species`/`mode`/inclusive-age match; exactly-one selects, zero skips, ambiguity raises)
+- `LocalCardSource` / `WandbRegistrySource`: `ModelCardSource` implementations (`list_cards()` + `materialize(ref) → dir`); the wandb source pins alias→concrete version and confines all network access
+- `WarmModelWorker`: `resolve()` / `get_predictors()` / `predict()` / `inference_config()`; caches `Predictor`s by `(registry_id, version)` (fetch-once/load-once/reuse); fails loud on an unloadable root type. `predict(save_dir=…)` writes raw per-root `.slp` only (the `predictions.csv` manifest + scan-aware naming are a deferred output-contract slice)
 
 #### Core Functions (video_utils.py)
 - `natural_sort()`: Natural sorting for filenames with numbers
@@ -103,9 +118,9 @@ The modules provide modular functions for processing timelapse experiments:
 
 ### Testing
 - Comprehensive test suite with fixtures in `conftest.py`
-- 105 tests passing with high coverage
-- Separate test modules for predict and video_utils
-- GPU tests marked with `@pytest.mark.gpu` for conditional execution
+- Real, no-mock inference tests against vendored minimal models in `tests/assets/`
+- Separate test modules for predict, model selection, model registry, warm worker, and video_utils
+- GPU tests marked `@pytest.mark.gpu`, wandb-registry tests `@pytest.mark.wandb`, real-data tests `@pytest.mark.acceptance` — all deselected by default (and in CI)
 - Tests for edge cases, error handling, and various image formats
 - Fixtures for RGB, greyscale, RGBA, and large images
 - Tests for Unicode paths and malformed filenames
