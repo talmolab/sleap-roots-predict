@@ -39,11 +39,11 @@
 
 ## 2. Card-source protocol + LocalCardSource (offline, test-first)
 
-- [ ] 2.1 RED: `tests/test_warm_worker.py` — assert a `LocalCardSource` built from `(card, path)`
+- [x] 2.1 RED: `tests/test_warm_worker.py` — assert a `LocalCardSource` built from `(card, path)`
       pairs over the vendored model dirs returns the `ModelCard`s from `list_cards()` and that
       `materialize(ref)` returns the on-disk directory mapped to `ref`'s `(registry_id, version)`
       (no network), which `make_predictor` can load.
-- [ ] 2.2 GREEN: implement `sleap_roots_predict/model_registry.py` — the `ModelCardSource` `Protocol`
+- [x] 2.2 GREEN: implement `sleap_roots_predict/model_registry.py` — the `ModelCardSource` `Protocol`
       (`list_cards`, `materialize`) and `LocalCardSource` holding a `(registry_id, version) -> Path`
       mapping. Keep any `wandb` import **lazy/local** so the module imports without touching wandb.
 
