@@ -49,7 +49,7 @@
 
 ## 3. Warm worker residency (offline no-mock, test-first)
 
-- [ ] 3.1 RED: in `tests/test_warm_worker.py`, using a `LocalCardSource` over `tests/assets/models/`
+- [x] 3.1 RED: in `tests/test_warm_worker.py`, using a `LocalCardSource` over `tests/assets/models/`
       (native + legacy, one root type per format) and a small vendored video, assert: `resolve(params)`
       returns `ModelRef`s while the predictor cache stays empty (no load); `get_predictors(params)`
       builds `Predictor`s and a second call for the same model returns the **same** `Predictor`
@@ -58,14 +58,14 @@
       results only for the matched type; `predict(params, video)` returns real `sio.Labels` per root
       type; `predict(params, video, save_dir=…)` writes one reloadable raw `.slp` per root type under
       `save_dir` and no `predictions.csv`.
-- [ ] 3.2 GREEN: implement `sleap_roots_predict/warm_worker.py` — `WarmModelWorker` with
+- [x] 3.2 GREEN: implement `sleap_roots_predict/warm_worker.py` — `WarmModelWorker` with
       `resolve`/`get_predictors`/`predict`, lazy card load, and an internal `(registry_id, version) ->
       Predictor` cache (fetch-once/load-once/reuse). `predict` composes `predict_on_video`; with
       `save_dir` it writes `save_dir/<root_type>.slp` only (no manifest, no scan-aware naming).
-- [ ] 3.3 RED: assert **fail-loud** — when a resolved root type's model cannot be materialized/loaded,
+- [x] 3.3 RED: assert **fail-loud** — when a resolved root type's model cannot be materialized/loaded,
       `get_predictors` raises an error naming the root type and `registry_id:version` and returns no
       predictors (no partial results).
-- [ ] 3.4 GREEN: implement the fail-loud path in `get_predictors`.
+- [x] 3.4 GREEN: implement the fail-loud path in `get_predictors`.
 
 ## 4. Effective inference-config capture (test-first)
 
