@@ -9,15 +9,15 @@
 
 ## 0. Dependencies + markers (gates the rest)
 
-- [ ] 0.1 Add `sleap-roots-contracts==0.1.0a3` and `wandb` to `pyproject.toml` `dependencies`
+- [x] 0.1 Add `sleap-roots-contracts==0.1.0a3` and `wandb` to `pyproject.toml` `dependencies`
       (`wandb` is already transitive via sleap-nn; declaring it direct is honest since
       `WandbRegistrySource` imports it). `uv sync --extra dev --extra cpu`; confirm
       `from sleap_roots_contracts import ModelCard, ModelRef, ResolvedParams, RootType` imports.
-- [ ] 0.2 **Regenerate and commit `uv.lock`** (it currently lacks `sleap-roots-contracts`); the
+- [x] 0.2 **Regenerate and commit `uv.lock`** (it currently lacks `sleap-roots-contracts`); the
       `Dockerfile` runs `uv sync --frozen`, so a stale lock fails the docker build.
-- [ ] 0.3 Register a `wandb` pytest marker in `pyproject.toml` `[tool.pytest.ini_options].markers`
+- [x] 0.3 Register a `wandb` pytest marker in `pyproject.toml` `[tool.pytest.ini_options].markers`
       and add it to the default deselection (`addopts = "-m 'not gpu and not acceptance and not wandb'"`).
-- [ ] 0.4 Add `not wandb` to the `-m` expressions in `.github/workflows/ci.yml` (all runners,
+- [x] 0.4 Add `not wandb` to the `-m` expressions in `.github/workflows/ci.yml` (all runners,
       including the self-hosted GPU runner) — CI passes an explicit `-m` that overrides `addopts`, so
       without this the wandb tests would be collected in CI (and could hit the network on a runner
       that carries `WANDB_API_KEY`).
