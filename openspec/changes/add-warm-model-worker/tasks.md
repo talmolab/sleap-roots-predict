@@ -110,10 +110,10 @@
 
 ## 8. Verify
 
-- [ ] 8.1 `/lint` (black + ruff docstrings + codespell) and `/test` — the default suite is green with
+- [x] 8.1 `/lint` (black + ruff docstrings + codespell) and `/test` — the default suite is green with
       `gpu`, `acceptance`, and `wandb` deselected (offline warm-worker tests run real CPU inference).
-- [ ] 8.2 Run `uv run pytest -m wandb` and confirm the wandb tests **skip** (not error) with no creds.
-- [ ] 8.3 `openspec validate add-warm-model-worker --strict` passes.
+- [x] 8.2 Run `uv run pytest -m wandb` and confirm the wandb tests **skip** (not error) with no creds.
+- [x] 8.3 `openspec validate add-warm-model-worker --strict` passes.
 
 ## 9. Post-merge (NOT part of this PR)
 
