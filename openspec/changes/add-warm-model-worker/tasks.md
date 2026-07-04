@@ -24,14 +24,14 @@
 
 ## 1. Model-selection matcher (pure, test-first)
 
-- [ ] 1.1 RED: `tests/test_model_selection.py` — build tiny real `ModelCard` lists and assert
+- [x] 1.1 RED: `tests/test_model_selection.py` — build tiny real `ModelCard` lists and assert
       `choose_models` returns one `ModelRef` per root type on exact `(species, mode, age∈[min,max])`
       match (with the card's concrete `version`/`weights_checksum` and the runtime `sleap_nn_version`
       stamped); age at the `age_min`/`age_max` boundary matches (inclusive); age outside does not;
       zero matches skips the root type and no-match-at-all returns an empty mapping; >1 match raises
       (names the root type); an explicit override bypasses matching even with zero cards; missing
       `species`/`mode`/`age` raises. Assert no network and no per-call filesystem I/O.
-- [ ] 1.2 GREEN: implement `sleap_roots_predict/model_selection.py` — `choose_models(params, cards, overrides=None)`
+- [x] 1.2 GREEN: implement `sleap_roots_predict/model_selection.py` — `choose_models(params, cards, overrides=None)`
       reading `species`/`mode`/`age` from `ResolvedParams.values`, filtering per the rules, and
       converting the chosen `ModelCard` to a `ModelRef` via `card.to_model_ref(runtime_version)`.
       Resolve the runtime sleap-nn version **once at import** (`importlib.metadata.version("sleap-nn")`)
