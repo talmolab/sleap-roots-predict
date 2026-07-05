@@ -392,3 +392,32 @@ def test_batch_respects_overrides(rice_source, video, tmp_path):
     )
     primary_art = next(a for a in manifests[0].artifacts if a.root_type == "primary")
     assert primary_art.model == override
+
+
+# --- Task 7: downstream acceptance (sleap_roots.Series.load) -----------------
+
+
+def test_output_loads_via_sleap_roots_series(rice_source, video, tmp_path):
+    """The writer's output loads cleanly via the downstream sleap_roots.Series."""
+    sleap_roots = pytest.importorskip("sleap_roots")
+    worker = WarmModelWorker(rice_source)
+    manifest = write_prediction_outputs(
+        worker.predict(_params(), video),
+        worker.resolve(_params()),
+        tmp_path,
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    # Resolve each root type's .slp path (POSIX) from the manifest; no crown here.
+    paths = {
+        a.root_type: (tmp_path / a.slp_path).as_posix() for a in manifest.artifacts
+    }
+    series = sleap_roots.Series.load(
+        series_name="scan0731",
+        primary_path=paths.get("primary"),
+        lateral_path=paths.get("lateral"),
+        crown_path=None,
+    )
+    assert series.primary_labels is not None
+    assert series.lateral_labels is not None
