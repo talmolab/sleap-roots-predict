@@ -136,6 +136,11 @@ def _validate_scan_key(scan_key: str) -> None:
     """
     if not scan_key:
         raise ValueError("scan_key must be a non-empty string")
+    if scan_key != scan_key.strip():
+        raise ValueError(
+            f"scan_key {scan_key!r} has leading/trailing whitespace; it must be a "
+            "clean single path segment (Windows trims trailing spaces/dots)"
+        )
     bad = {c for c in scan_key if c in _SCAN_KEY_FORBIDDEN or ord(c) < 32}
     if bad:
         raise ValueError(
@@ -170,10 +175,12 @@ def write_prediction_outputs(
 
     For each resolved root type this writes
     ``{scan_key}.model{model_id}.root{root_type}.slp`` (the sleap-roots ``Series``
-    naming convention) and then a single combined ``{scan_key}.predictions.json``
+    filename convention; loaded downstream via ``Series.load`` with the manifest's
+    explicit paths) and then a single combined ``{scan_key}.predictions.json``
     serializing a :class:`PredictionManifest`. Re-running for the same ``scan_key``
-    into the same ``out_dir`` overwrites the prior outputs in place. Path strings
-    are emitted via ``Path.as_posix()``. Does not import ``sleap-roots``.
+    into the same ``out_dir`` overwrites the prior outputs in place, first removing
+    any stale ``.slp`` for that scan (so a changed model slug does not orphan files).
+    Path strings are emitted via ``Path.as_posix()``. Does not import ``sleap-roots``.
 
     Args:
         labels_by_root: Predicted ``sio.Labels`` per root type (from the worker's
@@ -206,6 +213,16 @@ def write_prediction_outputs(
         )
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    # Idempotent re-run: remove this scan's prior `.slp` artifacts first. Their
+    # filenames embed the model slug, so a model/version/override change would
+    # otherwise orphan the old files (unreferenced by the new manifest, yet matched
+    # by glob-based consumers). Scoped by the validated (separator-free) scan_key
+    # prefix, so other scans in the same directory are untouched.
+    slp_prefix = f"{scan_key}.model"
+    for stale in list(out.iterdir()):
+        if stale.name.startswith(slp_prefix) and stale.name.endswith(".slp"):
+            stale.unlink()
 
     artifacts: list[PredictionArtifact] = []
     for root_type in sorted(refs_by_root):
@@ -288,12 +305,24 @@ def predict_and_write_batch(
 
     Returns:
         One :class:`PredictionManifest` per scan, in request order.
+
+    Raises:
+        ValueError: If two requests share a ``scan_key`` (which would otherwise
+            silently overwrite a scan's subdirectory).
     """
     out = Path(out_dir)
+    reqs = list(requests)
+    keys = [r.scan_key for r in reqs]
+    dups = sorted({k for k in keys if keys.count(k) > 1})
+    if dups:
+        raise ValueError(
+            f"duplicate scan_key(s) in batch: {dups}; each scan must be unique "
+            "(a repeat would silently overwrite an earlier scan's subdirectory)"
+        )
     inference_config = worker.inference_config()
     output_params = worker.output_params()
     manifests: list[PredictionManifest] = []
-    for req in requests:
+    for req in reqs:
         refs = worker.resolve(req.params, req.overrides)
         labels = worker.predict(req.params, req.video, overrides=req.overrides)
         manifests.append(

@@ -16,6 +16,7 @@ from sleap_roots_contracts import ModelCard, ModelRef, ResolvedParams
 
 from sleap_roots_predict.model_registry import LocalCardSource
 from sleap_roots_predict.output_contract import (
+    _SCAN_KEY_FORBIDDEN,
     PredictionArtifact,
     PredictionManifest,
     ScanRequest,
@@ -127,10 +128,24 @@ def test_model_id_slug_is_filename_safe():
     assert slug == "reg-rice-primary-v1"
 
 
-@pytest.mark.parametrize("bad", [".", "/", "\\", ":", "*", "\x00", ""])
-def test_rejects_unsafe_scan_key(bad):
-    """Empty or reserved-character scan keys are rejected (not mangled)."""
-    key = f"scan{bad}1" if bad else ""
+@pytest.mark.parametrize(
+    "bad", sorted(_SCAN_KEY_FORBIDDEN) + ["\x00", "\n", "\t", "\r"]
+)
+def test_rejects_reserved_and_control_chars_in_scan_key(bad):
+    """Every reserved char + control chars are rejected (not mangled)."""
+    with pytest.raises(ValueError):
+        _validate_scan_key(f"scan{bad}1")
+
+
+def test_rejects_empty_scan_key():
+    """An empty scan_key is rejected."""
+    with pytest.raises(ValueError):
+        _validate_scan_key("")
+
+
+@pytest.mark.parametrize("key", [" ", "   ", "scan ", " scan"])
+def test_rejects_whitespace_scan_key(key):
+    """Leading/trailing/all-whitespace keys are rejected (Windows-mangle-prone)."""
     with pytest.raises(ValueError):
         _validate_scan_key(key)
 
@@ -284,6 +299,53 @@ def test_rerun_overwrites_in_place(rice_source, video, tmp_path):
     assert PredictionManifest.model_validate_json(on_disk) == second
 
 
+def test_rerun_with_changed_model_prunes_stale_slp(rice_source, video, tmp_path):
+    """Re-running with a different model for a root type removes the stale .slp."""
+    worker = WarmModelWorker(rice_source)
+    kwargs = dict(
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    # Run 1: primary -> reg/rice-primary (native model, one slug).
+    write_prediction_outputs(
+        worker.predict(_params(), video), worker.resolve(_params()), tmp_path, **kwargs
+    )
+    # Run 2: override primary -> reg/rice-lateral (a different slug/filename).
+    override = {
+        "primary": ModelRef(
+            registry_id="reg/rice-lateral",
+            version="v1",
+            sleap_nn_version="0.3.0",
+            root_type="primary",
+        )
+    }
+    write_prediction_outputs(
+        worker.predict(_params(), video, overrides=override),
+        worker.resolve(_params(), override),
+        tmp_path,
+        **kwargs,
+    )
+    # The stale run-1 primary .slp was pruned: exactly one remains.
+    assert len(list(tmp_path.glob("*.rootprimary.slp"))) == 1
+
+
+def test_manifest_records_worker_provenance(rice_source, video, tmp_path):
+    """The writer stores the worker's inference config + output params verbatim."""
+    worker = WarmModelWorker(rice_source, peak_threshold=0.15)
+    manifest = write_prediction_outputs(
+        worker.predict(_params(), video),
+        worker.resolve(_params()),
+        tmp_path,
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    assert manifest.predict_inference_config == worker.inference_config()
+    assert manifest.predict_output_params == worker.output_params()
+    assert manifest.predict_output_params == {"peak_threshold": 0.15}
+
+
 def test_plant_qr_code_recorded_verbatim(tmp_path):
     """An explicit plant_qr_code is stored as-is (non-default path)."""
     manifest = write_prediction_outputs(
@@ -392,6 +454,17 @@ def test_batch_respects_overrides(rice_source, video, tmp_path):
     )
     primary_art = next(a for a in manifests[0].artifacts if a.root_type == "primary")
     assert primary_art.model == override
+
+
+def test_batch_rejects_duplicate_scan_keys(rice_source, video, tmp_path):
+    """Two requests sharing a scan_key raise rather than silently clobber."""
+    worker = WarmModelWorker(rice_source)
+    reqs = [
+        ScanRequest("dup", video, _params()),
+        ScanRequest("dup", video, _params()),
+    ]
+    with pytest.raises(ValueError):
+        predict_and_write_batch(worker, reqs, tmp_path)
 
 
 # --- Task 7: downstream acceptance (sleap_roots.Series.load) -----------------

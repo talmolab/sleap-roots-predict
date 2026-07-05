@@ -3,14 +3,17 @@
 ### Requirement: Named per-root prediction files
 
 The system SHALL write one `.slp` file per predicted root type named
-`{scan_key}.model{model_id}.root{root_type}.slp`, matching the sleap-roots `Series`
-naming convention (`load_series_from_h5s`: no underscores, `root` concatenated with the
-type). `model_id` SHALL be a filename-safe slug derived from the model's `registry_id`
-and `version` with every character outside `[A-Za-z0-9-]` replaced by `-` (so it is
-slash- and dot-free). `scan_key` is identity and SHALL NOT be mangled: the writer SHALL
-raise `ValueError` when `scan_key` is empty or contains any of `.` `/` `\` `:` `*` `?`
-`"` `<` `>` `|` or a control character (so the value is safe as a single path segment on
-both POSIX and Windows and preserves the `series_name = filename.split(".")[0]`
+`{scan_key}.model{model_id}.root{root_type}.slp`, following the sleap-roots `Series`
+filename convention (no underscores; `root` concatenated with the type). Because a scan's
+root types may resolve to *different* models (distinct `model_id` slugs), the robust load
+path is `Series.load` with the explicit per-root paths from the manifest — not the
+single-`model_id` directory scanner `load_series_from_h5s`. `model_id` SHALL be a
+filename-safe slug derived from the model's `registry_id` and `version` with every
+character outside `[A-Za-z0-9-]` replaced by `-` (so it is slash- and dot-free).
+`scan_key` is identity and SHALL NOT be mangled: the writer SHALL raise `ValueError` when
+`scan_key` is empty or contains any of `.` `/` `\` `:` `*` `?` `"` `<` `>` `|`, a control
+character, or leading/trailing whitespace (so the value is safe as a single path segment
+on both POSIX and Windows and preserves the `series_name = filename.split(".")[0]`
 invariant). Each written `.slp` SHALL be reloadable via `sio.load_file`.
 
 #### Scenario: Writes a reloadable named .slp per root type
@@ -23,7 +26,8 @@ invariant). Each written `.slp` SHALL be reloadable via `sio.load_file`.
 #### Scenario: Rejects a non-filename-safe scan_key
 
 - **WHEN** the writer is called with a `scan_key` that is empty or contains a reserved
-  character (`.`, a path separator, `:`, `*`, `?`, `"`, `<`, `>`, `|`, or a control char)
+  character (`.`, a path separator, `:`, `*`, `?`, `"`, `<`, `>`, `|`, a control char, or
+  leading/trailing whitespace)
 - **THEN** it raises `ValueError` and writes no files
 
 ### Requirement: Combined per-scan manifest and provenance sidecar
@@ -98,7 +102,9 @@ predict_container_digest=None)` that writes the named `.slp` files and the combi
 into `out_dir` (creating it if missing) and returns the resulting `PredictionManifest`.
 It SHALL raise `ValueError` when `labels_by_root` and `refs_by_root` do not cover the same
 set of root types. Re-running for the same `scan_key` into the same `out_dir` SHALL
-overwrite prior outputs in place (idempotent re-run). The writer SHALL use `pathlib.Path`
+overwrite prior outputs in place: the manifest is replaced and any prior `.slp` for that
+`scan_key` (matched by the `{scan_key}.model…` prefix) is removed first, so a changed
+`model_id` slug does not leave orphaned files. The writer SHALL use `pathlib.Path`
 for path handling and emit path strings — `slp_path` and any path passed across the
 sleap-io / sleap-roots boundary — via `Path.as_posix()` (lab convention; keeps the
 manifest portable across POSIX and Windows). It SHALL NOT import or depend on
@@ -122,6 +128,12 @@ manifest portable across POSIX and Windows). It SHALL NOT import or depend on
   manifest and `.slp` files for the same `scan_key`
 - **THEN** it overwrites them in place and the reloaded manifest reflects the new run
 
+#### Scenario: A changed model on re-run does not orphan the prior .slp
+
+- **WHEN** a scan is re-run with a different model for a root type (a new `model_id` slug)
+- **THEN** the prior `.slp` for that `scan_key` is removed, leaving only the current run's
+  files
+
 ### Requirement: Batch prediction-and-write over a warm worker
 
 The system SHALL provide `predict_and_write_batch(worker, requests, out_dir, *,
@@ -129,7 +141,9 @@ predict_code_sha=None, predict_container_digest=None)` that drives a single
 `WarmModelWorker` over an iterable of `ScanRequest`s, writing one output subdirectory per
 scan (`out_dir/{scan_key}/`), reusing the worker's resident `Predictor`s across scans, and
 returning one `PredictionManifest` per scan. A `ScanRequest` SHALL carry `scan_key`,
-`video`, `params`, and optional `plant_qr_code` and `overrides`.
+`video`, `params`, and optional `plant_qr_code` and `overrides`. It SHALL raise
+`ValueError` if two requests share a `scan_key` (which would otherwise silently overwrite
+a scan's subdirectory).
 
 #### Scenario: Batch writes one subdirectory of artifacts per scan
 
@@ -148,6 +162,11 @@ returning one `PredictionManifest` per scan. A `ScanRequest` SHALL carry `scan_k
 - **WHEN** a `ScanRequest` carries an explicit `overrides` mapping a root type to a
   `ModelRef`
 - **THEN** that scan's manifest records the overridden `ModelRef` for that root type
+
+#### Scenario: Duplicate scan_key in a batch is rejected
+
+- **WHEN** `predict_and_write_batch` is given two `ScanRequest`s with the same `scan_key`
+- **THEN** it raises `ValueError`
 
 ### Requirement: Series-loadable output verified without mocks
 

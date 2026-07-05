@@ -4237,7 +4237,7 @@ requires-dist = [
     { name = "sleap-nn", extras = ["torch-cpu"], marker = "extra == 'macos'", specifier = "==0.3.0" },
     { name = "sleap-nn", extras = ["torch-cuda128"], marker = "extra == 'linux-cuda'", specifier = "==0.3.0" },
     { name = "sleap-nn", extras = ["torch-cuda128"], marker = "extra == 'windows-cuda'", specifier = "==0.3.0" },
-    { name = "sleap-roots", marker = "extra == 'dev'" },
+    { name = "sleap-roots", marker = "extra == 'dev'", specifier = ">=0.1.4" },
     { name = "sleap-roots-contracts", specifier = "==0.1.0a3" },
     { name = "toml", marker = "extra == 'dev'" },
     { name = "torch", marker = "extra == 'cpu'", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "sleap-roots-predict", extra = "cpu" } },

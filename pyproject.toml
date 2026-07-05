@@ -54,8 +54,9 @@ dev = [
     # (sleap_roots.Series.load). Predict does NOT runtime-depend on it (no cycle:
     # sleap-roots depends on the contract, not on predict). sleap-roots requires
     # sleap-io>=0.0.11 (open upper) and no sleap-nn, so it co-resolves with the
-    # sleap-nn 0.3.0 pin (sleap-io 0.8.x).
-    "sleap-roots",
+    # sleap-nn 0.3.0 pin (sleap-io 0.8.x). Floor-pinned so a lock refresh can't pull
+    # an incompatible release into the (default-run) Series.load acceptance test.
+    "sleap-roots>=0.1.4",
 ]
 # Platform-specific install profiles. Each pins sleap-nn 0.3.0 and selects a
 # torch build; torch/torchvision are routed to the matching PyTorch index via
