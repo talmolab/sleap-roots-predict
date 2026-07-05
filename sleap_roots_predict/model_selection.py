@@ -55,12 +55,20 @@ def choose_models(
 
     species = values["species"]
     mode = values["mode"]
+    # Reject bools and non-whole numbers rather than silently truncating: 3.5 -> 3
+    # would select the wrong age-window model and diverge from the reproducibility
+    # hash (ResolvedParams.param_hash keeps 3.5). A whole-number string ("3") is fine.
+    raw_age = values["age"]
+    if isinstance(raw_age, bool):
+        raise ValueError(f"Scan param 'age' must be an integer, got bool {raw_age!r}")
     try:
-        age = int(values["age"])
+        age = int(raw_age)
     except (TypeError, ValueError) as e:
         raise ValueError(
-            f"Scan param 'age' must be int-coercible, got {values['age']!r}"
+            f"Scan param 'age' must be a whole number, got {raw_age!r}"
         ) from e
+    if isinstance(raw_age, float) and float(age) != raw_age:
+        raise ValueError(f"Scan param 'age' must be a whole number, got {raw_age!r}")
 
     # Resolve every root type present among the cards plus any override keys.
     root_types = {card.root_type for card in cards} | set(overrides)

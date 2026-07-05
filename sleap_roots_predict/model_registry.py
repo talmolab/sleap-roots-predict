@@ -98,7 +98,7 @@ class WandbRegistrySource:
         *,
         entity: Optional[str] = None,
         registry: Optional[str] = None,
-        alias: str = _DEFAULT_ALIAS,
+        alias: Optional[str] = None,
         cache_dir: Optional[Union[str, Path]] = None,
     ) -> None:
         """Configure the source (no network access happens here).
@@ -112,7 +112,9 @@ class WandbRegistrySource:
         """
         self._entity = entity or os.environ.get("SRP_WANDB_ENTITY", _DEFAULT_ENTITY)
         self._registry = registry or os.environ.get("SRP_WANDB_REGISTRY")
-        self._alias = alias
+        # Explicit alias wins; else env; else default. A falsy alias falls back to
+        # the default rather than disabling the filter (which would list every version).
+        self._alias = alias or os.environ.get("SRP_WANDB_ALIAS", _DEFAULT_ALIAS)
         if cache_dir is not None:
             self._cache_dir: Optional[str] = str(cache_dir)
         else:

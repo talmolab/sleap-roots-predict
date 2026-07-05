@@ -29,8 +29,9 @@ gh run view <run-id> --repo "$REPO" --log-failed
 ### Step 2: Map the failure to a job
 
 CI (`ci.yml`) has two jobs: **lint** (black/ruff/codespell) and **tests** (matrix:
-ubuntu/windows/mac/self-hosted-gpu). A failure on `self-hosted-gpu` or `mac` may be a
-real GPU/MPS issue you can't reproduce on a CPU machine — note that before chasing it.
+ubuntu/windows/mac — all CPU; there is no GPU runner). A failure on `mac` may be a hosted-MPS
+quirk (inference is forced to CPU there via `SRP_DEVICE`) — note that before chasing it. GPU
+tests are not run in CI; they are a required local step in `/pre-merge`.
 The **docker-build** workflow (GHCR image) and **publish** workflow (PyPI) run on push to
 `main` / release, not on PRs.
 
@@ -62,7 +63,7 @@ Run `/run-ci-locally`, which mirrors the lint + tests jobs. Or run the specific 
 | Docker build failed | Dockerfile / dep issue | `docker build -t sleap-roots-predict .` locally; scroll up past "exit code 1" |
 | Platform-specific failure | path separators, case sensitivity | Test on the failing platform; use `pathlib` |
 | Timeout | job exceeds limit | Identify slow tests; mock heavy I/O; shrink fixtures |
-| Missing env / runner offline | self-hosted GPU runner down | Check the runner is online before assuming a code bug |
+| Missing env / secret | required env var or secret absent | Check the workflow `env:` and repo/org secrets |
 
 ## Advanced: download logs
 
@@ -92,7 +93,7 @@ git commit -m "chore: update lock file"
 
 1. Runtime version: CI pins Python 3.11 (lint) / 3.12 (tests). Verify with `uv python list`.
 2. Dependencies: run `uv sync` with the matching hardware extra (CI uses `cpu` on
-   ubuntu/windows, `macos` on mac, `linux_cuda` on the GPU runner).
+   ubuntu/windows, `macos` on mac). GPU tests are not run in CI.
 3. Env vars: CI does not read `.env`.
 4. Platform: Linux is case-sensitive; macOS/Windows are not.
 

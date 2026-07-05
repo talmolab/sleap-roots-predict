@@ -112,6 +112,13 @@ def test_age_accepts_int_coercible_string():
     assert "primary" in result
 
 
+@pytest.mark.parametrize("bad_age", [3.5, "3.5", True])
+def test_age_rejects_non_whole_number(bad_age):
+    """Fractional/bool ages raise rather than silently truncating to a wrong model."""
+    with pytest.raises(ValueError, match="whole number|integer"):
+        choose_models(_params(age=bad_age), [_card("primary", age_min=2, age_max=5)])
+
+
 def test_runtime_sleap_nn_version_resolved_at_import():
     """The stamped version is the installed sleap-nn, resolved once at import."""
     from sleap_roots_predict import model_selection

@@ -94,9 +94,12 @@ def test_wandb_source_lists_and_materializes(tmp_path):
     source = WandbRegistrySource(cache_dir=tmp_path)
     cards = source.list_cards()
     assert cards and all(isinstance(c, ModelCard) for c in cards)
-    # Cards are pinned to a concrete version (not a moving alias).
-    assert all(c.version for c in cards)
+    # Cards are pinned to a concrete version (not the moving alias) with a checksum,
+    # and carry the selection metadata the matcher needs.
+    assert all(c.version and c.version != source._alias for c in cards)
+    assert all(c.weights_checksum for c in cards)
+    assert all(c.species and c.mode and c.root_type for c in cards)
     ref = cards[0].to_model_ref("runtime")
     first = source.materialize(ref)
-    assert Path(first).exists()
+    assert Path(first).exists() and any(Path(first).iterdir())
     assert source.materialize(ref) == first  # cached, no re-download

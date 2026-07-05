@@ -128,6 +128,19 @@ def test_get_predictors_fails_loud_on_unloadable_model(tmp_path):
     assert "primary" in str(exc.value)
 
 
+def test_get_predictors_no_partial_results_on_mixed_failure(native_model_dir, tmp_path):
+    """One good + one unloadable model: get_predictors raises and returns nothing."""
+    source = LocalCardSource(
+        [
+            (_card("primary", "reg/good"), native_model_dir),
+            (_card("lateral", "reg/bad", version="v9"), tmp_path / "does_not_exist"),
+        ]
+    )
+    worker = WarmModelWorker(source)
+    with pytest.raises(RuntimeError, match=r"reg/bad:v9"):
+        worker.get_predictors(_params())
+
+
 # --- effective inference config (group 4) -------------------------------------
 
 

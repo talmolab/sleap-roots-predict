@@ -33,3 +33,14 @@ from sleap_roots_predict.model_registry import (  # noqa: F401
 )
 
 from sleap_roots_predict.warm_worker import WarmModelWorker  # noqa: F401
+
+__all__ = [
+    "process_timelapse_experiment",
+    "make_predictor",
+    "predict_on_video",
+    "choose_models",
+    "ModelCardSource",
+    "LocalCardSource",
+    "WandbRegistrySource",
+    "WarmModelWorker",
+]

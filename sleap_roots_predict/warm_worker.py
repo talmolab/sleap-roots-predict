@@ -53,7 +53,9 @@ class WarmModelWorker:
             batch_size: Samples per inference batch (diagnostic, not output-defining).
         """
         self._source = source
-        self._device = device
+        # Resolve "auto" to a concrete device once, at construction, so the value
+        # recorded by inference_config() is exactly what make_predictor builds with.
+        self._device = _resolve_device(device)
         self._peak_threshold = peak_threshold
         self._batch_size = batch_size
         self._cards = None
@@ -167,7 +169,7 @@ class WarmModelWorker:
             ``batch_size``.
         """
         return {
-            "device": _resolve_device(self._device),
+            "device": self._device,
             "peak_threshold": self._peak_threshold,
             "batch_size": self._batch_size,
         }
