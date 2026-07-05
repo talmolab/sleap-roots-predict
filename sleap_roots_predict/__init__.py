@@ -8,6 +8,10 @@ This package provides:
   fetch them from the wandb registry or a local dir (``ModelCardSource`` /
   ``WandbRegistrySource`` / ``LocalCardSource``), and keep sleap-nn predictors
   resident across scans (``WarmModelWorker``)
+- Output contract: write the per-scan artifacts the downstream traits stage reads
+  (named per-root ``.slp`` + a combined ``{scan}.predictions.json`` manifest) via
+  ``write_prediction_outputs`` / ``predict_and_write_batch`` (see the
+  ``prediction-output`` spec)
 - Timelapse experiment processing with metadata extraction (video/H5/metadata;
   prediction within this flow is currently deferred)
 """
@@ -34,6 +38,14 @@ from sleap_roots_predict.model_registry import (  # noqa: F401
 
 from sleap_roots_predict.warm_worker import WarmModelWorker  # noqa: F401
 
+from sleap_roots_predict.output_contract import (  # noqa: F401
+    PredictionArtifact,
+    PredictionManifest,
+    ScanRequest,
+    predict_and_write_batch,
+    write_prediction_outputs,
+)
+
 __all__ = [
     "process_timelapse_experiment",
     "make_predictor",
@@ -43,4 +55,9 @@ __all__ = [
     "LocalCardSource",
     "WandbRegistrySource",
     "WarmModelWorker",
+    "PredictionArtifact",
+    "PredictionManifest",
+    "ScanRequest",
+    "write_prediction_outputs",
+    "predict_and_write_batch",
 ]

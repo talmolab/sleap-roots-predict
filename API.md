@@ -88,6 +88,61 @@ Run prediction on a sleap_io.Video object.
 
 **Returns:** Path to saved .slp file or Labels object with predictions
 
+### Output Contract
+
+Write the per-scan artifacts the downstream sleap-roots traits stage reads — named
+per-root `.slp` (`{scan_key}.model{model_id}.root{root_type}.slp`) plus a combined
+`{scan_key}.predictions.json` manifest. See the `prediction-output` OpenSpec spec and the
+`sleap_roots_predict.output_contract` docstrings for the full artifact grammar and manifest
+schema (kept single-sourced there to avoid drift).
+
+```python
+from sleap_roots_predict import (
+    write_prediction_outputs,  # write one scan's artifacts, return a PredictionManifest
+    predict_and_write_batch,   # drive a warm worker over N scans (one subdir per scan)
+    ScanRequest,               # a batch scan input (scan_key, video, params, ...)
+    PredictionManifest,        # per-scan manifest (manifest + predict-side provenance)
+    PredictionArtifact,        # one per-root record (model_id, ModelRef, slp_path, checksum, size)
+)
+```
+
+#### `write_prediction_outputs`
+```python
+write_prediction_outputs(
+    labels_by_root: Dict[str, sio.Labels],
+    refs_by_root: Dict[str, ModelRef],
+    out_dir: Union[str, Path],
+    *,
+    scan_key: str,
+    plant_qr_code: Optional[str] = None,
+    inference_config: Dict[str, Any],
+    output_params: Dict[str, Any],
+    predict_code_sha: Optional[str] = None,
+    predict_container_digest: Optional[str] = None,
+) -> PredictionManifest
+```
+Write the named per-root `.slp` files and a combined `{scan_key}.predictions.json` into
+`out_dir` (created if missing); returns the `PredictionManifest`. `plant_qr_code` defaults
+to `scan_key`. Build identity falls back to `SRP_PREDICT_CODE_SHA` /
+`SRP_PREDICT_CONTAINER_DIGEST` then `""`. Re-runs overwrite in place.
+
+**Raises:** `ValueError` if `scan_key` is unsafe as a path segment, or `labels_by_root`
+and `refs_by_root` cover different root types.
+
+#### `predict_and_write_batch`
+```python
+predict_and_write_batch(
+    worker: WarmModelWorker,
+    requests: Iterable[ScanRequest],
+    out_dir: Union[str, Path],
+    *,
+    predict_code_sha: Optional[str] = None,
+    predict_container_digest: Optional[str] = None,
+) -> List[PredictionManifest]
+```
+Drive one warm worker over N scans, writing `out_dir/{scan_key}/` per scan and reusing
+resident predictors. Returns one manifest per scan, in request order.
+
 ---
 
 ## Utility Modules

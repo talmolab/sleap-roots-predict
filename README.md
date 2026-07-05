@@ -212,6 +212,7 @@ sleap_roots_predict/
 ├── model_selection.py              # Pure model-selection matcher (choose_models)
 ├── model_registry.py               # Model-card sources (Local + Wandb registry)
 ├── warm_worker.py                  # WarmModelWorker: resident predictors across scans
+├── output_contract.py              # Per-scan output artifacts (.slp + predictions.json)
 ├── video_utils.py                  # Core image processing utilities
 ├── plates_timelapse_experiment.py  # Timelapse experiment processing
 └── __init__.py                     # Package exports and version
@@ -221,6 +222,7 @@ tests/
 ├── test_model_selection.py     # Model-selection matcher tests
 ├── test_model_registry.py      # Card-source tests (offline + gated wandb)
 ├── test_warm_worker.py         # Warm worker tests (real CPU inference)
+├── test_output_contract.py     # Output-contract writer/batch tests (real CPU inference)
 ├── test_public_api.py          # Public-surface import test
 ├── test_video_utils.py         # Video utilities tests
 └── conftest.py                 # Shared test fixtures

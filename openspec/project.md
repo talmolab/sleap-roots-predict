@@ -12,10 +12,12 @@ distribution artifact is a GHCR Docker image. A PyPI wheel is also published for
 importable library.
 
 > **Roadmap note:** tier **A3-predict** is landing. The inference core was rebuilt on the
-> sleap-nn 0.3.0 API (PR #6), and the warm in-memory model worker + wandb model-management
-> layer (the `model-management` capability) followed. Remaining A3/A4 work: the serving
-> protocol/CLI, the `predictions.csv` output contract + `.slp` naming, emitting
-> `Provenance`/`ResultEnvelope`, and the prediction-parity harness.
+> sleap-nn 0.3.0 API (PR #6), the warm in-memory model worker + wandb model-management
+> layer (the `model-management` capability) followed, and the predict **output contract**
+> (the `prediction-output` capability: named per-root `.slp` + a combined
+> `{scan}.predictions.json` manifest) now lands. Remaining A3/A4 work: the serving
+> protocol/CLI, emitting the full `Provenance`/`ResultEnvelope` (traits assembles these
+> from predict's manifest), and the prediction-parity harness.
 
 ## Tech Stack
 - **Python** ≥ 3.11 (CI matrix: 3.11, 3.12)

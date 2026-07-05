@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **Predict output contract** (`sleap_roots_predict.output_contract`): the per-scan
+  artifacts the downstream traits stage reads. `write_prediction_outputs` writes one
+  named per-root `.slp` (`{scan_key}.model{model_id}.root{root_type}.slp`, sleap-roots
+  `Series`-compatible) plus a combined `{scan_key}.predictions.json` manifest — per-root
+  paths + `model_id` + `plant_qr_code` and the predict-side provenance (resolved
+  `ModelRef`s, effective inference config, `predict_code_sha` / `predict_container_digest`,
+  and each `.slp`'s sha256 checksum + size). `predict_and_write_batch` drives one warm
+  `WarmModelWorker` over many scans (one subdirectory per scan; resident predictors
+  reused). New public exports: `PredictionArtifact`, `PredictionManifest`, `ScanRequest`,
+  `write_prediction_outputs`, `predict_and_write_batch`. Build identity is read from
+  `SRP_PREDICT_CODE_SHA` / `SRP_PREDICT_CONTAINER_DIGEST` (fail-soft to `""`). Added
+  `sleap-roots` as a test-only (`dev`) dependency for the `Series.load` acceptance test.
+  See the `prediction-output` OpenSpec spec.
+
 ### Changed
 
 - **Rebuilt the inference core on sleap-nn 0.3.0.** `make_predictor` now builds a
