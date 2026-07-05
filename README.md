@@ -183,15 +183,14 @@ The project uses GitHub Actions for continuous integration and deployment:
 ### Continuous Integration
 On every pull request:
 - **Linting**: black formatting, ruff linting, codespell
-- **Testing**: Full test suite on multiple platforms
-  - Ubuntu (latest) - CPU only
-  - Windows (latest) - CPU only
-  - macOS (Apple Silicon) - with Metal Performance Shaders (MPS) GPU support
-  - Self-hosted GPU runners (Linux with CUDA)
+- **Testing** (CPU only — see GPU note below):
+  - Ubuntu (latest)
+  - Windows (latest)
+  - macOS (Apple Silicon) - MPS is available but inference is forced to CPU on the hosted runners
 
-GPU tests are automatically run on:
-- macOS runners using Metal Performance Shaders
-- Self-hosted Linux runners with CUDA support
+CI does **not** run CUDA GPU tests (there is no GPU runner). The `gpu`-marked subset is a
+required local step in the pre-merge gate — run it on a CUDA/MPS machine:
+`uv sync --extra dev --extra windows_cuda && uv run pytest -m gpu`.
 
 ### Build and Publish
 On release or manual trigger:
@@ -210,12 +209,19 @@ To publish a new release:
 ```
 sleap_roots_predict/
 ├── predict.py                      # SLEAP-NN prediction interface
+├── model_selection.py              # Pure model-selection matcher (choose_models)
+├── model_registry.py               # Model-card sources (Local + Wandb registry)
+├── warm_worker.py                  # WarmModelWorker: resident predictors across scans
 ├── video_utils.py                  # Core image processing utilities
 ├── plates_timelapse_experiment.py  # Timelapse experiment processing
 └── __init__.py                     # Package exports and version
 
 tests/
 ├── test_predict.py             # Prediction module tests
+├── test_model_selection.py     # Model-selection matcher tests
+├── test_model_registry.py      # Card-source tests (offline + gated wandb)
+├── test_warm_worker.py         # Warm worker tests (real CPU inference)
+├── test_public_api.py          # Public-surface import test
 ├── test_video_utils.py         # Video utilities tests
 └── conftest.py                 # Shared test fixtures
 

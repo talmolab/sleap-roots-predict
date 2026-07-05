@@ -21,6 +21,10 @@ dependencies = [
     "pandas",
     "h5py",
     "imageio",
+    "sleap-roots-contracts==0.1.0a3",
+    # wandb is already a transitive dependency of sleap-nn 0.3.0; declared here
+    # because WandbRegistrySource imports it directly (kept as a lazy import).
+    "wandb",
     ]
     
 dynamic = ["version", "readme"]
@@ -86,10 +90,11 @@ check-hidden = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not gpu and not acceptance'"
+addopts = "-m 'not gpu and not acceptance and not wandb'"
 markers = [
     "gpu: marks tests that require GPU/CUDA (run with '-m gpu'; deselected by default)",
     "acceptance: real-data acceptance tests gated on SRP_CYLINDER_DIR/SRP_MODEL_DIRS (run with '-m acceptance'; deselected by default)",
+    "wandb: tests that hit the wandb registry, gated on WANDB_API_KEY (run with '-m wandb'; deselected by default)",
 ]
 
 # --- uv install configuration -------------------------------------------------

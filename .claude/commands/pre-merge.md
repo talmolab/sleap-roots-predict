@@ -21,13 +21,21 @@ Run all quality checks, create or update the PR, and prepare for merge.
 
 ## Phase 2: Tests
 
-3. **Tests** (CPU subset, as non-GPU CI runners do):
-   ```bash
-   uv run pytest -m "not gpu" tests/
-   ```
-   Run `/coverage` for a detailed report if coverage is a concern. If you changed an
-   inference path, also run the GPU subset (`uv run pytest -m gpu tests/`) on a CUDA/MPS
-   machine. Fix any failures before proceeding.
+3. **Tests.**
+   - **CPU subset** (as the CPU CI runners do):
+     ```bash
+     uv run pytest -m "not gpu" tests/
+     ```
+   - **GPU subset — REQUIRED, run locally.** CI no longer runs GPU tests (the self-hosted
+     GPU runner was retired — see `ci.yml`), so the `gpu`-marked tests MUST be run locally on
+     a CUDA/MPS machine before merge. Install the hardware extra for your platform, then run:
+     ```bash
+     uv sync --extra dev --extra windows_cuda   # or linux_cuda / macos
+     uv run pytest -m gpu tests/
+     ```
+     They must **pass** (not skip). If this machine has no accelerator, GPU cannot be verified
+     here — hand it to someone with a CUDA/MPS box and record the result before merging.
+   Run `/coverage` for a detailed report if coverage is a concern. Fix any failures first.
 
 ## Phase 3: Build
 
@@ -103,7 +111,8 @@ Run all quality checks, create or update the PR, and prepare for merge.
     git fetch origin main
     git merge-base --is-ancestor origin/main HEAD
     ```
-    No merge conflicts; all CI checks green; all review comments addressed. Run one last combined check:
+    No merge conflicts; all CI checks green; all review comments addressed; the **Phase 2 GPU
+    subset passed locally** (CI does not cover GPU). Run one last combined check:
     ```bash
     uv run black --check sleap_roots_predict tests && \
       uv run ruff check sleap_roots_predict/ && \
@@ -118,7 +127,8 @@ Run all quality checks, create or update the PR, and prepare for merge.
 
 - [x/!/ ] Format: PASS / pre-existing issue (#N) / FAIL
 - [x/!/ ] Lint (ruff + codespell): PASS / ...
-- [x/!/ ] Tests: X passed, Y skipped (gpu)
+- [x/!/ ] Tests (CPU): X passed
+- [x/!/ ] Tests (GPU, local): X passed / N/A (no accelerator — verified elsewhere)
 - [x/!/ ] Build/Image: PASS / N/A
 - [x/!/ ] Docs: current / updated
 - [x/!/ ] OpenSpec: all tasks complete / N/A

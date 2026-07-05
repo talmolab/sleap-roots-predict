@@ -17,9 +17,9 @@ cat .github/workflows/ci.yml
 `ci.yml` (as of writing) defines two jobs, neither with `continue-on-error`:
 
 - **lint** (ubuntu): `black --check`, `ruff check`, `codespell`
-- **tests** (matrix: ubuntu, windows, mac, self-hosted-gpu — Python 3.12): `uv sync` with
-  the platform extra, an import/device smoke check, then `pytest` with coverage. GPU-marked
-  tests run only on the `self-hosted-gpu` and `mac` (MPS) runners.
+- **tests** (matrix: ubuntu, windows, mac — Python 3.12, all CPU): `uv sync` with the platform
+  extra, an import/device smoke check, then `pytest` with coverage. GPU-marked tests are **not**
+  run in CI (no GPU runner) — they are a required local step in `/pre-merge`.
 
 `publish.yml` (PyPI) and `docker-build.yml` (GHCR image) run on release / push to `main`,
 not on PRs — they are not part of the PR green gate.
@@ -78,7 +78,7 @@ CI pins **Python 3.11** (lint job) / **3.12** (tests). Verify locally with `uv p
 
 ## Platform matrix
 
-CI runs on ubuntu, windows, macOS, and a self-hosted GPU runner. A local CPU run only
+CI runs on ubuntu, windows, and macOS (all CPU; no GPU runner). A local CPU run only
 covers your current platform. Common cross-platform pitfalls:
 
 - Path separators — use `pathlib` / `os.path.join`, not string literals (image-directory

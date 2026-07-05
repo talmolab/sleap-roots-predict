@@ -19,8 +19,9 @@ uv run pytest --cov=sleap_roots_predict --cov-report=html -m "not gpu" tests/
 # open htmlcov/index.html
 ```
 
-CI runs `--cov-report=xml`; the GPU/MPS runners include the `gpu`-marked tests, so true
-aggregate coverage is highest there.
+CI runs `--cov-report=xml` on CPU only (no GPU runner). The `gpu`-marked tests are excluded
+from CI coverage; run them locally on a CUDA/MPS machine (`uv run pytest -m gpu`, a required
+`/pre-merge` step) for coverage of the device paths.
 
 ## Understanding the Output
 
