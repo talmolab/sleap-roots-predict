@@ -117,9 +117,11 @@
 
 ## 9. Post-merge (NOT part of this PR)
 
-- [ ] 9.1 After merge: `/cleanup-merged` → `/openspec:archive add-warm-model-worker`.
-- [ ] 9.2 **Update the roadmap** (`sleap-roots-pipeline/docs/bloom-integration/roadmap.md`, on the
-      up-to-date roadmap branch): A3-predict progress, repo table, retire the standalone
-      models-downloader stage from the A4 warm path (per the roadmap skill format).
-- [ ] 9.3 Output-contract follow-up: the deferred slice picks up `predict()`'s per-root `.slp` output
-      and adds the `predictions.csv` manifest + `{scan}.model{id}.root{type}.slp` naming.
+- [x] 9.1 After merge: `/cleanup-merged` → `/openspec:archive add-warm-model-worker`.
+- [x] 9.2 **Update the roadmap** (`sleap-roots-pipeline/docs/bloom-integration/roadmap.md`, on `main`):
+      A3-predict progress (🔵), repo table, retire the standalone models-downloader stage from the A4
+      warm path. Done — pipeline `main` commit `ab947e2`.
+
+> **Deferred (future slice, not this change):** the output-contract slice picks up `predict()`'s
+> per-root `.slp` output and adds the `predictions.csv` manifest + `{scan}.model{id}.root{type}.slp`
+> naming.
