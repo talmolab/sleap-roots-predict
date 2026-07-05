@@ -143,6 +143,7 @@ for all path handling and emit path strings via `Path.as_posix()`.
 
 ## Post-merge (required, tracked separately)
 
-- [ ] P.1 Update `sleap-roots-pipeline/docs/bloom-integration/roadmap.md` (A4 DAG): predict
+- [x] P.1 Update `sleap-roots-pipeline/docs/bloom-integration/roadmap.md` (A4 DAG): predict
   output contract done → unblocks A3-traits input. Note the predict-local schema and its
   future promotion to `sleap-roots-contracts`.
+  (Done: sleap-roots-pipeline `main` commit `d9f3308`.)
