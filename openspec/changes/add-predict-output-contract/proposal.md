@@ -34,8 +34,9 @@ raw-`.slp` `save_dir` behavior and its tests are untouched.
 - Affected specs: **prediction-output** (new capability; ADDED requirements only).
 - Affected code: new `sleap_roots_predict/output_contract.py`; `__init__.py` (exports);
   `pyproject.toml` (`dev` extra gains `sleap-roots`) + regenerated `uv.lock`; new
-  `tests/test_output_contract.py`; docs (`CLAUDE.md`, `README.md`, `API.md`,
-  `CHANGELOG.md`, and the `openspec/project.md` roadmap note).
+  `tests/test_output_contract.py`; docs (`README.md`, `API.md`, `CHANGELOG.md`, and the
+  `openspec/project.md` roadmap note). `CLAUDE.md` is intentionally excluded — its drift
+  from the specs is tracked separately in talmolab/sleap-roots-predict#15.
 - Downstream: unblocks A3-traits' `Provenance`/`BlobRef` assembly and `Series` loading.
   Schema is predict-local now; promote to `sleap-roots-contracts` when A3-traits consumes
   it (design decision 1).

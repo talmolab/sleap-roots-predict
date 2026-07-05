@@ -117,12 +117,10 @@ for all path handling and emit path strings via `Path.as_posix()`.
 - [ ] 8.2 Documentation — explicit per-file checklist (single-source the artifact format in
   the spec / `output_contract.py` docstrings; do NOT re-copy the filename grammar or JSON
   field list into every doc):
-  - `CLAUDE.md`: add `output_contract.py` to the module list; add the output-contract to
-    the Processing Flow; add `SRP_PREDICT_CODE_SHA` / `SRP_PREDICT_CONTAINER_DIGEST` to the
-    "Runtime configuration (env)" section; add the 5 new names to the `__init__` export
-    list; **fix the now-stale line** ("`predict(save_dir=…)` writes raw per-root `.slp`
-    only … the `predictions.csv` manifest + scan-aware naming are a deferred
-    output-contract slice") to point at the new writer and say `predictions.json`.
+  - `CLAUDE.md`: **out of scope for this change** — deferred to
+    [talmolab/sleap-roots-predict#15](https://github.com/talmolab/sleap-roots-predict/issues/15)
+    (CLAUDE.md drifts from the OpenSpec specs; the stale `predictions.csv`/"deferred" line
+    + duplicated API list are handled holistically there, not patched piecemeal here).
   - `README.md`: add `output_contract.py` to the Project Structure tree (one-line format
     description only, referencing the spec/docstrings).
   - `API.md`: document the 5 new public exports (or state the section is intentionally
