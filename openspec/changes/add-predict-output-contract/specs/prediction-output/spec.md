@@ -8,8 +8,10 @@ naming convention (`load_series_from_h5s`: no underscores, `root` concatenated w
 type). `model_id` SHALL be a filename-safe slug derived from the model's `registry_id`
 and `version` with every character outside `[A-Za-z0-9-]` replaced by `-` (so it is
 slash- and dot-free). `scan_key` is identity and SHALL NOT be mangled: the writer SHALL
-raise `ValueError` when `scan_key` is empty or contains `.`, `/`, or `\`. Each written
-`.slp` SHALL be reloadable via `sio.load_file`.
+raise `ValueError` when `scan_key` is empty or contains any of `.` `/` `\` `:` `*` `?`
+`"` `<` `>` `|` or a control character (so the value is safe as a single path segment on
+both POSIX and Windows and preserves the `series_name = filename.split(".")[0]`
+invariant). Each written `.slp` SHALL be reloadable via `sio.load_file`.
 
 #### Scenario: Writes a reloadable named .slp per root type
 
@@ -20,7 +22,8 @@ raise `ValueError` when `scan_key` is empty or contains `.`, `/`, or `\`. Each w
 
 #### Scenario: Rejects a non-filename-safe scan_key
 
-- **WHEN** the writer is called with a `scan_key` containing `.` or a path separator
+- **WHEN** the writer is called with a `scan_key` that is empty or contains a reserved
+  character (`.`, a path separator, `:`, `*`, `?`, `"`, `<`, `>`, `|`, or a control char)
 - **THEN** it raises `ValueError` and writes no files
 
 ### Requirement: Combined per-scan manifest and provenance sidecar
@@ -29,8 +32,9 @@ The system SHALL write a single `{scan_key}.predictions.json` per scan that seri
 `PredictionManifest`: `schema_version`, `scan_key`, `plant_qr_code` (defaulting to
 `scan_key` when not given), and a list of per-root `PredictionArtifact` records. Each
 `PredictionArtifact` SHALL carry `root_type`, `model_id`, the full `ModelRef` (from
-`sleap-roots-contracts`), `slp_path` (the basename, relative to the manifest's
-directory), `checksum` (sha256 hex of the `.slp`), and `file_size` (bytes). The manifest
+`sleap-roots-contracts`), `slp_path` (the basename as a POSIX-style string via
+`Path.as_posix()`, relative to the manifest's directory), `checksum` (sha256 hex of the
+`.slp`), and `file_size` (bytes). The manifest
 SHALL also record the predict-side provenance: `predict_inference_config`,
 `predict_output_params`, `predict_code_sha`, and `predict_container_digest`. The written
 JSON SHALL reload and validate back into an equivalent `PredictionManifest`. When no root
@@ -55,7 +59,14 @@ types are resolved, `artifacts` SHALL be an empty list.
 - **WHEN** the writer runs for a scan where no root type resolved to a model
 - **THEN** it still writes `{scan_key}.predictions.json` with `artifacts` equal to `[]`
 
-### Requirement: Fail-soft build and runtime identity
+#### Scenario: Manifest JSON round-trips to an equivalent model
+
+- **WHEN** the written `{scan_key}.predictions.json` is read back and validated into a
+  `PredictionManifest`
+- **THEN** it equals the manifest the writer returned (all fields, including each
+  artifact's `ModelRef`)
+
+### Requirement: Fail-soft build identity
 
 The writer SHALL record `predict_code_sha` and `predict_container_digest` from explicit
 arguments when provided, otherwise from the environment variables `SRP_PREDICT_CODE_SHA`
@@ -86,7 +97,12 @@ plant_qr_code=None, inference_config, output_params, predict_code_sha=None,
 predict_container_digest=None)` that writes the named `.slp` files and the combined JSON
 into `out_dir` (creating it if missing) and returns the resulting `PredictionManifest`.
 It SHALL raise `ValueError` when `labels_by_root` and `refs_by_root` do not cover the same
-set of root types. It SHALL NOT import or depend on `sleap-roots` at runtime.
+set of root types. Re-running for the same `scan_key` into the same `out_dir` SHALL
+overwrite prior outputs in place (idempotent re-run). The writer SHALL use `pathlib.Path`
+for path handling and emit path strings — `slp_path` and any path passed across the
+sleap-io / sleap-roots boundary — via `Path.as_posix()` (lab convention; keeps the
+manifest portable across POSIX and Windows). It SHALL NOT import or depend on
+`sleap-roots` at runtime.
 
 #### Scenario: Writer returns a manifest and writes the artifacts
 
@@ -99,6 +115,12 @@ set of root types. It SHALL NOT import or depend on `sleap-roots` at runtime.
 
 - **WHEN** `labels_by_root` and `refs_by_root` cover different root types
 - **THEN** the writer raises `ValueError`
+
+#### Scenario: Re-running overwrites prior outputs in place
+
+- **WHEN** `write_prediction_outputs` runs into an `out_dir` that already holds a prior
+  manifest and `.slp` files for the same `scan_key`
+- **THEN** it overwrites them in place and the reloaded manifest reflects the new run
 
 ### Requirement: Batch prediction-and-write over a warm worker
 
@@ -121,20 +143,30 @@ returning one `PredictionManifest` per scan. A `ScanRequest` SHALL carry `scan_k
 - **THEN** the second scan reuses the resident `Predictor` instance loaded for the first
   (verified by object identity), rather than reloading it
 
+#### Scenario: Per-scan override is honored
+
+- **WHEN** a `ScanRequest` carries an explicit `overrides` mapping a root type to a
+  `ModelRef`
+- **THEN** that scan's manifest records the overridden `ModelRef` for that root type
+
 ### Requirement: Series-loadable output verified without mocks
 
 The produced artifacts SHALL load through the downstream consumer
-`sleap_roots.Series.load(series_name=scan_key, primary_path=…, lateral_path=…,
-crown_path=…)` without error and expose the predicted labels. This SHALL be verified by a
-real, non-mocked test that drives the warm worker over the vendored native + legacy
-models (no mocking of the sleap-nn / sleap-io boundary). `sleap-roots` SHALL be a
-test-only dependency and the test SHALL skip cleanly when it is not importable.
+`sleap_roots.Series.load(series_name=scan_key, ...)`, passing each resolved root type's
+`.slp` path (e.g. `primary_path` / `lateral_path`; `crown_path` is `None` when no crown
+model resolved) as a `Path.as_posix()` string, without error and expose the predicted
+labels for the resolved root types. This SHALL be verified by a real, non-mocked test that
+drives the warm worker over the vendored native + legacy models (no mocking of the
+sleap-nn / sleap-io boundary). `sleap-roots` SHALL be a test-only dependency and the test
+SHALL skip cleanly when it is not importable.
 
 #### Scenario: Output loads via sleap-roots Series.load
 
 - **WHEN** the writer's output for a scan is passed to `sleap_roots.Series.load` with the
-  per-root `.slp` paths
-- **THEN** the `Series` loads without error and its per-root labels are populated
+  resolved root types' `.slp` paths (primary and lateral for the vendored models;
+  `crown_path=None`)
+- **THEN** the `Series` loads without error and its `primary_labels` / `lateral_labels`
+  are populated
 
 #### Scenario: Acceptance test skips cleanly without sleap-roots
 

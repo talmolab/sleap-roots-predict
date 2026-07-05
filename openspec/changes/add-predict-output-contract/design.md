@@ -35,10 +35,16 @@ one run-level `predictions.csv`, no provenance).
 - **Batch = first-class now.** Warmth already lives in `WarmModelWorker` (predictors cached
   by `(registry_id, version)`). `predict_and_write_batch` drives one worker over N scans,
   one subdir per scan. No run-level aggregate manifest (YAGNI; additive later).
-- **Filenames:** `{scan_key}.model{model_id}.root{primary|lateral|crown}.slp` matches
+- **Filenames & paths (lab convention: `pathlib.Path` + `.as_posix()`):**
+  `{scan_key}.model{model_id}.root{primary|lateral|crown}.slp` matches
   `load_series_from_h5s`. `series_name = filename.split(".")[0]`, so `scan_key` and
   `model_id` must be dot-free: `model_id = slugify(f"{registry_id}_{version}")` (non
-  `[A-Za-z0-9-]` → `-`); `scan_key` is identity and is rejected (not mangled) if unsafe.
+  `[A-Za-z0-9-]` → `-`); `scan_key` is identity and is **rejected** (not mangled) if empty
+  or containing `. / \ : * ? " < > |` or a control char (safe as a single path segment on
+  POSIX + Windows). All path handling uses `pathlib.Path`; path strings (`slp_path`, and
+  paths passed across the sleap-io / sleap-roots boundary) are emitted via
+  `Path.as_posix()` so the manifest is portable. Re-running a scan overwrites its outputs
+  in place (idempotent).
 
 ## Risks / Trade-offs
 
@@ -47,6 +53,10 @@ one run-level `predictions.csv`, no provenance).
   `sleap-io>=0.8.0,<0.9.0`; env resolves to 0.8.0 → satisfies both. Mitigation: first TDD
   task confirms the `dev` env resolves; the acceptance test uses
   `pytest.importorskip("sleap_roots")` and never loosens the inference pin.
+- **Lockfile / 3-OS resolution:** adding `sleap-roots` to `dev` requires `uv lock` +
+  committing `uv.lock`. Mitigation: push the deps-only commit first so CI proves
+  resolution on ubuntu/windows/macos before code lands; review the lock diff to confirm no
+  `cpu`-closure pin moved (esp. `sleap-io` 0.8.0, torch/torchvision).
 - **Predict-local schema drift vs traits:** mitigated by `schema_version` on the manifest
   and by co-designing the shape with A3-traits before promotion to contracts.
 
