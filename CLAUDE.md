@@ -128,6 +128,6 @@ The modules provide modular functions for processing timelapse experiments:
 ### CI/CD
 GitHub Actions workflow runs on every pull request:
 - **Linting**: black formatting, ruff linting, codespell
-- **Testing**: Full test suite on Ubuntu, Windows, macOS, and self-hosted GPU runners
+- **Testing**: CPU test suite on Ubuntu, Windows, macOS (no GPU runner in CI; the `gpu` subset is a required local step in `/pre-merge`)
 - Platform-specific installations with appropriate hardware acceleration
 - All tests run with pytest and coverage reporting

@@ -57,8 +57,9 @@ When adding a new source module `sleap_roots_predict/foo.py`, add `tests/test_fo
 
 ### A test needs a GPU but ran on CPU
 
-Mark it `@pytest.mark.gpu` so it is deselected by `-m "not gpu"`; CI runs the full suite
-only on the self-hosted-gpu and macOS (MPS) runners.
+Mark it `@pytest.mark.gpu` so it is deselected by `-m "not gpu"`. CI does not run GPU tests
+(no GPU runner); run the `gpu` subset locally on a CUDA/MPS machine — it is a required step
+in `/pre-merge`.
 
 ### Test file not picked up
 

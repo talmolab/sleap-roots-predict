@@ -55,10 +55,10 @@ importable library.
 - Default run deselects `gpu`, `acceptance`, and `wandb` markers (`addopts` in `pyproject.toml`;
   CI's explicit `-m` filters exclude them too). The `wandb` tests hit the model registry and are
   gated on `WANDB_API_KEY` (they skip cleanly without it).
-- **GPU tests** (`@pytest.mark.gpu`): run locally with `uv run pytest -m gpu`. On
-  Windows+CUDA install the profile first: `uv sync --extra dev --extra windows_cuda`.
-  They skip cleanly with no accelerator; the self-hosted-gpu and macOS runners run
-  the full suite in CI.
+- **GPU tests** (`@pytest.mark.gpu`): **not run in CI** (no GPU runner). Run locally on a
+  CUDA/MPS machine — on Windows+CUDA: `uv sync --extra dev --extra windows_cuda` then
+  `uv run pytest -m gpu`. This is a required step in the `/pre-merge` gate; they skip cleanly
+  with no accelerator.
 - **Acceptance test** (`@pytest.mark.acceptance`): real-data, CI-skipped. Gate with
   `SRP_CYLINDER_DIR` (image frames) and `SRP_MODEL_DIRS` (os-pathsep-joined model
   dirs; extract legacy `.zip` models first), then `uv run pytest -m acceptance -s`.

@@ -183,15 +183,14 @@ The project uses GitHub Actions for continuous integration and deployment:
 ### Continuous Integration
 On every pull request:
 - **Linting**: black formatting, ruff linting, codespell
-- **Testing**: Full test suite on multiple platforms
-  - Ubuntu (latest) - CPU only
-  - Windows (latest) - CPU only
-  - macOS (Apple Silicon) - with Metal Performance Shaders (MPS) GPU support
-  - Self-hosted GPU runners (Linux with CUDA)
+- **Testing** (CPU only — see GPU note below):
+  - Ubuntu (latest)
+  - Windows (latest)
+  - macOS (Apple Silicon) - MPS is available but inference is forced to CPU on the hosted runners
 
-GPU tests are automatically run on:
-- macOS runners using Metal Performance Shaders
-- Self-hosted Linux runners with CUDA support
+CI does **not** run CUDA GPU tests (there is no GPU runner). The `gpu`-marked subset is a
+required local step in the pre-merge gate — run it on a CUDA/MPS machine:
+`uv sync --extra dev --extra windows_cuda && uv run pytest -m gpu`.
 
 ### Build and Publish
 On release or manual trigger:
