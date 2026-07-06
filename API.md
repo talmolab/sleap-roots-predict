@@ -88,6 +88,45 @@ Run prediction on a sleap_io.Video object.
 
 **Returns:** Path to saved .slp file or Labels object with predictions
 
+### Model Selection
+
+Resolve Bloom scan metadata into params, then select a production model per root type
+(metadata → params → model). See the `param-resolution` and `model-management` OpenSpec
+specs for the full matching semantics (kept single-sourced there to avoid drift).
+
+```python
+from sleap_roots_predict import (
+    resolve_params,  # Bloom cyl_scans_extended row -> ResolvedParams (species/mode/age)
+    choose_models,   # ResolvedParams + ModelCards -> {root_type: ModelRef}
+)
+```
+
+#### `resolve_params`
+```python
+resolve_params(
+    metadata: Dict[str, Any],
+    overrides: Optional[Dict[str, Any]] = None,
+) -> ResolvedParams
+```
+Pure oracle mapping a single Bloom `cyl_scans_extended` row (the dict bloomcli's download
+writes to `scans.csv`) to a `ResolvedParams` carrying `species` (normalized from
+`species_name`), `mode` (`"cylinder"` for the cylinder stage-in path), and `age` (from
+`plant_age_days`, in days).
+
+**Parameters:**
+- `metadata`: A single Bloom scan-metadata row; load-bearing keys are `species_name` and
+  `plant_age_days` (other columns ignored). Blank/absent load-bearing fields are treated as
+  not provided.
+- `overrides`: Optional param-space dict (keys ⊆ `{species, mode, age}`); each key wins its
+  field, and override values are normalized/coerced like derived values so `param_hash` is
+  representation-independent.
+
+**Returns:** A `ResolvedParams` (with `values` and a computed `param_hash`), ready for
+`choose_models`.
+
+**Raises:** `ValueError` on an unknown override key, a non-whole `plant_age_days`/`age`, or
+a still-missing `species`/`mode`/`age` after merging overrides.
+
 ### Output Contract
 
 Write the per-scan artifacts the downstream sleap-roots traits stage reads — named

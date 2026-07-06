@@ -10,6 +10,7 @@ def test_public_surface_importable_without_credentials(monkeypatch):
     for name in (
         "WarmModelWorker",
         "choose_models",
+        "resolve_params",
         "LocalCardSource",
         "WandbRegistrySource",
         "ModelCardSource",
@@ -23,3 +24,4 @@ def test_public_surface_importable_without_credentials(monkeypatch):
         "predict_and_write_batch",
     ):
         assert hasattr(pkg, name), name
+        assert name in pkg.__all__, f"{name} missing from __all__"

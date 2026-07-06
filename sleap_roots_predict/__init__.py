@@ -4,10 +4,11 @@ This package provides:
 - sleap-nn inference on ``sleap_io.Video`` objects (``make_predictor`` builds a
   reusable predictor; ``predict_on_video`` runs inference and optionally saves a
   ``.slp``)
-- Model management: choose models from Bloom scan metadata (``choose_models``),
-  fetch them from the wandb registry or a local dir (``ModelCardSource`` /
-  ``WandbRegistrySource`` / ``LocalCardSource``), and keep sleap-nn predictors
-  resident across scans (``WarmModelWorker``)
+- Model management: resolve Bloom scan metadata to params (``resolve_params``),
+  choose models from those params (``choose_models``), fetch them from the wandb
+  registry or a local dir (``ModelCardSource`` / ``WandbRegistrySource`` /
+  ``LocalCardSource``), and keep sleap-nn predictors resident across scans
+  (``WarmModelWorker``)
 - Output contract: write the per-scan artifacts the downstream traits stage reads
   (named per-root ``.slp`` + a combined ``{scan}.predictions.json`` manifest) via
   ``write_prediction_outputs`` / ``predict_and_write_batch`` (see the
@@ -30,6 +31,8 @@ from sleap_roots_predict.predict import (  # noqa: F401
 
 from sleap_roots_predict.model_selection import choose_models  # noqa: F401
 
+from sleap_roots_predict.param_resolution import resolve_params  # noqa: F401
+
 from sleap_roots_predict.model_registry import (  # noqa: F401
     LocalCardSource,
     ModelCardSource,
@@ -51,6 +54,7 @@ __all__ = [
     "make_predictor",
     "predict_on_video",
     "choose_models",
+    "resolve_params",
     "ModelCardSource",
     "LocalCardSource",
     "WandbRegistrySource",
