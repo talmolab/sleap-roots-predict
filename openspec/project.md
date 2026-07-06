@@ -40,6 +40,8 @@ importable library.
 ### Architecture Patterns
 - Package `sleap_roots_predict/`:
   - `predict.py` — sleap-nn prediction interface (`make_predictor`, `predict_on_video`)
+  - `param_resolution.py` — pure Bloom-metadata → `ResolvedParams` oracle (`resolve_params`);
+    feeds `choose_models`
   - `model_selection.py` — pure model-selection matcher (`choose_models`)
   - `model_registry.py` — model-card sources (`ModelCardSource`, `LocalCardSource`,
     `WandbRegistrySource`); all wandb/network access confined here (lazy import)

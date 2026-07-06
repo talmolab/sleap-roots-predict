@@ -7,6 +7,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Param resolution** (`sleap_roots_predict.param_resolution`): `resolve_params(metadata,
+  overrides=None)` maps a single Bloom `cyl_scans_extended` row (the dict bloomcli writes to
+  `scans.csv`) to a `ResolvedParams` (`species`/`mode`/`age`), so `choose_models` can select
+  production models from real Bloom metadata (metadata → params → model). `species_name` is
+  normalized to the `ModelCard` vocabulary (lowercase passthrough; unknown species pass
+  through so the registry stays the authority), `mode` routes through a one-line
+  `_mode_for_scan` seam (`"cylinder"` for the cylinder stage-in path; GraviScan/multiscanner
+  deferred), and `plant_age_days` is coerced to an `int` (confirmed **days**, matching the
+  seeded cards' `age_min`/`age_max`). Overrides win per field with keys restricted to
+  `{species, mode, age}`; override values are canonicalized like derived values, and
+  blank/lossy inputs fail loud, so `param_hash` is representation-independent. Pure and
+  offline — no new dependencies. New public export: `resolve_params`. See the
+  `param-resolution` OpenSpec spec.
 - **Predict output contract** (`sleap_roots_predict.output_contract`): the per-scan
   artifacts the downstream traits stage reads. `write_prediction_outputs` writes one
   named per-root `.slp` (`{scan_key}.model{model_id}.root{root_type}.slp`, sleap-roots

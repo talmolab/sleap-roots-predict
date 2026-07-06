@@ -225,6 +225,7 @@ To publish a new release:
 ```
 sleap_roots_predict/
 ├── predict.py                      # SLEAP-NN prediction interface
+├── param_resolution.py             # Bloom scan metadata -> ResolvedParams (resolve_params)
 ├── model_selection.py              # Pure model-selection matcher (choose_models)
 ├── model_registry.py               # Model-card sources (Local + Wandb registry)
 ├── warm_worker.py                  # WarmModelWorker: resident predictors across scans
@@ -235,6 +236,7 @@ sleap_roots_predict/
 
 tests/
 ├── test_predict.py             # Prediction module tests
+├── test_param_resolution.py    # Param-resolution oracle tests (offline)
 ├── test_model_selection.py     # Model-selection matcher tests
 ├── test_model_registry.py      # Card-source tests (offline + gated wandb)
 ├── test_warm_worker.py         # Warm worker tests (real CPU inference)
