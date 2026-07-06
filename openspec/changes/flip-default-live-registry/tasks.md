@@ -77,10 +77,10 @@
       `SRP_WANDB_ENTITY` unset (default lab entity hosts the registry) or set it explicitly. Keep
       assertions **count-agnostic** (non-empty + all conforming; do NOT assert exactly 13).
 - [x] 4.2 If `WANDB_API_KEY` + live registry are available, run `uv run pytest -m wandb -q`
-      → green; otherwise confirm it skips cleanly at collection time. (No local
-      `WANDB_API_KEY` this session: verified it collects under `-m wandb` and is deselected
-      / skips cleanly by default. **The live network round-trip is unrun — confirm
-      `uv run pytest -m wandb -q` green with creds before closing #11.**)
+      → green; otherwise confirm it skips cleanly at collection time. **Verified GREEN**
+      against the live registry (`1 passed` in ~123s, `WANDB_API_KEY` sourced from the
+      user's wandb login): the default path (no registry env) lists + materializes from
+      `sleap-roots-models`.
 
 ## 5. Env-var docs + `.env.example` + CHANGELOG (predict #11)
 
