@@ -137,6 +137,22 @@ def test_legacy_alias_env_var_is_ignored(clean_wandb_env):
     assert WandbRegistrySource()._alias == "production"
 
 
+def test_empty_registry_env_falls_back_to_default(clean_wandb_env):
+    """A set-but-empty SRP_WANDB_MODEL_REGISTRY falls back to the default."""
+    clean_wandb_env.setenv("SRP_WANDB_MODEL_REGISTRY", "")
+    assert WandbRegistrySource()._registry == "sleap-roots-models"
+
+
+def test_empty_alias_env_falls_back_to_default(clean_wandb_env):
+    """A set-but-empty SRP_WANDB_MODEL_ALIAS falls back to the default alias.
+
+    Regression guard: an empty alias must NOT disable the alias filter (which
+    would list every artifact version) — it falls back to ``production``.
+    """
+    clean_wandb_env.setenv("SRP_WANDB_MODEL_ALIAS", "")
+    assert WandbRegistrySource()._alias == "production"
+
+
 def test_default_registry_still_fails_loud_without_key(clean_wandb_env):
     """WandbRegistrySource() (default registry) still raises on a missing key."""
     source = WandbRegistrySource()

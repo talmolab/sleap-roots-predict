@@ -129,12 +129,14 @@ class WandbRegistrySource:
         self._entity = entity or os.environ.get("SRP_WANDB_ENTITY", _DEFAULT_ENTITY)
         # Explicit arg wins; else the model-scoped env var; else the live production
         # registry default, so a source with only WANDB_API_KEY set reads production.
-        self._registry = registry or os.environ.get(
-            "SRP_WANDB_MODEL_REGISTRY", _DEFAULT_REGISTRY
+        # A set-but-empty env var (common in k8s/compose) falls back to the default too.
+        self._registry = (
+            registry or os.environ.get("SRP_WANDB_MODEL_REGISTRY") or _DEFAULT_REGISTRY
         )
-        # Explicit alias wins; else env; else default. A falsy alias falls back to
-        # the default rather than disabling the filter (which would list every version).
-        self._alias = alias or os.environ.get("SRP_WANDB_MODEL_ALIAS", _DEFAULT_ALIAS)
+        # Explicit alias wins; else env; else default. A falsy alias (unset OR
+        # set-but-empty) falls back to the default rather than disabling the filter
+        # (an empty alias would otherwise list every version).
+        self._alias = alias or os.environ.get("SRP_WANDB_MODEL_ALIAS") or _DEFAULT_ALIAS
         if cache_dir is not None:
             self._cache_dir: Optional[str] = str(cache_dir)
         else:
@@ -196,10 +198,11 @@ class WandbRegistrySource:
         Applies the alias filter, then builds one card per surviving artifact. A
         single artifact whose metadata cannot be validated into a ``ModelCard`` is
         skipped with a logged warning (naming it and the underlying error) rather
-        than aborting the listing. This isolation is scoped to per-artifact card
-        construction only: credential and network failures are raised by
-        ``_require_key`` / the traversal before this method runs, so they still fail
-        loud and are not swallowed here.
+        than aborting the listing. The ``try`` wraps *only* per-artifact card
+        construction; the ``for`` loop that advances ``artifacts`` sits outside it,
+        so credential errors (raised by ``_require_key`` before this method) and
+        errors raised while traversing the registry propagate fail-loud — only a
+        single non-conforming artifact's card build is isolated here.
 
         Args:
             artifacts: An iterable of wandb-artifact-like objects.
