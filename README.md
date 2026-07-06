@@ -176,6 +176,22 @@ sorted_files = natural_sort(files)
 # Result: ["img_1.tif", "img_2.tif", "img_10.tif"]
 ```
 
+## Configuration
+
+Model fetching from the wandb registry is configured through environment variables. The
+only **required** variable is `WANDB_API_KEY` — with it set, the warm worker fetches
+production models from the live registry out-of-the-box; everything else has a sensible
+default. Copy [`.env.example`](.env.example) to `.env` and fill in your key to get started.
+
+| Variable | Required? | Default |
+|---|---|---|
+| `WANDB_API_KEY` | **yes** | — (a missing key fails loud on first use) |
+| `SRP_WANDB_ENTITY` | no | `eberrigan-salk-institute-for-biological-studies` |
+| `SRP_WANDB_MODEL_REGISTRY` | no | `sleap-roots-models` (the live production registry) |
+| `SRP_WANDB_MODEL_ALIAS` | no | `production` |
+| `SRP_MODEL_CACHE_DIR` | no | falls back to `WANDB_CACHE_DIR`, then wandb's default |
+| `SRP_DEVICE` | no | auto-detect (cuda / mps / cpu) |
+
 ## CI/CD
 
 The project uses GitHub Actions for continuous integration and deployment:

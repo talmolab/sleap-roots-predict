@@ -35,6 +35,18 @@ All notable changes to this project are documented here. The format is based on
   resolve CUDA wheels.
 - Added `SRP_DEVICE` env override (used by `"auto"` device resolution).
 
+### Changed (BREAKING)
+
+- **Flipped the default model source to the live production wandb registry.**
+  `WandbRegistrySource` now defaults its registry to `sleap-roots-models`, and
+  `WarmModelWorker(source=None)` defaults to a `WandbRegistrySource` — so with only
+  `WANDB_API_KEY` set the warm worker fetches production models out-of-the-box (no other
+  env var required). A missing `WANDB_API_KEY` fails loud on first use; there is no offline
+  fallback. Renamed the registry env vars `SRP_WANDB_REGISTRY` → `SRP_WANDB_MODEL_REGISTRY`
+  and `SRP_WANDB_ALIAS` → `SRP_WANDB_MODEL_ALIAS` (old names are no longer read), matching
+  the `sleap-roots-training` producer. `list_cards()` now skips a single non-conforming
+  registry artifact with a logged warning instead of aborting the whole listing.
+
 ### Removed (BREAKING)
 
 - Removed `predict_on_h5` and `batch_predict` (they depended on the removed

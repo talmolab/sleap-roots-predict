@@ -22,7 +22,7 @@ import sleap_io as sio
 from sleap_nn.inference import Predictor
 from sleap_roots_contracts import ModelRef, ResolvedParams, RootType
 
-from sleap_roots_predict.model_registry import ModelCardSource
+from sleap_roots_predict.model_registry import ModelCardSource, WandbRegistrySource
 from sleap_roots_predict.model_selection import choose_models
 from sleap_roots_predict.predict import (
     _resolve_device,
@@ -36,7 +36,7 @@ class WarmModelWorker:
 
     def __init__(
         self,
-        source: ModelCardSource,
+        source: Optional[ModelCardSource] = None,
         *,
         device: str = "auto",
         peak_threshold: float = 0.2,
@@ -45,14 +45,21 @@ class WarmModelWorker:
         """Create a warm worker over a model-card source.
 
         Args:
-            source: The card source (catalog + ``materialize``). Only
-                ``WandbRegistrySource`` touches the network; ``LocalCardSource`` is
-                fully offline.
+            source: The card source (catalog + ``materialize``). Defaults to a
+                ``WandbRegistrySource`` reading the live production registry when
+                omitted, so the worker fetches production models out-of-the-box; pass
+                a ``LocalCardSource`` for fully-offline use. Only
+                ``WandbRegistrySource`` touches the network.
             device: Inference device (``"auto"``, ``"cpu"``, ``"cuda"``, ``"mps"``).
             peak_threshold: Confidence threshold for peak detection (output-defining).
             batch_size: Samples per inference batch (diagnostic, not output-defining).
         """
-        self._source = source
+        # Default to the live production registry when no source is given. Building
+        # WandbRegistrySource does no network I/O (wandb access is deferred to first
+        # use), so a missing WANDB_API_KEY fails loud on the first
+        # resolve()/get_predictors(), not at construction — and there is no offline
+        # fallback.
+        self._source = source if source is not None else WandbRegistrySource()
         # Resolve "auto" to a concrete device once, at construction, so the value
         # recorded by inference_config() is exactly what make_predictor builds with.
         self._device = _resolve_device(device)

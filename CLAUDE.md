@@ -68,7 +68,7 @@ The main package is `sleap_roots_predict/` which contains:
 ### Runtime configuration (env)
 The warm model worker / wandb registry source read these environment variables:
 - `WANDB_API_KEY`: authenticates registry access (a k8s secret in deployment)
-- `SRP_WANDB_ENTITY`, `SRP_WANDB_REGISTRY`: the production registry to fetch models from
+- `SRP_WANDB_ENTITY`, `SRP_WANDB_MODEL_REGISTRY` (default `sleap-roots-models`): the production registry to fetch models from
 - `SRP_MODEL_CACHE_DIR`: local artifact download cache (falls back to `WANDB_CACHE_DIR`); point at a persistent/hostPath volume in k8s
 - `SRP_DEVICE`: overrides inference device auto-detection (from `predict.py`)
 

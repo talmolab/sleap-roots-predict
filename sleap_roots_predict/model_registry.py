@@ -9,15 +9,28 @@ filesystem-only deployments. ``WandbRegistrySource`` (added later) confines all
 network access to itself.
 """
 
+import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Protocol, Tuple, Union, runtime_checkable
+from typing import (
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    Union,
+    runtime_checkable,
+)
 
 from sleap_roots_contracts import ModelCard, ModelRef
+
+logger = logging.getLogger(__name__)
 
 # The lab wandb entity (org form is used for registry paths). Overridable via
 # SRP_WANDB_ENTITY. Kept as a default so the offline path never needs it.
 _DEFAULT_ENTITY = "eberrigan-salk-institute-for-biological-studies"
+_DEFAULT_REGISTRY = "sleap-roots-models"
 _DEFAULT_ALIAS = "production"
 
 
@@ -83,7 +96,8 @@ class WandbRegistrySource:
     All network access is confined to this class and uses a lazy ``import wandb``,
     so importing this module (and the offline ``LocalCardSource`` path) never
     touches wandb. Configuration is taken from the constructor or, when omitted,
-    the environment: ``SRP_WANDB_ENTITY``, ``SRP_WANDB_REGISTRY``,
+    the environment: ``SRP_WANDB_ENTITY``, ``SRP_WANDB_MODEL_REGISTRY`` (default
+    ``sleap-roots-models``), ``SRP_WANDB_MODEL_ALIAS`` (default ``production``),
     ``SRP_MODEL_CACHE_DIR`` (falling back to ``WANDB_CACHE_DIR``); ``WANDB_API_KEY``
     authenticates. ``list_cards`` pins each artifact to its concrete version (not a
     moving alias) so the ``ModelRef`` built downstream is reproducible.
@@ -105,16 +119,24 @@ class WandbRegistrySource:
 
         Args:
             entity: wandb entity; defaults to ``SRP_WANDB_ENTITY`` then the lab entity.
-            registry: registry name; defaults to ``SRP_WANDB_REGISTRY``.
-            alias: only artifacts carrying this alias are listed (default ``production``).
+            registry: registry name; defaults to ``SRP_WANDB_MODEL_REGISTRY`` then
+                ``sleap-roots-models`` (the live production registry).
+            alias: only artifacts carrying this alias are listed; defaults to
+                ``SRP_WANDB_MODEL_ALIAS`` then ``production``.
             cache_dir: download cache; defaults to ``SRP_MODEL_CACHE_DIR`` then
                 ``WANDB_CACHE_DIR`` then wandb's own default.
         """
         self._entity = entity or os.environ.get("SRP_WANDB_ENTITY", _DEFAULT_ENTITY)
-        self._registry = registry or os.environ.get("SRP_WANDB_REGISTRY")
-        # Explicit alias wins; else env; else default. A falsy alias falls back to
-        # the default rather than disabling the filter (which would list every version).
-        self._alias = alias or os.environ.get("SRP_WANDB_ALIAS", _DEFAULT_ALIAS)
+        # Explicit arg wins; else the model-scoped env var; else the live production
+        # registry default, so a source with only WANDB_API_KEY set reads production.
+        # A set-but-empty env var (common in k8s/compose) falls back to the default too.
+        self._registry = (
+            registry or os.environ.get("SRP_WANDB_MODEL_REGISTRY") or _DEFAULT_REGISTRY
+        )
+        # Explicit alias wins; else env; else default. A falsy alias (unset OR
+        # set-but-empty) falls back to the default rather than disabling the filter
+        # (an empty alias would otherwise list every version).
+        self._alias = alias or os.environ.get("SRP_WANDB_MODEL_ALIAS") or _DEFAULT_ALIAS
         if cache_dir is not None:
             self._cache_dir: Optional[str] = str(cache_dir)
         else:
@@ -133,7 +155,8 @@ class WandbRegistrySource:
         """Return the registry's wandb project path (``<entity>-org/wandb-registry-<r>``)."""
         if not self._registry:
             raise RuntimeError(
-                "No wandb registry configured; set SRP_WANDB_REGISTRY or pass registry=."
+                "No wandb registry configured; set SRP_WANDB_MODEL_REGISTRY or pass "
+                "registry=."
             )
         return f"{self._entity}-org/wandb-registry-{self._registry}"
 
@@ -151,16 +174,59 @@ class WandbRegistrySource:
         import wandb
 
         api = wandb.Api()
+        return self._collect_cards(self._iter_registry_artifacts(api))
+
+    def _iter_registry_artifacts(self, api: object) -> Iterable[object]:
+        """Yield every ``model`` artifact in the configured registry (network).
+
+        Args:
+            api: A ``wandb.Api`` handle.
+
+        Yields:
+            Each wandb artifact object across the registry's ``model`` collections.
+        """
         project = self._registry_project()
-        cards: List[ModelCard] = []
         for collection in api.artifact_collections(
             project_name=project, type_name="model"
         ):
             name = f"{project}/{collection.name}"
-            for artifact in api.artifacts(type_name="model", name=name):
-                if self._alias and self._alias not in (artifact.aliases or []):
-                    continue
+            yield from api.artifacts(type_name="model", name=name)
+
+    def _collect_cards(self, artifacts: Iterable[object]) -> List[ModelCard]:
+        """Build pinned ``ModelCard``s from artifacts, skipping non-conforming ones.
+
+        Applies the alias filter, then builds one card per surviving artifact. A
+        single artifact whose metadata cannot be validated into a ``ModelCard`` is
+        skipped with a logged warning (naming it and the underlying error) rather
+        than aborting the listing. The ``try`` wraps *only* per-artifact card
+        construction; the ``for`` loop that advances ``artifacts`` sits outside it,
+        so credential errors (raised by ``_require_key`` before this method) and
+        errors raised while traversing the registry propagate fail-loud — only a
+        single non-conforming artifact's card build is isolated here.
+
+        Args:
+            artifacts: An iterable of wandb-artifact-like objects.
+
+        Returns:
+            The conforming cards, in input order.
+        """
+        cards: List[ModelCard] = []
+        for artifact in artifacts:
+            if self._alias and self._alias not in (
+                getattr(artifact, "aliases", None) or []
+            ):
+                continue
+            try:
                 cards.append(self._card_from_artifact(artifact))
+            except Exception as e:
+                # Isolate one non-conforming artifact: skip it (with a warning) so a
+                # single bad card never aborts the whole listing.
+                label = getattr(artifact, "qualified_name", None) or getattr(
+                    artifact, "name", "<unknown>"
+                )
+                logger.warning(
+                    "Skipping non-conforming model artifact %r: %s", label, e
+                )
         return cards
 
     @staticmethod

@@ -13,7 +13,7 @@ import sleap_io as sio
 from sleap_nn.inference import Predictor
 from sleap_roots_contracts import ModelCard, ResolvedParams
 
-from sleap_roots_predict.model_registry import LocalCardSource
+from sleap_roots_predict.model_registry import LocalCardSource, WandbRegistrySource
 from sleap_roots_predict.predict import _resolve_device
 from sleap_roots_predict.video_utils import make_video_from_images
 from sleap_roots_predict.warm_worker import WarmModelWorker
@@ -53,6 +53,24 @@ def rice_source(native_model_dir: Path, legacy_model_dir: Path) -> LocalCardSour
             (_card("lateral", "reg/rice-lateral"), legacy_model_dir),
         ]
     )
+
+
+# --- default source: the live wandb registry (group 3) ------------------------
+
+# ``clean_wandb_env`` (hermetic env fixture) lives in tests/conftest.py.
+
+
+def test_default_source_is_the_live_wandb_registry(clean_wandb_env):
+    """WarmModelWorker() with no source defaults to a WandbRegistrySource."""
+    worker = WarmModelWorker()  # construction is network-free
+    assert isinstance(worker._source, WandbRegistrySource)
+
+
+def test_default_source_fails_loud_without_key(clean_wandb_env):
+    """No WANDB_API_KEY: construction is fine; the first resolve() fails loud."""
+    worker = WarmModelWorker()  # must NOT raise (no network at construction)
+    with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        worker.resolve(_params())
 
 
 def test_resolve_returns_refs_without_loading(rice_source):

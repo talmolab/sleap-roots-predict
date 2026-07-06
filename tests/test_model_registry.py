@@ -6,6 +6,7 @@ that ``make_predictor`` can load. Gated ``WandbRegistrySource`` tests are added 
 a later task (``@pytest.mark.wandb``).
 """
 
+import logging
 import os
 from pathlib import Path
 
@@ -75,6 +76,8 @@ def test_materialize_unknown_ref_raises(native_model_dir: Path):
 
 # --- WandbRegistrySource ------------------------------------------------------
 
+# ``clean_wandb_env`` (hermetic env fixture) lives in tests/conftest.py.
+
 
 def test_wandb_source_missing_key_raises_before_network(monkeypatch):
     """With no WANDB_API_KEY, list_cards raises a clear error (no network call)."""
@@ -84,15 +87,226 @@ def test_wandb_source_missing_key_raises_before_network(monkeypatch):
         source.list_cards()
 
 
+# --- default registry + env-var rename (group 1) ------------------------------
+
+
+def test_registry_defaults_to_sleap_roots_models(clean_wandb_env):
+    """With no registry arg and no env, the registry defaults to the live one."""
+    assert WandbRegistrySource()._registry == "sleap-roots-models"
+
+
+def test_model_registry_env_var_is_honored(clean_wandb_env):
+    """SRP_WANDB_MODEL_REGISTRY sets the registry when no arg is passed."""
+    clean_wandb_env.setenv("SRP_WANDB_MODEL_REGISTRY", "some-registry")
+    assert WandbRegistrySource()._registry == "some-registry"
+
+
+def test_legacy_registry_env_var_is_ignored(clean_wandb_env):
+    """The legacy SRP_WANDB_REGISTRY is not read (hard rename): default applies."""
+    clean_wandb_env.setenv("SRP_WANDB_REGISTRY", "legacy-registry")
+    assert WandbRegistrySource()._registry == "sleap-roots-models"
+
+
+def test_model_alias_env_var_is_honored(clean_wandb_env):
+    """SRP_WANDB_MODEL_ALIAS sets the alias when no arg is passed."""
+    clean_wandb_env.setenv("SRP_WANDB_MODEL_ALIAS", "staging")
+    assert WandbRegistrySource()._alias == "staging"
+
+
+def test_legacy_alias_env_var_is_ignored(clean_wandb_env):
+    """The legacy SRP_WANDB_ALIAS is not read (hard rename): default applies."""
+    clean_wandb_env.setenv("SRP_WANDB_ALIAS", "legacy-alias")
+    assert WandbRegistrySource()._alias == "production"
+
+
+def test_empty_registry_env_falls_back_to_default(clean_wandb_env):
+    """A set-but-empty SRP_WANDB_MODEL_REGISTRY falls back to the default."""
+    clean_wandb_env.setenv("SRP_WANDB_MODEL_REGISTRY", "")
+    assert WandbRegistrySource()._registry == "sleap-roots-models"
+
+
+def test_empty_alias_env_falls_back_to_default(clean_wandb_env):
+    """A set-but-empty SRP_WANDB_MODEL_ALIAS falls back to the default alias.
+
+    Regression guard: an empty alias must NOT disable the alias filter (which
+    would list every artifact version) — it falls back to ``production``.
+    """
+    clean_wandb_env.setenv("SRP_WANDB_MODEL_ALIAS", "")
+    assert WandbRegistrySource()._alias == "production"
+
+
+def test_default_registry_still_fails_loud_without_key(clean_wandb_env):
+    """WandbRegistrySource() (default registry) still raises on a missing key."""
+    source = WandbRegistrySource()
+    with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        source.list_cards()
+
+
+# --- per-artifact error isolation in list_cards (group 2) ---------------------
+
+
+class FakeArtifact:
+    """A duck-typed stand-in for a wandb artifact (data holder, not a mock).
+
+    Carries exactly the attributes ``_collect_cards`` / ``_card_from_artifact``
+    read: ``aliases``, ``metadata``, ``qualified_name``, ``version``, ``digest``.
+    """
+
+    def __init__(self, registry_id, *, metadata, version="v1", aliases=("production",)):
+        """Build a fake artifact with the read attributes set from the args."""
+        self.qualified_name = f"{registry_id}:{version}"
+        self.version = version
+        self.digest = f"sha256:{registry_id}"
+        self.aliases = list(aliases)
+        self.metadata = metadata
+
+
+def _good_meta(species="rice", root_type="primary"):
+    """Metadata carrying every required selection field (validates to a card)."""
+    return {
+        "species": species,
+        "mode": "cylinder",
+        "age_min": 2,
+        "age_max": 5,
+        "root_type": root_type,
+    }
+
+
+def _good_artifact(registry_id="reg/good", **kw):
+    return FakeArtifact(registry_id, metadata=_good_meta(**kw))
+
+
+def _malformed_artifact(registry_id="reg/bad"):
+    # Missing the required ``species`` field -> pydantic ValidationError.
+    meta = _good_meta()
+    del meta["species"]
+    return FakeArtifact(registry_id, metadata=meta)
+
+
+def test_collect_cards_skips_malformed_and_warns(caplog):
+    """One malformed artifact is skipped with a warning; the good one survives."""
+    source = WandbRegistrySource(alias="production")
+    good, bad = _good_artifact(), _malformed_artifact()
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        cards = source._collect_cards([good, bad])
+    assert [c.registry_id for c in cards] == ["reg/good"]
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    # The warning names the offending artifact and includes the underlying error.
+    assert "reg/bad" in caplog.text
+    assert "species" in caplog.text
+
+
+def test_collect_cards_all_malformed_returns_empty(caplog):
+    """An all-malformed listing is empty, not an exception."""
+    source = WandbRegistrySource(alias="production")
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        cards = source._collect_cards([_malformed_artifact()])
+    assert cards == []
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
+def test_collect_cards_drops_only_the_bad_one_preserving_order(caplog):
+    """A single bad artifact drops only itself; good ones keep their order."""
+    source = WandbRegistrySource(alias="production")
+    a = _good_artifact("reg/a")
+    b = _malformed_artifact("reg/bad")
+    c = _good_artifact("reg/c")
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        cards = source._collect_cards([a, b, c])
+    assert [card.registry_id for card in cards] == ["reg/a", "reg/c"]
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
+def test_collect_cards_alias_filtered_is_silent(caplog):
+    """An artifact lacking the configured alias is filtered out, no warning."""
+    source = WandbRegistrySource(alias="production")
+    wrong_alias = FakeArtifact(
+        "reg/experimental", metadata=_good_meta(), aliases=["experimental"]
+    )
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        cards = source._collect_cards([wrong_alias])
+    assert cards == []
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+
+def test_collect_cards_pins_concrete_version_and_checksum():
+    """The built card carries the artifact's concrete version + digest (pin)."""
+    source = WandbRegistrySource(alias="production")
+    art = _good_artifact("reg/good")
+    (card,) = source._collect_cards([art])
+    assert card.version == art.version
+    assert card.weights_checksum == art.digest
+
+
+# --- offline coverage of the registry traversal ------------------------------
+
+
+class FakeCollection:
+    """A duck-typed stand-in for a wandb artifact collection."""
+
+    def __init__(self, name):
+        """Store the collection name the traversal reads."""
+        self.name = name
+
+
+class FakeApi:
+    """A duck-typed stand-in for ``wandb.Api`` recording the calls it receives."""
+
+    def __init__(self, collections):
+        """Build from a ``{collection_name: [artifacts]}`` mapping."""
+        self._collections = collections
+        self.artifacts_calls = []
+        self.project_name = None
+
+    def artifact_collections(self, project_name, type_name):
+        """Record the project + type and return the fake collections."""
+        self.project_name = project_name
+        self.type_name = type_name
+        return [FakeCollection(name) for name in self._collections]
+
+    def artifacts(self, type_name, name):
+        """Record the query and return the collection's artifacts."""
+        self.artifacts_calls.append((type_name, name))
+        return list(self._collections[name.rsplit("/", 1)[-1]])
+
+
+def test_iter_registry_artifacts_yields_across_collections():
+    """The traversal yields every model artifact across all collections, in order."""
+    source = WandbRegistrySource(entity="ent", registry="reg")
+    a, b, c = _good_artifact("reg/a"), _good_artifact("reg/b"), _good_artifact("reg/c")
+    api = FakeApi({"colA": [a, b], "colB": [c]})
+    result = list(source._iter_registry_artifacts(api))
+    assert result == [a, b, c]
+    # Correct registry project path + one per-collection artifact query.
+    assert api.project_name == "ent-org/wandb-registry-reg"
+    assert api.artifacts_calls == [
+        ("model", "ent-org/wandb-registry-reg/colA"),
+        ("model", "ent-org/wandb-registry-reg/colB"),
+    ]
+
+
 @pytest.mark.wandb
 @pytest.mark.skipif(
     not WANDB_API_KEY,
     reason="requires WANDB_API_KEY + a populated production registry",
 )
-def test_wandb_source_lists_and_materializes(tmp_path):
-    """With creds, list_cards yields pinned cards and materialize caches the dir."""
+def test_wandb_source_lists_and_materializes(tmp_path, monkeypatch):
+    """With creds and NO registry env, the default registry lists + materializes."""
+    # Prove the default path: unset the registry/alias/entity env so the source
+    # falls back to the live-registry defaults with only WANDB_API_KEY set.
+    for var in (
+        "SRP_WANDB_MODEL_REGISTRY",
+        "SRP_WANDB_REGISTRY",
+        "SRP_WANDB_MODEL_ALIAS",
+        "SRP_WANDB_ALIAS",
+        "SRP_WANDB_ENTITY",
+    ):
+        monkeypatch.delenv(var, raising=False)
     source = WandbRegistrySource(cache_dir=tmp_path)
+    assert source._registry == "sleap-roots-models"  # default in effect, no env
     cards = source.list_cards()
+    # Count-agnostic: the production card set grows over time (do not assert exactly N).
     assert cards and all(isinstance(c, ModelCard) for c in cards)
     # Cards are pinned to a concrete version (not the moving alias) with a checksum,
     # and carry the selection metadata the matcher needs.

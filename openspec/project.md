@@ -50,6 +50,14 @@ importable library.
 - Platform-specific install extras (`cpu`, `windows_cuda`, `linux_cuda`, `macos`) select
   the right hardware acceleration; the container uses the CPU extra by default.
 
+### Runtime Configuration
+Model fetching is configured via environment variables (operator config). The only
+**required** variable is `WANDB_API_KEY`; the registry/entity/alias/cache/device all have
+defaults, so with just the key set `WarmModelWorker()` reads the live production registry.
+See the **Configuration** section of `README.md` for the full table and `.env.example` for
+a copy-and-fill template. (Env vars are model-scoped — `SRP_WANDB_MODEL_REGISTRY` /
+`SRP_WANDB_MODEL_ALIAS` — to match the `sleap-roots-training` producer.)
+
 ### Testing Strategy
 - pytest, tests in `tests/`; fixtures in `tests/conftest.py`. Inference tests are
   **real (no mocks)** — they run actual sleap-nn CPU inference against vendored
