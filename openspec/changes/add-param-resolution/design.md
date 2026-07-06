@@ -45,23 +45,29 @@ resolver is tested against.
       overrides = overrides or {}
       _reject_unknown_override_keys(overrides)          # keys ⊆ {species, mode, age}
       values = {"mode": _mode_for_scan(metadata)}
-      if metadata.get(SPECIES_NAME_FIELD) is not None:
+      if not _is_blank(metadata.get(SPECIES_NAME_FIELD)):
           values["species"] = metadata[SPECIES_NAME_FIELD]   # raw; canonicalized below
-      if metadata.get(PLANT_AGE_DAYS_FIELD) is not None:
+      if not _is_blank(metadata.get(PLANT_AGE_DAYS_FIELD)):
           values["age"] = metadata[PLANT_AGE_DAYS_FIELD]      # raw; canonicalized below
       values = {**values, **overrides}                  # override wins, per field
-      # canonicalize derived OR override values identically
-      if "species" in values:
-          species = _normalize_species(values["species"])     # non-str/blank -> ""
-          values["species"] = species if species else _drop("species", values)
+      # canonicalize derived OR override values identically; blank -> drop
+      _canonicalize_text(values, "species", _normalize_species)  # non-str/blank -> drop
+      _canonicalize_text(values, "mode", _normalize_mode)        # strip+lower; blank -> drop
       if "age" in values:
-          values["age"] = _coerce_age(values["age"])           # int; ValueError('age') if lossy
-      _require(values, ("species", "mode", "age"))     # `k in values`; names EVERY absent param
-      return ResolvedParams(values=values)             # contract computes param_hash
+          if _is_blank(values["age"]):
+              del values["age"]                          # blank/NaN age -> treat as absent
+          else:
+              values["age"] = _coerce_age(values["age"]) # int; ValueError('age') if lossy
+      missing = [k for k in ("species", "mode", "age") if k not in values]
+      if missing:                                        # names EVERY absent param
+          raise ValueError(f"Missing required scan param(s): {missing}")
+      return ResolvedParams(values=values)               # contract computes param_hash
   ```
-  (`_drop` illustrates "blank species → treat as absent → let `_require` name it"; the real
-  implementation simply deletes the key. `_require` uses key-membership, not truthiness, so
-  `age == 0` is valid.)
+  (`_is_blank(v)` == `v is None or NaN or empty/whitespace string` — applied symmetrically to
+  **both** load-bearing reads and to the merged `age`, so a blank field of any kind is treated
+  as not provided instead of raising at read/coerce time. `_canonicalize_text` normalizes a
+  field in place and drops it when it normalizes to blank. Validation uses key-membership, not
+  truthiness, so `age == 0` is valid.)
 - **Override values are canonicalized, not stored raw (surfaced by review, verified against
   the contract).** `compute_param_hash` hashes the entire `values` dict via canonical JSON;
   `int 14` and `str "14"` hash **differently** (integer-valued floats collapse to int, but
@@ -69,7 +75,11 @@ resolver is tested against.
   override `age="14"` raw would give the same scan a different `param_hash` (→ different
   `idempotency_key` → duplicate work) than the derived `14` path — the exact failure this
   module exists to prevent. Normalizing/coercing override values preserves "override wins"
-  (the override still wins the field) while making the hash representation-independent.
+  (the override still wins the field) while making the hash representation-independent. This
+  applies to **all three** fields, including `mode`: an override `mode="Cylinder"` is
+  normalized (`_normalize_mode` = strip+lower) so it hashes identically to the derived
+  `"cylinder"` and still exact-matches the seeded card vocabulary (a PR-review finding — the
+  original design canonicalized only species/age, leaving mode overrides raw).
 - **Unknown species → lowercased passthrough, not hard-fail.** The registry (`ModelCard`s)
   is the single authority on which species have models; `resolve_params` only *translates*
   Bloom's naming. A new seeded species then works with no resolver edit; a species with no

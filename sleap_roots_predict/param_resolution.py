@@ -8,7 +8,7 @@ network access and no filesystem I/O, and it does not mutate its input.
 """
 
 import math
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from sleap_roots_contracts import ResolvedParams
 
@@ -27,6 +27,26 @@ _PARAM_KEYS = ("species", "mode", "age")
 _ALIASES: Dict[str, str] = {}
 
 
+def _is_blank(value: Any) -> bool:
+    """Return True for absent-like values: ``None``, ``NaN``, or a blank string.
+
+    Bloom metadata read from ``scans.csv`` may present a missing cell as an empty
+    string (``csv``) or a ``NaN`` (``pandas`` coerces a numeric column with any
+    gap to ``float``), so both — plus whitespace-only strings — are treated the
+    same as an absent key.
+    """
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return True
+    return isinstance(value, str) and value.strip() == ""
+
+
+def _normalize_text(value: Any) -> str:
+    """Strip and lowercase a text value; blank/``None``/``NaN`` -> ``""``."""
+    if _is_blank(value):
+        return ""
+    return str(value).strip().lower()
+
+
 def _normalize_species(name: Any) -> str:
     """Normalize a Bloom species_name to the ModelCard species vocabulary.
 
@@ -35,10 +55,18 @@ def _normalize_species(name: Any) -> str:
     (e.g. ``NaN``) inputs normalize to ``""`` so callers can treat them as not
     provided.
     """
-    if name is None or (isinstance(name, float) and math.isnan(name)):
-        return ""
-    key = str(name).strip().lower()
+    key = _normalize_text(name)
     return _ALIASES.get(key, key)
+
+
+def _normalize_mode(mode: Any) -> str:
+    """Normalize a mode string to the ModelCard mode vocabulary (strip+lower).
+
+    Mirrors ``_normalize_species`` so a derived mode and an override mode
+    canonicalize identically (representation-independent ``param_hash``). The
+    seeded modes (``cylinder``, ``multiplant cylinder``) are already lowercase.
+    """
+    return _normalize_text(mode)
 
 
 def _mode_for_scan(metadata: Dict[str, Any]) -> str:
@@ -58,7 +86,8 @@ def _coerce_age(raw_age: Any) -> int:
     Accepts an int or an int-coercible whole-number string; rejects bools,
     non-whole floats, and non-coercible values with a ``ValueError`` naming
     ``age`` — mirroring ``choose_models`` so the resolved ``age`` (and therefore
-    ``param_hash``) is never derived from a lossy conversion.
+    ``param_hash``) is never derived from a lossy conversion. Blank/``NaN`` inputs
+    are handled upstream (treated as absent), not here.
     """
     if isinstance(raw_age, bool):
         raise ValueError(f"Scan param 'age' must be a whole number, got {raw_age!r}")
@@ -73,6 +102,17 @@ def _coerce_age(raw_age: Any) -> int:
     return age
 
 
+def _canonicalize_text(values: Dict[str, Any], key: str, normalizer: Callable) -> None:
+    """Normalize ``values[key]`` in place; drop the key if it normalizes to blank."""
+    if key not in values:
+        return
+    normalized = normalizer(values[key])
+    if normalized:
+        values[key] = normalized
+    else:
+        del values[key]
+
+
 def resolve_params(
     metadata: Dict[str, Any],
     overrides: Optional[Dict[str, Any]] = None,
@@ -84,7 +124,8 @@ def resolve_params(
             bloomcli's download writes to ``scans.csv``. Load-bearing fields:
             ``species_name`` (-> ``species``), ``plant_age_days`` (-> ``age``,
             days); the scanner determines ``mode``. Other columns are ignored.
-            A blank or absent load-bearing field is treated as not provided.
+            A blank or absent load-bearing field (missing key, ``None``, ``NaN``,
+            or an empty/whitespace-only string) is treated as not provided.
         overrides: Optional param-space dict whose keys are a subset of
             ``{"species", "mode", "age"}``. Each key wins its field over the
             derived value; override values are normalized/coerced by the same
@@ -109,26 +150,26 @@ def resolve_params(
             f"allowed keys are {list(_PARAM_KEYS)}"
         )
 
-    # Tolerant read: mode always; species/age only when present (blank -> handled
-    # below). Absent fields are omitted, deferring to overrides then validation.
+    # Tolerant read: mode always; species/age only when present and non-blank.
+    # Absent/blank fields are omitted, deferring to overrides then validation.
     values: Dict[str, Any] = {"mode": _mode_for_scan(metadata)}
-    if metadata.get(SPECIES_NAME_FIELD) is not None:
+    if not _is_blank(metadata.get(SPECIES_NAME_FIELD)):
         values["species"] = metadata[SPECIES_NAME_FIELD]
-    if metadata.get(PLANT_AGE_DAYS_FIELD) is not None:
+    if not _is_blank(metadata.get(PLANT_AGE_DAYS_FIELD)):
         values["age"] = metadata[PLANT_AGE_DAYS_FIELD]
 
     values = {**values, **overrides}  # override wins, per field
 
-    # Canonicalize derived OR override values so param_hash is representation-
-    # independent; a blank species is treated as absent (fails validation below).
-    if "species" in values:
-        species = _normalize_species(values["species"])
-        if species:
-            values["species"] = species
-        else:
-            del values["species"]
+    # Canonicalize derived OR override values identically so param_hash is
+    # representation-independent; a blank value is treated as absent (dropped ->
+    # named by the validation below).
+    _canonicalize_text(values, "species", _normalize_species)
+    _canonicalize_text(values, "mode", _normalize_mode)
     if "age" in values:
-        values["age"] = _coerce_age(values["age"])
+        if _is_blank(values["age"]):
+            del values["age"]
+        else:
+            values["age"] = _coerce_age(values["age"])
 
     missing = [key for key in _PARAM_KEYS if key not in values]
     if missing:

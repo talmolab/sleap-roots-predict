@@ -11,12 +11,14 @@ import math
 import pytest
 from sleap_roots_contracts import ModelCard, ResolvedParams
 
+from sleap_roots_predict import param_resolution
 from sleap_roots_predict.model_selection import choose_models
 from sleap_roots_predict.param_resolution import (
     PLANT_AGE_DAYS_FIELD,
     SPECIES_NAME_FIELD,
     _coerce_age,
     _mode_for_scan,
+    _normalize_mode,
     _normalize_species,
     resolve_params,
 )
@@ -88,6 +90,20 @@ def test_blank_or_nonstring_species_returns_empty(blank):
     assert _normalize_species(blank) == ""
 
 
+def test_alias_map_substitutes_a_non_identity_alias(monkeypatch):
+    """The (normally empty) _ALIASES seam maps a non-trivial name when populated."""
+    monkeypatch.setitem(param_resolution._ALIASES, "thlaspi arvense", "pennycress")
+    assert _normalize_species("Thlaspi arvense") == "pennycress"
+
+
+# --- _normalize_mode -------------------------------------------------------
+
+
+def test_mode_normalizes_case_and_whitespace():
+    """Mode is stripped and lowercased, mirroring species normalization."""
+    assert _normalize_mode("  Cylinder ") == "cylinder"
+
+
 # --- _mode_for_scan --------------------------------------------------------
 
 
@@ -120,6 +136,13 @@ def test_string_age_is_coerced_to_int():
 def test_age_zero_is_valid():
     """Age 0 is a valid coerced value (not treated as missing)."""
     assert _coerce_age(0) == 0
+
+
+def test_whole_float_age_is_coerced_to_int():
+    """A whole float (pandas float64 from a NaN-containing column) coerces cleanly."""
+    result = _coerce_age(14.0)
+    assert result == 14
+    assert isinstance(result, int)
 
 
 @pytest.mark.parametrize("bad_age", [14.5, "14.5", "abc", True])
@@ -210,6 +233,20 @@ def test_override_values_are_canonicalized_like_derived():
     assert overridden.param_hash == derived.param_hash
 
 
+def test_mode_override_is_canonicalized():
+    """A mode override is normalized like a derived mode (representation-stable)."""
+    overridden = resolve_params(_row(), overrides={"mode": "  Cylinder "})
+    derived = resolve_params(_row())
+    assert overridden.values["mode"] == "cylinder"
+    assert overridden.param_hash == derived.param_hash
+
+
+def test_override_age_true_raises_naming_age():
+    """A bool age override is rejected on the override path too, naming age."""
+    with pytest.raises(ValueError, match="age"):
+        resolve_params(_row(), overrides={"age": True})
+
+
 # --- resolve_params: strict validation -------------------------------------
 
 
@@ -222,10 +259,43 @@ def test_missing_both_fields_raises_naming_each():
     assert "age" in message
 
 
-def test_blank_species_raises_naming_species():
-    """A blank species_name (no override) fails loud rather than resolving ''."""
+@pytest.mark.parametrize("blank", ["", "   ", None, math.nan])
+def test_blank_species_raises_naming_species(blank):
+    """A blank species_name (any form, no override) fails loud naming species."""
     with pytest.raises(ValueError, match="species"):
-        resolve_params(_row(species_name="", plant_age_days=3))
+        resolve_params(_row(species_name=blank, plant_age_days=3))
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None, math.nan])
+def test_blank_age_treated_as_missing_naming_age(blank):
+    """A blank plant_age_days is treated as not provided (names age, not 'whole')."""
+    with pytest.raises(ValueError, match="age"):
+        resolve_params(_row(species_name="Rice", plant_age_days=blank))
+
+
+def test_blank_age_can_be_supplied_by_override():
+    """A blank plant_age_days is satisfied by an age override (defer, not raise)."""
+    params = resolve_params(
+        _row(species_name="Rice", plant_age_days=math.nan), overrides={"age": 5}
+    )
+    assert params.values["age"] == 5
+
+
+def test_both_blank_fields_name_each_missing_param():
+    """Blank species AND blank age name both (age blank must not mask species)."""
+    with pytest.raises(ValueError) as excinfo:
+        resolve_params(_row(species_name="", plant_age_days=math.nan))
+    message = str(excinfo.value)
+    assert "species" in message
+    assert "age" in message
+
+
+def test_blank_mode_override_raises_naming_mode():
+    """A blank mode override is treated as absent and fails loud naming mode."""
+    with pytest.raises(ValueError, match="mode"):
+        resolve_params(
+            _row(species_name="Rice", plant_age_days=3), overrides={"mode": ""}
+        )
 
 
 def test_missing_species_supplied_by_override_succeeds():

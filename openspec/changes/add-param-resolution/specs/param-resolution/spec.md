@@ -112,6 +112,13 @@ than silently truncating — mirroring `choose_models`'s age handling. A resolve
 - **WHEN** the row's `plant_age_days` is `0`
 - **THEN** the resolved `age` is `0` and resolution succeeds (0 is not treated as missing)
 
+#### Scenario: A blank age is treated as not provided
+
+- **WHEN** the row's `plant_age_days` is blank (`""`, whitespace, `None`, or `NaN`) with no
+  `age` override
+- **THEN** `resolve_params` raises a `ValueError` naming `age` as **missing** (treated as not
+  provided — the same as a blank `species_name`), rather than a "not a whole number" error
+
 ### Requirement: Override Merge And Strict Post-Override Validation
 
 The optional `overrides` argument SHALL be a param-space dict merged last so a supplied
@@ -119,12 +126,15 @@ field replaces the derived one (**override wins per field**). Override keys SHAL
 restricted to the resolvable params `{species, mode, age}`; an unrecognized override key
 SHALL raise a `ValueError` naming the offending key. Override **values** SHALL be
 canonicalized by the same per-field rules as derived values (`species` normalized via
-`_normalize_species`, `age` coerced via `_coerce_age`), so that a logically identical run
-produces an identical `param_hash` regardless of whether a value arrived derived or as an
-override (e.g. an `age` override of `"14"` and a derived `14` hash identically). After
-merging and canonicalizing, `resolve_params` SHALL require that `species`, `mode`, and
-`age` are all present (by key) and SHALL raise a clear `ValueError` naming every missing
-param when any is absent. It SHALL NOT return a half-resolved `ResolvedParams`.
+`_normalize_species`, `mode` normalized via `_normalize_mode`, `age` coerced via
+`_coerce_age`), so that a logically identical run produces an identical `param_hash`
+regardless of whether a value arrived derived or as an override (e.g. an `age` override of
+`"14"` and a derived `14` hash identically; a `mode` override of `"Cylinder"` and a derived
+`"cylinder"` hash identically). A blank override value is treated as not provided (the field
+is dropped, then named by validation). After merging and canonicalizing, `resolve_params`
+SHALL require that `species`, `mode`, and `age` are all present (by key) and SHALL raise a
+clear `ValueError` naming every missing param when any is absent. It SHALL NOT return a
+half-resolved `ResolvedParams`.
 
 #### Scenario: Override wins per field
 
@@ -139,6 +149,12 @@ param when any is absent. It SHALL NOT return a half-resolved `ResolvedParams`.
 - **THEN** the resolved `species` is `"rice"` and `age` is the integer `14` (the override
   values are normalized/coerced, not stored raw), so the `param_hash` matches the
   equivalent derived run
+
+#### Scenario: A mode override is canonicalized
+
+- **WHEN** `resolve_params(row, overrides={"mode": "  Cylinder "})` is called
+- **THEN** the resolved `mode` is `"cylinder"` (stripped/lowercased like a derived mode), so
+  the `param_hash` matches the equivalent derived run and selection is not broken by casing
 
 #### Scenario: An unknown override key is rejected
 
