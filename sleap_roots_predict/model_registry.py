@@ -9,11 +9,23 @@ filesystem-only deployments. ``WandbRegistrySource`` (added later) confines all
 network access to itself.
 """
 
+import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Protocol, Tuple, Union, runtime_checkable
+from typing import (
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    Union,
+    runtime_checkable,
+)
 
 from sleap_roots_contracts import ModelCard, ModelRef
+
+logger = logging.getLogger(__name__)
 
 # The lab wandb entity (org form is used for registry paths). Overridable via
 # SRP_WANDB_ENTITY. Kept as a default so the offline path never needs it.
@@ -160,16 +172,58 @@ class WandbRegistrySource:
         import wandb
 
         api = wandb.Api()
+        return self._collect_cards(self._iter_registry_artifacts(api))
+
+    def _iter_registry_artifacts(self, api: object) -> Iterable[object]:
+        """Yield every ``model`` artifact in the configured registry (network).
+
+        Args:
+            api: A ``wandb.Api`` handle.
+
+        Yields:
+            Each wandb artifact object across the registry's ``model`` collections.
+        """
         project = self._registry_project()
-        cards: List[ModelCard] = []
         for collection in api.artifact_collections(
             project_name=project, type_name="model"
         ):
             name = f"{project}/{collection.name}"
-            for artifact in api.artifacts(type_name="model", name=name):
-                if self._alias and self._alias not in (artifact.aliases or []):
-                    continue
+            yield from api.artifacts(type_name="model", name=name)
+
+    def _collect_cards(self, artifacts: Iterable[object]) -> List[ModelCard]:
+        """Build pinned ``ModelCard``s from artifacts, skipping non-conforming ones.
+
+        Applies the alias filter, then builds one card per surviving artifact. A
+        single artifact whose metadata cannot be validated into a ``ModelCard`` is
+        skipped with a logged warning (naming it and the underlying error) rather
+        than aborting the listing. This isolation is scoped to per-artifact card
+        construction only: credential and network failures are raised by
+        ``_require_key`` / the traversal before this method runs, so they still fail
+        loud and are not swallowed here.
+
+        Args:
+            artifacts: An iterable of wandb-artifact-like objects.
+
+        Returns:
+            The conforming cards, in input order.
+        """
+        cards: List[ModelCard] = []
+        for artifact in artifacts:
+            if self._alias and self._alias not in (
+                getattr(artifact, "aliases", None) or []
+            ):
+                continue
+            try:
                 cards.append(self._card_from_artifact(artifact))
+            except Exception as e:
+                # Isolate one non-conforming artifact: skip it (with a warning) so a
+                # single bad card never aborts the whole listing.
+                label = getattr(artifact, "qualified_name", None) or getattr(
+                    artifact, "name", "<unknown>"
+                )
+                logger.warning(
+                    "Skipping non-conforming model artifact %r: %s", label, e
+                )
         return cards
 
     @staticmethod

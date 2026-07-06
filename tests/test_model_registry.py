@@ -6,6 +6,7 @@ that ``make_predictor`` can load. Gated ``WandbRegistrySource`` tests are added 
 a later task (``@pytest.mark.wandb``).
 """
 
+import logging
 import os
 from pathlib import Path
 
@@ -141,6 +142,103 @@ def test_default_registry_still_fails_loud_without_key(clean_wandb_env):
     source = WandbRegistrySource()
     with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
         source.list_cards()
+
+
+# --- per-artifact error isolation in list_cards (group 2) ---------------------
+
+
+class FakeArtifact:
+    """A duck-typed stand-in for a wandb artifact (data holder, not a mock).
+
+    Carries exactly the attributes ``_collect_cards`` / ``_card_from_artifact``
+    read: ``aliases``, ``metadata``, ``qualified_name``, ``version``, ``digest``.
+    """
+
+    def __init__(self, registry_id, *, metadata, version="v1", aliases=("production",)):
+        """Build a fake artifact with the read attributes set from the args."""
+        self.qualified_name = f"{registry_id}:{version}"
+        self.version = version
+        self.digest = f"sha256:{registry_id}"
+        self.aliases = list(aliases)
+        self.metadata = metadata
+
+
+def _good_meta(species="rice", root_type="primary"):
+    """Metadata carrying every required selection field (validates to a card)."""
+    return {
+        "species": species,
+        "mode": "cylinder",
+        "age_min": 2,
+        "age_max": 5,
+        "root_type": root_type,
+    }
+
+
+def _good_artifact(registry_id="reg/good", **kw):
+    return FakeArtifact(registry_id, metadata=_good_meta(**kw))
+
+
+def _malformed_artifact(registry_id="reg/bad"):
+    # Missing the required ``species`` field -> pydantic ValidationError.
+    meta = _good_meta()
+    del meta["species"]
+    return FakeArtifact(registry_id, metadata=meta)
+
+
+def test_collect_cards_skips_malformed_and_warns(caplog):
+    """One malformed artifact is skipped with a warning; the good one survives."""
+    source = WandbRegistrySource(alias="production")
+    good, bad = _good_artifact(), _malformed_artifact()
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        cards = source._collect_cards([good, bad])
+    assert [c.registry_id for c in cards] == ["reg/good"]
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    # The warning names the offending artifact and includes the underlying error.
+    assert "reg/bad" in caplog.text
+    assert "species" in caplog.text
+
+
+def test_collect_cards_all_malformed_returns_empty(caplog):
+    """An all-malformed listing is empty, not an exception."""
+    source = WandbRegistrySource(alias="production")
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        cards = source._collect_cards([_malformed_artifact()])
+    assert cards == []
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
+def test_collect_cards_drops_only_the_bad_one_preserving_order(caplog):
+    """A single bad artifact drops only itself; good ones keep their order."""
+    source = WandbRegistrySource(alias="production")
+    a = _good_artifact("reg/a")
+    b = _malformed_artifact("reg/bad")
+    c = _good_artifact("reg/c")
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        cards = source._collect_cards([a, b, c])
+    assert [card.registry_id for card in cards] == ["reg/a", "reg/c"]
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
+def test_collect_cards_alias_filtered_is_silent(caplog):
+    """An artifact lacking the configured alias is filtered out, no warning."""
+    source = WandbRegistrySource(alias="production")
+    wrong_alias = FakeArtifact(
+        "reg/experimental", metadata=_good_meta(), aliases=["experimental"]
+    )
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        cards = source._collect_cards([wrong_alias])
+    assert cards == []
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+
+def test_collect_cards_pins_concrete_version_and_checksum():
+    """The built card carries the artifact's concrete version + digest (pin)."""
+    source = WandbRegistrySource(alias="production")
+    art = _good_artifact("reg/good")
+    (card,) = source._collect_cards([art])
+    assert card.version == art.version
+    assert card.weights_checksum == art.digest
 
 
 @pytest.mark.wandb
