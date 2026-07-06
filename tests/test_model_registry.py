@@ -246,10 +246,22 @@ def test_collect_cards_pins_concrete_version_and_checksum():
     not WANDB_API_KEY,
     reason="requires WANDB_API_KEY + a populated production registry",
 )
-def test_wandb_source_lists_and_materializes(tmp_path):
-    """With creds, list_cards yields pinned cards and materialize caches the dir."""
+def test_wandb_source_lists_and_materializes(tmp_path, monkeypatch):
+    """With creds and NO registry env, the default registry lists + materializes."""
+    # Prove the default path: unset the registry/alias/entity env so the source
+    # falls back to the live-registry defaults with only WANDB_API_KEY set.
+    for var in (
+        "SRP_WANDB_MODEL_REGISTRY",
+        "SRP_WANDB_REGISTRY",
+        "SRP_WANDB_MODEL_ALIAS",
+        "SRP_WANDB_ALIAS",
+        "SRP_WANDB_ENTITY",
+    ):
+        monkeypatch.delenv(var, raising=False)
     source = WandbRegistrySource(cache_dir=tmp_path)
+    assert source._registry == "sleap-roots-models"  # default in effect, no env
     cards = source.list_cards()
+    # Count-agnostic: the production card set grows over time (do not assert exactly N).
     assert cards and all(isinstance(c, ModelCard) for c in cards)
     # Cards are pinned to a concrete version (not the moving alias) with a checksum,
     # and carry the selection metadata the matcher needs.
