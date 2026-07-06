@@ -57,22 +57,7 @@ def rice_source(native_model_dir: Path, legacy_model_dir: Path) -> LocalCardSour
 
 # --- default source: the live wandb registry (group 3) ------------------------
 
-_WANDB_ENV_VARS = (
-    "WANDB_API_KEY",
-    "SRP_WANDB_MODEL_REGISTRY",
-    "SRP_WANDB_REGISTRY",
-    "SRP_WANDB_MODEL_ALIAS",
-    "SRP_WANDB_ALIAS",
-    "SRP_WANDB_ENTITY",
-)
-
-
-@pytest.fixture
-def clean_wandb_env(monkeypatch):
-    """Delete every wandb/SRP env var so the default-source tests are hermetic."""
-    for var in _WANDB_ENV_VARS:
-        monkeypatch.delenv(var, raising=False)
-    return monkeypatch
+# ``clean_wandb_env`` (hermetic env fixture) lives in tests/conftest.py.
 
 
 def test_default_source_is_the_live_wandb_registry(clean_wandb_env):

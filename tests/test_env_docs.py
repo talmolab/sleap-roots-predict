@@ -9,6 +9,12 @@ the canonical set the code reads, the ``.env.example`` template, and the README
 import re
 from pathlib import Path
 
+from sleap_roots_predict.model_registry import (
+    _DEFAULT_ALIAS,
+    _DEFAULT_ENTITY,
+    _DEFAULT_REGISTRY,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 README = REPO_ROOT / "README.md"
@@ -61,3 +67,12 @@ def test_readme_configuration_covers_all_vars_and_no_legacy():
     assert not missing, f"README Configuration missing: {sorted(missing)}"
     for legacy in LEGACY_VARS:
         assert legacy not in section
+
+
+def test_docs_default_values_match_code_constants():
+    """README + .env.example show the same default strings the code actually uses."""
+    section = _readme_config_section()
+    env = ENV_EXAMPLE.read_text(encoding="utf-8")
+    for default in (_DEFAULT_ENTITY, _DEFAULT_REGISTRY, _DEFAULT_ALIAS):
+        assert default in section, f"README Configuration missing default {default!r}"
+        assert default in env, f".env.example missing default {default!r}"

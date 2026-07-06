@@ -14,6 +14,26 @@ from PIL import Image
 # bottom-up models from sleap-nn v0.3.0, used for no-mock inference tests.
 ASSETS_DIR = Path(__file__).parent / "assets"
 
+# The full env family a wandb-registry-source test must clear to be hermetic: a
+# stray var on a dev box would false-fail a "no env" assertion, and a stray
+# WANDB_API_KEY would let a "missing key" test make a real network call.
+_WANDB_ENV_VARS = (
+    "WANDB_API_KEY",
+    "SRP_WANDB_MODEL_REGISTRY",
+    "SRP_WANDB_REGISTRY",
+    "SRP_WANDB_MODEL_ALIAS",
+    "SRP_WANDB_ALIAS",
+    "SRP_WANDB_ENTITY",
+)
+
+
+@pytest.fixture
+def clean_wandb_env(monkeypatch):
+    """Delete every wandb/SRP env var so registry-source tests are hermetic."""
+    for var in _WANDB_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    return monkeypatch
+
 
 @pytest.fixture(scope="session")
 def native_model_dir() -> Path:

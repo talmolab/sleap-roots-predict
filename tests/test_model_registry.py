@@ -76,25 +76,7 @@ def test_materialize_unknown_ref_raises(native_model_dir: Path):
 
 # --- WandbRegistrySource ------------------------------------------------------
 
-# The full env family a registry-source test must clear to be hermetic: a stray var
-# on a dev box would false-fail a "no env" assertion, and a stray WANDB_API_KEY would
-# let a "missing key" test make a real network call.
-_WANDB_ENV_VARS = (
-    "WANDB_API_KEY",
-    "SRP_WANDB_MODEL_REGISTRY",
-    "SRP_WANDB_REGISTRY",
-    "SRP_WANDB_MODEL_ALIAS",
-    "SRP_WANDB_ALIAS",
-    "SRP_WANDB_ENTITY",
-)
-
-
-@pytest.fixture
-def clean_wandb_env(monkeypatch):
-    """Delete every wandb/SRP env var so registry-source tests are hermetic."""
-    for var in _WANDB_ENV_VARS:
-        monkeypatch.delenv(var, raising=False)
-    return monkeypatch
+# ``clean_wandb_env`` (hermetic env fixture) lives in tests/conftest.py.
 
 
 def test_wandb_source_missing_key_raises_before_network(monkeypatch):
@@ -255,6 +237,53 @@ def test_collect_cards_pins_concrete_version_and_checksum():
     (card,) = source._collect_cards([art])
     assert card.version == art.version
     assert card.weights_checksum == art.digest
+
+
+# --- offline coverage of the registry traversal ------------------------------
+
+
+class FakeCollection:
+    """A duck-typed stand-in for a wandb artifact collection."""
+
+    def __init__(self, name):
+        """Store the collection name the traversal reads."""
+        self.name = name
+
+
+class FakeApi:
+    """A duck-typed stand-in for ``wandb.Api`` recording the calls it receives."""
+
+    def __init__(self, collections):
+        """Build from a ``{collection_name: [artifacts]}`` mapping."""
+        self._collections = collections
+        self.artifacts_calls = []
+        self.project_name = None
+
+    def artifact_collections(self, project_name, type_name):
+        """Record the project + type and return the fake collections."""
+        self.project_name = project_name
+        self.type_name = type_name
+        return [FakeCollection(name) for name in self._collections]
+
+    def artifacts(self, type_name, name):
+        """Record the query and return the collection's artifacts."""
+        self.artifacts_calls.append((type_name, name))
+        return list(self._collections[name.rsplit("/", 1)[-1]])
+
+
+def test_iter_registry_artifacts_yields_across_collections():
+    """The traversal yields every model artifact across all collections, in order."""
+    source = WandbRegistrySource(entity="ent", registry="reg")
+    a, b, c = _good_artifact("reg/a"), _good_artifact("reg/b"), _good_artifact("reg/c")
+    api = FakeApi({"colA": [a, b], "colB": [c]})
+    result = list(source._iter_registry_artifacts(api))
+    assert result == [a, b, c]
+    # Correct registry project path + one per-collection artifact query.
+    assert api.project_name == "ent-org/wandb-registry-reg"
+    assert api.artifacts_calls == [
+        ("model", "ent-org/wandb-registry-reg/colA"),
+        ("model", "ent-org/wandb-registry-reg/colB"),
+    ]
 
 
 @pytest.mark.wandb
