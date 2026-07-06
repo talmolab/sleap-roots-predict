@@ -18,6 +18,7 @@ from sleap_roots_contracts import ModelCard, ModelRef
 # The lab wandb entity (org form is used for registry paths). Overridable via
 # SRP_WANDB_ENTITY. Kept as a default so the offline path never needs it.
 _DEFAULT_ENTITY = "eberrigan-salk-institute-for-biological-studies"
+_DEFAULT_REGISTRY = "sleap-roots-models"
 _DEFAULT_ALIAS = "production"
 
 
@@ -83,7 +84,8 @@ class WandbRegistrySource:
     All network access is confined to this class and uses a lazy ``import wandb``,
     so importing this module (and the offline ``LocalCardSource`` path) never
     touches wandb. Configuration is taken from the constructor or, when omitted,
-    the environment: ``SRP_WANDB_ENTITY``, ``SRP_WANDB_REGISTRY``,
+    the environment: ``SRP_WANDB_ENTITY``, ``SRP_WANDB_MODEL_REGISTRY`` (default
+    ``sleap-roots-models``), ``SRP_WANDB_MODEL_ALIAS`` (default ``production``),
     ``SRP_MODEL_CACHE_DIR`` (falling back to ``WANDB_CACHE_DIR``); ``WANDB_API_KEY``
     authenticates. ``list_cards`` pins each artifact to its concrete version (not a
     moving alias) so the ``ModelRef`` built downstream is reproducible.
@@ -105,16 +107,22 @@ class WandbRegistrySource:
 
         Args:
             entity: wandb entity; defaults to ``SRP_WANDB_ENTITY`` then the lab entity.
-            registry: registry name; defaults to ``SRP_WANDB_REGISTRY``.
-            alias: only artifacts carrying this alias are listed (default ``production``).
+            registry: registry name; defaults to ``SRP_WANDB_MODEL_REGISTRY`` then
+                ``sleap-roots-models`` (the live production registry).
+            alias: only artifacts carrying this alias are listed; defaults to
+                ``SRP_WANDB_MODEL_ALIAS`` then ``production``.
             cache_dir: download cache; defaults to ``SRP_MODEL_CACHE_DIR`` then
                 ``WANDB_CACHE_DIR`` then wandb's own default.
         """
         self._entity = entity or os.environ.get("SRP_WANDB_ENTITY", _DEFAULT_ENTITY)
-        self._registry = registry or os.environ.get("SRP_WANDB_REGISTRY")
+        # Explicit arg wins; else the model-scoped env var; else the live production
+        # registry default, so a source with only WANDB_API_KEY set reads production.
+        self._registry = registry or os.environ.get(
+            "SRP_WANDB_MODEL_REGISTRY", _DEFAULT_REGISTRY
+        )
         # Explicit alias wins; else env; else default. A falsy alias falls back to
         # the default rather than disabling the filter (which would list every version).
-        self._alias = alias or os.environ.get("SRP_WANDB_ALIAS", _DEFAULT_ALIAS)
+        self._alias = alias or os.environ.get("SRP_WANDB_MODEL_ALIAS", _DEFAULT_ALIAS)
         if cache_dir is not None:
             self._cache_dir: Optional[str] = str(cache_dir)
         else:
@@ -133,7 +141,8 @@ class WandbRegistrySource:
         """Return the registry's wandb project path (``<entity>-org/wandb-registry-<r>``)."""
         if not self._registry:
             raise RuntimeError(
-                "No wandb registry configured; set SRP_WANDB_REGISTRY or pass registry=."
+                "No wandb registry configured; set SRP_WANDB_MODEL_REGISTRY or pass "
+                "registry=."
             )
         return f"{self._entity}-org/wandb-registry-{self._registry}"
 

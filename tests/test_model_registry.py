@@ -75,11 +75,70 @@ def test_materialize_unknown_ref_raises(native_model_dir: Path):
 
 # --- WandbRegistrySource ------------------------------------------------------
 
+# The full env family a registry-source test must clear to be hermetic: a stray var
+# on a dev box would false-fail a "no env" assertion, and a stray WANDB_API_KEY would
+# let a "missing key" test make a real network call.
+_WANDB_ENV_VARS = (
+    "WANDB_API_KEY",
+    "SRP_WANDB_MODEL_REGISTRY",
+    "SRP_WANDB_REGISTRY",
+    "SRP_WANDB_MODEL_ALIAS",
+    "SRP_WANDB_ALIAS",
+    "SRP_WANDB_ENTITY",
+)
+
+
+@pytest.fixture
+def clean_wandb_env(monkeypatch):
+    """Delete every wandb/SRP env var so registry-source tests are hermetic."""
+    for var in _WANDB_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    return monkeypatch
+
 
 def test_wandb_source_missing_key_raises_before_network(monkeypatch):
     """With no WANDB_API_KEY, list_cards raises a clear error (no network call)."""
     monkeypatch.delenv("WANDB_API_KEY", raising=False)
     source = WandbRegistrySource(entity="an-entity", registry="a-registry")
+    with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        source.list_cards()
+
+
+# --- default registry + env-var rename (group 1) ------------------------------
+
+
+def test_registry_defaults_to_sleap_roots_models(clean_wandb_env):
+    """With no registry arg and no env, the registry defaults to the live one."""
+    assert WandbRegistrySource()._registry == "sleap-roots-models"
+
+
+def test_model_registry_env_var_is_honored(clean_wandb_env):
+    """SRP_WANDB_MODEL_REGISTRY sets the registry when no arg is passed."""
+    clean_wandb_env.setenv("SRP_WANDB_MODEL_REGISTRY", "some-registry")
+    assert WandbRegistrySource()._registry == "some-registry"
+
+
+def test_legacy_registry_env_var_is_ignored(clean_wandb_env):
+    """The legacy SRP_WANDB_REGISTRY is not read (hard rename): default applies."""
+    clean_wandb_env.setenv("SRP_WANDB_REGISTRY", "legacy-registry")
+    assert WandbRegistrySource()._registry == "sleap-roots-models"
+
+
+def test_model_alias_env_var_is_honored(clean_wandb_env):
+    """SRP_WANDB_MODEL_ALIAS sets the alias when no arg is passed."""
+    clean_wandb_env.setenv("SRP_WANDB_MODEL_ALIAS", "staging")
+    assert WandbRegistrySource()._alias == "staging"
+
+
+def test_legacy_alias_env_var_is_ignored(clean_wandb_env):
+    """The legacy SRP_WANDB_ALIAS is not read (hard rename): default applies."""
+    clean_wandb_env.setenv("SRP_WANDB_ALIAS", "legacy-alias")
+    assert WandbRegistrySource()._alias == "production"
+
+
+def test_default_registry_still_fails_loud_without_key(clean_wandb_env):
+    """WandbRegistrySource() (default registry) still raises on a missing key."""
+    source = WandbRegistrySource()
     with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
         source.list_cards()
 
