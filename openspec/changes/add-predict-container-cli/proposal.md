@@ -1,14 +1,15 @@
 ## Why
 
-`WarmModelWorker` (#9), the prediction-output manifest + `predict_and_write_batch` (#16),
-and `resolve_params` (#18) exist as **library** code, but there is **no container
-entrypoint**: `[project.scripts]` is empty and the root `Dockerfile` is a REPL stub. A4's
-per-scan Argo pipeline (talmolab/sleap-roots-pipeline#10) needs a runnable predict
-container. This slice wires the warm-batch CLI and a real exec-form Dockerfile ENTRYPOINT
-so A4's `predict` stage can `docker run` the published image. Closes #24; the predict analog
-of the traits image slice (talmolab/sleap-roots#256).
+The predict library (`WarmModelWorker` #9, prediction-output #16, `resolve_params` #18) has
+**no container entrypoint** — `[project.scripts]` is empty and the root `Dockerfile` is a REPL
+stub — so A4's per-scan Argo pipeline (talmolab/sleap-roots-pipeline#10) has nothing runnable
+to `docker run`. This slice wires the warm-batch CLI + a real exec-form ENTRYPOINT. Closes #24;
+predict analog of the traits image slice (talmolab/sleap-roots#256). Grounded in
+`docs/superpowers/specs/2026-07-06-predict-container-cli-design.md`.
 
-Grounded in `docs/superpowers/specs/2026-07-06-predict-container-cli-design.md`.
+This single capability deliberately spans both halves of one cohesive deliverable — the batch
+runner/CLI **and** its GPU image/CI — mirroring the single-capability traits slice
+(`trait-extractor-image`); predict's one GHCR image *is* the service.
 
 ## What Changes
 
@@ -24,7 +25,8 @@ Grounded in `docs/superpowers/specs/2026-07-06-predict-container-cli-design.md`.
     trait-extractor input tree (closes a documented input→output gap in the A4 plan);
   - **skips** a scan whose `{scan_key}.predictions.json` already exists (existence-based
     resume); **isolates** per-scan failures (continue the batch) and exits non-zero iff any
-    scan failed;
+    scan failed — a scan resolving to zero models is a `failed` (not an empty-artifacts
+    manifest the trait-extractor would reject);
   - builds the inference video **single-channel** (`greyscale=True`) to match today's
     1-channel cylinder models (sleap-nn 0.3.0 does not adapt channel count).
 - **Evolve the existing GHCR image** — replace the root `Dockerfile` REPL stub with an
@@ -42,9 +44,12 @@ Grounded in `docs/superpowers/specs/2026-07-06-predict-container-cli-design.md`.
 - **Affected code:** new `sleap_roots_predict/batch.py` (`run_batch`, `discover_scans`) and
   `sleap_roots_predict/__main__.py` (CLI); `pyproject.toml` (`[project.scripts]`); root
   `Dockerfile`; `.github/workflows/docker-build.yml`; `sleap_roots_predict/__init__.py`
-  (export `run_batch`); a committed fixture input scan dir under `tests/assets/`;
-  `openspec/project.md` (container extra `cpu`→`linux_cuda`; "serving protocol/CLI" now
-  landed).
+  (export `run_batch`); shared fixtures promoted to `tests/conftest.py` + a committed fixture
+  input scan dir under `tests/assets/scans/`.
+- **Affected docs:** `openspec/project.md` (container extra `cpu`→`linux_cuda`; "serving
+  protocol/CLI" now landed; module list current); `API.md` (`run_batch` export); `README.md`
+  (Project Structure + `docker run` Usage); `CHANGELOG.md` (Unreleased→Added); `CLAUDE.md`
+  (prune duplicated lists — it is being retired).
 - **Deferred (tracked):** model-derived channel handling (#25, plates can be color);
   Argo-readiness exit-code / empty-input / SIGTERM policy + checksum-verified-skip &
   atomic-writes hardening (#26, symmetric with traits talmolab/sleap-roots#259).

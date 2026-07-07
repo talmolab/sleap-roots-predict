@@ -35,12 +35,36 @@ trait-extractor's input format (nested `out/{scan_key}/` = manifest + sidecar + 
   (plates can be color). Alternative (derive from model config) is the #25 hardening.
 - **Reuse over new code.** `run_batch` orchestrates discovery + resume + isolation + sidecar
   copy, delegating inference to `WarmModelWorker` and writing to `write_prediction_outputs`
-  (#16). `predict_and_write_batch` is left untouched.
+  (#16). It does **not** wrap `predict_and_write_batch` (#16): that helper is all-or-nothing
+  (no skip-if-exists, no per-scan failure isolation — it raises on a duplicate/bad scan and
+  aborts) and does not copy the sidecar, whereas the container needs per-scan **interleaved**
+  resume + isolation + pass-through. So `run_batch` drives the loop one level down (worker +
+  `write_prediction_outputs`); `predict_and_write_batch` is left untouched.
+- **Input layout.** Each scan's frames and its `{scan_key}.scan_metadata.json` sidecar live
+  **together in one dedicated directory** (the sidecar co-located with its frames); `scan_key`
+  comes from the sidecar's filename stem, not the directory name. Discovery is `rglob
+  "*.scan_metadata.json"`, which handles nested-per-scan and the degenerate single-scan case;
+  a *flat multi-scan* directory (several sidecars sharing one dir) is unsupported by design
+  because the frames would commingle — multiple scans MUST be in separate directories.
+- **Zero-resolved-models → `failed`.** A scan whose params match no model for *any* root type
+  is isolated as `failed`, not written as an empty-artifacts manifest — the trait-extractor
+  rejects an empty `artifacts` list, so a silent empty write would only defer the failure
+  downstream. Partial resolution (some root types) writes those roots normally.
+- **Cross-platform.** The sidecar pass-through is a binary copy (`shutil.copyfile`) so a
+  Windows CI runner does not CRLF-translate it and break the byte-identical check; the frame
+  extension match is case-folded (Linux glob is case-sensitive) so ubuntu/win/mac agree.
 
 ## Risks / Trade-offs
 
 - **`linux_cuda` image size / CI build time** grows vs. the `cpu` image → accepted (GPU is the
-  point); mitigated by placing the `ARG`/`ENV` sha-bake after the heavy layers.
+  point); mitigated by placing the `ARG`/`ENV` sha-bake after the heavy layers. The multi-GB
+  CUDA build also strains GitHub's 10 GB Actions cache and `ubuntu-latest` disk on the
+  build-only PR job → mitigate with a free-disk-space step + `cache-to: mode=min` (or a
+  registry cache).
+- **Short vs full sha.** `type=sha` defaults to a short tag while the baked
+  `SRP_PREDICT_CODE_SHA=${{ github.sha }}` is the full 40-char sha. Use `type=sha,format=long`
+  so the published `sha-<full>` tag equals the manifest's `predict_code_sha` and A4 pins an
+  unambiguous, matching reference.
 - **Existence-only resume + non-atomic writes** → a pod killed mid-manifest-write leaves a
   truncated file a later run skips as done. Acceptable for the manual PoC; the two halves
   (checksum-verified skip + atomic temp→rename) must land together in #26.
@@ -58,6 +82,7 @@ published `sha-<sha>` tag to A4's Argo plan (Task 8) and update the roadmap A3-p
 
 ## Open Questions
 
-None blocking. The multi-scan input layout is undecided in the A4 docs; `rglob
-"*.scan_metadata.json"` works for both flat-single and nested-per-scan, so predict does not
-force A4's hand.
+None blocking. The multi-scan input layout is undecided in the A4 docs; predict fixes it as
+**one dedicated directory per scan** (frames + co-located sidecar), discovered by `rglob
+"*.scan_metadata.json"` — which A4's Task 7 manual staging (and the automated downloader) must
+produce. This does not over-constrain A4: a single-scan input is just one directory.
