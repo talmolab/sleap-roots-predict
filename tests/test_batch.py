@@ -143,3 +143,16 @@ def test_video_is_single_channel(scan_input_dir: Path):
     (scan,) = discover_scans(scan_input_dir)
     video = make_video_from_images(scan.frames, greyscale=True)
     assert video.shape[-1] == 1  # 1-channel, matching in_channels:1 cylinder models
+
+
+def test_rerun_skips_completed_scan(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path
+):
+    out = tmp_path / "out"
+    run_batch(scan_input_dir, out, source=all_roots_source)
+    manifest = out / "scanCPTEST0" / "scanCPTEST0.predictions.json"
+    mtime = manifest.stat().st_mtime_ns
+
+    result2 = run_batch(scan_input_dir, out, source=all_roots_source)
+    assert [s.status for s in result2.scans] == ["skipped"]
+    assert manifest.stat().st_mtime_ns == mtime  # not rewritten
