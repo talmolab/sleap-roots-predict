@@ -182,6 +182,30 @@ predict_and_write_batch(
 Drive one warm worker over N scans, writing `out_dir/{scan_key}/` per scan and reusing
 resident predictors. Returns one manifest per scan, in request order.
 
+#### `run_batch`
+```python
+run_batch(
+    input_dir: Union[str, Path],
+    output_dir: Union[str, Path],
+    *,
+    source: Optional[ModelCardSource] = None,
+    peak_threshold: float = 0.2,
+    batch_size: int = 4,
+    predict_code_sha: Optional[str] = None,
+    predict_container_digest: Optional[str] = None,
+) -> BatchResult
+```
+The container-oriented batch runner — also the `sleap-roots-predict` /
+`python -m sleap_roots_predict <input_dir> <output_dir>` entrypoint (the predict service
+image's `ENTRYPOINT`). Discovers scans under `input_dir` (each a directory of image frames
+with a co-located `{scan_key}.scan_metadata.json` sidecar), loads models **once** via a
+single resident `WarmModelWorker` (`source=None` → the production `WandbRegistrySource`),
+and per scan: skips if the manifest already exists (resume), else predicts, writes the
+output-contract artifacts into `out_dir/{scan_key}/`, and copies the sidecar through so the
+output is a self-contained traits-input tree. Per-scan failures are isolated;
+`BatchResult.ok` is `False` iff any scan failed (the CLI exit code). See the
+`predict-container` OpenSpec spec.
+
 ---
 
 ## Utility Modules
