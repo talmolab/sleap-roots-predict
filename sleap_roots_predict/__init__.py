@@ -49,6 +49,13 @@ from sleap_roots_predict.output_contract import (  # noqa: F401
     write_prediction_outputs,
 )
 
+from sleap_roots_predict.batch import (  # noqa: F401
+    BatchResult,
+    ScanResult,
+    discover_scans,
+    run_batch,
+)
+
 __all__ = [
     "process_timelapse_experiment",
     "make_predictor",
@@ -64,4 +71,8 @@ __all__ = [
     "ScanRequest",
     "write_prediction_outputs",
     "predict_and_write_batch",
+    "run_batch",
+    "discover_scans",
+    "BatchResult",
+    "ScanResult",
 ]

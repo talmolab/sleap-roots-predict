@@ -15,9 +15,11 @@ importable library.
 > sleap-nn 0.3.0 API (PR #6), the warm in-memory model worker + wandb model-management
 > layer (the `model-management` capability) followed, and the predict **output contract**
 > (the `prediction-output` capability: named per-root `.slp` + a combined
-> `{scan}.predictions.json` manifest) now lands. Remaining A3/A4 work: the serving
-> protocol/CLI, emitting the full `Provenance`/`ResultEnvelope` (traits assembles these
-> from predict's manifest), and the prediction-parity harness.
+> `{scan}.predictions.json` manifest) landed, and the **serving protocol/CLI** now lands
+> (the `predict-container` capability: the warm-batch `python -m sleap_roots_predict` CLI +
+> the real GPU service-image `ENTRYPOINT`). Remaining A3/A4 work: emitting the full
+> `Provenance`/`ResultEnvelope` (traits assembles these from predict's manifest) and the
+> prediction-parity harness.
 
 ## Tech Stack
 - **Python** ≥ 3.11 (CI matrix: 3.11, 3.12)
@@ -46,11 +48,16 @@ importable library.
   - `model_registry.py` — model-card sources (`ModelCardSource`, `LocalCardSource`,
     `WandbRegistrySource`); all wandb/network access confined here (lazy import)
   - `warm_worker.py` — `WarmModelWorker`, keeps sleap-nn `Predictor`s resident across scans
+  - `output_contract.py` — per-scan output writer (`write_prediction_outputs`,
+    `predict_and_write_batch`) + the manifest/artifact models
+  - `batch.py` — the warm-batch container runner (`run_batch`, `discover_scans`)
+  - `__main__.py` — the `python -m sleap_roots_predict <in> <out>` CLI entrypoint
   - `video_utils.py` — image I/O utilities (natural sort, greyscale, load/save, video build)
   - `plates_timelapse_experiment.py` — timelapse experiment orchestration
   - `__init__.py` — exposes the high-level API only
 - Platform-specific install extras (`cpu`, `windows_cuda`, `linux_cuda`, `macos`) select
-  the right hardware acceleration; the container uses the CPU extra by default.
+  the right hardware acceleration; the container image uses the `linux_cuda` extra
+  (GPU-capable, and runs CPU-only via device auto-detect).
 
 ### Runtime Configuration
 Model fetching is configured via environment variables (operator config). The only

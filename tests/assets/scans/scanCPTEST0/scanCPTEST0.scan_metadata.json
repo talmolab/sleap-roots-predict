@@ -1,0 +1,6 @@
+{
+  "scan_key": "scanCPTEST0",
+  "image_ids": ["cp_0", "cp_1", "cp_2", "cp_3", "cp_4", "cp_5", "cp_6", "cp_7"],
+  "images_checksum": "sha256:cptest0000000000000000000000000000000000000000000000000000000000",
+  "params": {"species": "rice", "mode": "cylinder", "age": 3}
+}

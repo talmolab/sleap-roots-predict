@@ -191,6 +191,27 @@ default. Copy [`.env.example`](.env.example) to `.env` and fill in your key to g
 | `SRP_WANDB_MODEL_ALIAS` | no | `production` |
 | `SRP_MODEL_CACHE_DIR` | no | falls back to `WANDB_CACHE_DIR`, then wandb's default |
 | `SRP_DEVICE` | no | auto-detect (cuda / mps / cpu) |
+| `SRP_PREDICT_CODE_SHA` | no | recorded in each manifest's `predict_code_sha`; **baked into the image at build time** (build-arg → `ENV`), so operators don't set it |
+| `SRP_PREDICT_CONTAINER_DIGEST` | no | recorded in each manifest's `predict_container_digest` (fail-soft to `""`) |
+
+## Running the predict container
+
+The service image runs the warm-batch predict CLI over a directory of staged scans:
+
+```bash
+docker run --rm -e WANDB_API_KEY=$WANDB_API_KEY \
+  -v /path/to/scans:/in -v /path/to/out:/out \
+  ghcr.io/talmolab/sleap-roots-predict:<tag> /in /out
+```
+
+Each scan is a directory of image frames with a co-located
+`{scan_key}.scan_metadata.json` sidecar (carrying the resolved `{species, mode, age}`
+params). The container loads models once, predicts every scan, and writes per scan
+`out/{scan_key}/{scan_key}.predictions.json` + named per-root `.slp` + a copy of the
+sidecar. It skips a scan whose manifest already exists (resume) and exits non-zero if any
+scan failed. GPU is used when available (`nvidia.com/gpu`); it also runs CPU-only. The same
+entrypoint is available as a library: `from sleap_roots_predict import run_batch`, or
+`python -m sleap_roots_predict <in> <out>`.
 
 ## CI/CD
 
@@ -230,23 +251,28 @@ sleap_roots_predict/
 ├── model_registry.py               # Model-card sources (Local + Wandb registry)
 ├── warm_worker.py                  # WarmModelWorker: resident predictors across scans
 ├── output_contract.py              # Per-scan output artifacts (.slp + predictions.json)
+├── batch.py                        # Warm-batch container runner (run_batch, discover_scans)
+├── __main__.py                     # `python -m sleap_roots_predict <in> <out>` CLI
 ├── video_utils.py                  # Core image processing utilities
 ├── plates_timelapse_experiment.py  # Timelapse experiment processing
 └── __init__.py                     # Package exports and version
 
 tests/
-├── test_predict.py             # Prediction module tests
-├── test_param_resolution.py    # Param-resolution oracle tests (offline)
-├── test_model_selection.py     # Model-selection matcher tests
-├── test_model_registry.py      # Card-source tests (offline + gated wandb)
-├── test_warm_worker.py         # Warm worker tests (real CPU inference)
-├── test_output_contract.py     # Output-contract writer/batch tests (real CPU inference)
-├── test_public_api.py          # Public-surface import test
-├── test_video_utils.py         # Video utilities tests
-└── conftest.py                 # Shared test fixtures
+├── test_predict.py                     # Prediction module tests
+├── test_param_resolution.py            # Param-resolution oracle tests (offline)
+├── test_model_selection.py             # Model-selection matcher tests
+├── test_model_registry.py              # Card-source tests (offline + gated wandb)
+├── test_warm_worker.py                 # Warm worker tests (real CPU inference)
+├── test_output_contract.py             # Output-contract writer/batch tests (real CPU inference)
+├── test_batch.py                       # Batch runner / CLI tests (real CPU inference)
+├── test_predict_container_packaging.py # Console-script + docker-workflow guards
+├── test_public_api.py                  # Public-surface import test
+├── test_video_utils.py                 # Video utilities tests
+└── conftest.py                         # Shared test fixtures
 
 .github/workflows/
 ├── ci.yml                      # Continuous integration
+├── docker-build.yml            # Build/push the GHCR service image
 └── publish.yml                 # PyPI publishing workflow
 ```
 

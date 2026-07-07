@@ -51,14 +51,16 @@ Install with platform-specific extras for proper hardware acceleration:
 ## Architecture
 
 ### Package Structure
-The main package is `sleap_roots_predict/` which contains:
-- `predict.py`: sleap-nn 0.3.0 prediction interface (make_predictor, predict_on_video; legacy-config sanitization)
-- `model_selection.py`: pure model-selection matcher (`choose_models`: scan params + `ModelCard`s → `ModelRef` per root type)
-- `model_registry.py`: model-card sources — `ModelCardSource` protocol, offline `LocalCardSource`, and networked `WandbRegistrySource` (all wandb access confined here, lazy import)
-- `warm_worker.py`: `WarmModelWorker` — resolves, fetches-once, loads-once, and keeps sleap-nn `Predictor`s resident across scans (fail-loud)
-- `video_utils.py`: Core utilities for image processing (natural_sort, convert_to_greyscale, load_images, make_video_from_images, save_array_as_h5, find_image_directories)
-- `plates_timelapse_experiment.py`: Experiment processing functions (extract_timelapse_metadata_from_filename, create_timelapse_metadata_dataframe, check_timelapse_image_directory, process_timelapse_image_directory, process_timelapse_experiment)
-- `__init__.py`: Package initialization exposing the high-level API: `process_timelapse_experiment`, `make_predictor`, `predict_on_video`, `choose_models`, `ModelCardSource`, `LocalCardSource`, `WandbRegistrySource`, `WarmModelWorker`
+
+> The authoritative module layout and public-API list are single-sourced in
+> [`openspec/project.md`](openspec/project.md) (Architecture Patterns) and [`API.md`](API.md)
+> (this `CLAUDE.md` is being retired in favor of `openspec/` + `README.md`; don't duplicate
+> lists here). In brief, `sleap_roots_predict/` is: inference (`predict.py`), model
+> selection/registry/warm worker (`model_selection.py`, `model_registry.py`,
+> `warm_worker.py`), param resolution (`param_resolution.py`), the per-scan output contract
+> (`output_contract.py`), the warm-batch container runner + CLI (`batch.py`, `__main__.py` —
+> `python -m sleap_roots_predict <in> <out>`), and image/timelapse utilities
+> (`video_utils.py`, `plates_timelapse_experiment.py`).
 
 ### Key Dependencies
 - **Core**: sleap-nn, sleap-io for pose estimation; sleap-roots-contracts for shared `ModelCard`/`ModelRef`/`ResolvedParams`; wandb for the model registry

@@ -72,6 +72,7 @@ macos = ["sleap-nn[torch-cpu]==0.3.0", "torch", "torchvision>=0.20.0"]
 cpu = ["sleap-nn[torch-cpu]==0.3.0", "torch", "torchvision>=0.20.0"]
 
 [project.scripts]
+sleap-roots-predict = "sleap_roots_predict.__main__:main"
 
 [project.urls]
 Repository = "https://github.com/talmolab/sleap-roots-predict"

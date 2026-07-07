@@ -33,6 +33,20 @@ All notable changes to this project are documented here. The format is based on
   `SRP_PREDICT_CODE_SHA` / `SRP_PREDICT_CONTAINER_DIGEST` (fail-soft to `""`). Added
   `sleap-roots` as a test-only (`dev`) dependency for the `Series.load` acceptance test.
   See the `prediction-output` OpenSpec spec.
+- **Predict container CLI** (`sleap_roots_predict.batch` + `__main__`): a warm-batch
+  entrypoint — `sleap-roots-predict <input_scan_dir> <output_dir>` (also
+  `python -m sleap_roots_predict`) and the `run_batch(...)` library function. Discovers scans
+  (a `{scan_key}.scan_metadata.json` sidecar co-located with its frames), loads models once
+  via a resident `WarmModelWorker`, and per scan skips-if-done (existence-based resume),
+  predicts (single-channel video), writes the output-contract artifacts into
+  `out_dir/{scan_key}/`, and copies the sidecar through so the output is a self-contained
+  trait-extractor input tree. Per-scan failures are isolated; the process exits non-zero iff
+  any scan failed. The root `Dockerfile` now ships a real exec-form
+  `ENTRYPOINT ["python","-m","sleap_roots_predict"]` on the GPU (`linux_cuda`) stack and bakes
+  the build git sha (`SRP_PREDICT_CODE_SHA` build-arg → `ENV` → manifest `predict_code_sha`);
+  `docker-build.yml` tags `type=sha,format=long`. New public export: `run_batch`. See the
+  `predict-container` OpenSpec spec (closes #24). Model-derived channel handling (#25) and
+  Argo-readiness hardening (#26) are follow-ups.
 
 ### Changed
 
