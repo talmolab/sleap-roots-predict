@@ -10,11 +10,13 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 #   build-essential          compiles wheels
 #   tk                       sleap-nn imports `turtle` (→ tkinter) → libtk8.6.so
 #   libgl1, libglib2.0-0     OpenCV (cv2), pulled in by sleap-nn → libGL.so.1
+#   libegl1                  skia (sleap-nn skia_augmentation) → libEGL.so.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         tk \
         libgl1 \
         libglib2.0-0 \
+        libegl1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
