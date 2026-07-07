@@ -61,7 +61,11 @@ Source: sleap-roots-pipeline `docs/superpowers/plans/2026-07-06-a4-argo-workflow
   idempotency inputs predict defers" — the downloader's responsibility. Predict may *copy*
   the sidecar (copy ≠ author); it never computes those fields.
 - **Resume = skip-if-`{scan}.predictions.json`-exists** (existence-based for the PoC;
-  checksum-verified skip is the deferred "A4 hardening slice", design §8).
+  checksum-verified skip is the deferred "A4 hardening slice", design §8). **Coupling note:**
+  existence-only skip is only safe while writes are non-atomic if the two §8 hardening halves
+  — **checksum/size-verified skip** and **atomic temp→rename writes** — land *together*
+  ([#26]). Shipping the checksum skip without atomic writes (or vice versa) just moves the
+  hole (a pod killed mid-write leaves a truncated manifest a later run skips as done).
 - **`predict_code_sha` provenance** already has an env ladder in `write_prediction_outputs`
   (`SRP_PREDICT_CODE_SHA` → manifest; `SRP_PREDICT_CONTAINER_DIGEST` likewise).
 
@@ -85,7 +89,11 @@ existing `Dockerfile` + `docker-build.yml` in place. Switch the image's uv extra
 `cpu` → `linux_cuda` so it uses `nvidia.com/gpu`, and add the `SRP_PREDICT_CODE_SHA`
 build-arg. Deviation from #24's "no `release:` trigger" wording is **intentional**: we keep
 the existing workflow's `release:` trigger and `type=semver` tags (evolving, not mirroring
-the traits workflow) — they're harmless to A4, which pins `sha-<sha>`.
+the traits workflow) — they're harmless to A4, which pins `sha-<sha>`. **No-consumer check
+(confirmed):** the GHCR `cpu` image is referenced only as `:sha-PENDING` placeholders in the
+A4 plan/templates (pending, not pulling); the only image any live template pulls today is the
+legacy GitLab image (`registry.gitlab.com/salk-tm/sleap-roots-predict:latest`), a different
+registry. A4 is the first GHCR consumer, so flipping `cpu`→`linux_cuda` breaks nothing.
 
 ### D3 — Channel handling: hardcode `grayscale=True` (this slice), model-derived later (#25)
 sleap-nn 0.3.0 does **not** auto-match the video's channel count to the model — conversion
@@ -231,6 +239,13 @@ exec-form image; and the build-arg-gated workflow. **No delta** to `prediction-o
   the 1-channel evidence is from the vendored test models + the SLEAP root-tracing
   convention. The manual GPU gate against the real registry models de-risks this before
   merge.
+- **Argo-readiness policy is deferred and tracked ([#26], the symmetric partner of traits
+  [talmolab/sleap-roots#259]).** This slice deliberately mirrors the traits driver's current
+  behavior: `run_batch` returns `ok=True` on empty input (→ exit 0, a silent-green node) and
+  exits non-zero if any scan fails (→ Argo retries the whole batch, with completed scans
+  skipped by resume). The exit-code / empty-input / SIGTERM-PID1 policy is intentionally
+  reconciled **uniformly across both producers at A4-wiring time**, not redesigned here — so
+  reconciling traits without predict would leave predict silently green on an empty stage-in.
 
 ## Out of scope
 
