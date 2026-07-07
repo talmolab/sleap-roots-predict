@@ -12,13 +12,12 @@ import logging
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 from sleap_roots_contracts import ResolvedParams
 
 from sleap_roots_predict.model_registry import ModelCardSource
 from sleap_roots_predict.output_contract import write_prediction_outputs
-from sleap_roots_predict.video_utils import make_video_from_images
+from sleap_roots_predict.video_utils import make_video_from_images, natural_sort
 from sleap_roots_predict.warm_worker import WarmModelWorker
 
 logger = logging.getLogger(__name__)
@@ -38,12 +37,33 @@ class ScanInput:
 
     scan_key: str
     sidecar_path: Path
-    frames: List[Path] = field(default_factory=list)
-    params: Optional[ResolvedParams] = None
-    error: Optional[str] = None
+    frames: list[Path] = field(default_factory=list)
+    params: ResolvedParams | None = None
+    error: str | None = None
 
 
-def discover_scans(input_dir: Union[str, Path]) -> List[ScanInput]:
+@dataclass(frozen=True)
+class ScanResult:
+    """Per-scan outcome. ``status`` is one of ``ok`` / ``skipped`` / ``failed``."""
+
+    scan_key: str
+    status: str
+    error: str | None = None
+
+
+@dataclass
+class BatchResult:
+    """Aggregate batch outcome."""
+
+    scans: list[ScanResult] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        """True iff no scan failed (skipped/ok scans are fine)."""
+        return all(s.status != "failed" for s in self.scans)
+
+
+def discover_scans(input_dir: str | Path) -> list[ScanInput]:
     """Discover scans under ``input_dir`` by their scan-metadata sidecars.
 
     Recursively finds ``*.scan_metadata.json`` files; each sidecar's parent
@@ -53,17 +73,23 @@ def discover_scans(input_dir: Union[str, Path]) -> List[ScanInput]:
     anywhere in the tree raises.
 
     Args:
-        input_dir: Directory of staged scans.
+        input_dir: Directory of staged scans (must exist).
 
     Returns:
         One :class:`ScanInput` per discovered sidecar, sorted by path.
 
     Raises:
+        FileNotFoundError: If ``input_dir`` does not exist (a mis-configured mount,
+            distinct from an empty-but-present directory which is a no-op).
         ValueError: If two sidecars share a ``scan_key``.
     """
     input_dir = Path(input_dir)
-    scans: List[ScanInput] = []
-    seen: Dict[str, Path] = {}
+    if not input_dir.exists():
+        raise FileNotFoundError(
+            f"input scan directory does not exist: {input_dir.as_posix()}"
+        )
+    scans: list[ScanInput] = []
+    seen: dict[str, Path] = {}
     for sidecar in sorted(input_dir.rglob("*" + _SIDECAR_SUFFIX)):
         scan_key = sidecar.name[: -len(_SIDECAR_SUFFIX)]
         if scan_key in seen:
@@ -98,68 +124,54 @@ def _load_scan(sidecar: Path, scan_key: str) -> ScanInput:
         return ScanInput(
             scan_key, sidecar, error=f"sidecar params missing/incomplete: {params!r}"
         )
-    frames = sorted(
-        (
-            p
-            for p in sidecar.parent.iterdir()
-            if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS
-        ),
-        key=lambda p: p.name,
-    )
+    # Frames are the co-located images, natural-sorted so frame_2 precedes frame_10
+    # (the frame order is the temporal order of the inference video). Non-image files
+    # (including the sidecar itself) and subdirectories are excluded. natural_sort
+    # returns strings, so map back to Path to keep the list[Path] contract.
+    frames = [
+        Path(s)
+        for s in natural_sort(
+            [
+                p
+                for p in sidecar.parent.iterdir()
+                if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS
+            ]
+        )
+    ]
     resolved = ResolvedParams(values={k: params[k] for k in _REQUIRED_PARAM_KEYS})
     return ScanInput(scan_key, sidecar, frames=frames, params=resolved)
 
 
-@dataclass
-class ScanResult:
-    """Per-scan outcome. ``status`` is one of ``ok`` / ``skipped`` / ``failed``."""
-
-    scan_key: str
-    status: str
-    error: Optional[str] = None
-
-
-@dataclass
-class BatchResult:
-    """Aggregate batch outcome."""
-
-    scans: List[ScanResult] = field(default_factory=list)
-
-    @property
-    def ok(self) -> bool:
-        """True iff no scan failed (skipped/ok scans are fine)."""
-        return all(s.status != "failed" for s in self.scans)
-
-
 def run_batch(
-    input_dir: Union[str, Path],
-    output_dir: Union[str, Path],
+    input_dir: str | Path,
+    output_dir: str | Path,
     *,
-    source: Optional[ModelCardSource] = None,
-    peak_threshold: float = 0.2,
-    batch_size: int = 4,
-    predict_code_sha: Optional[str] = None,
-    predict_container_digest: Optional[str] = None,
+    source: ModelCardSource | None = None,
+    predict_code_sha: str | None = None,
+    predict_container_digest: str | None = None,
 ) -> BatchResult:
     """Predict every scan under ``input_dir``, writing outputs under ``output_dir``.
 
     Loads models once via a single resident worker. Per scan: skip if its manifest
     already exists (resume); otherwise resolve + predict, write the prediction-output
     artifacts into ``output_dir/{scan_key}/``, and copy the sidecar through. A
-    per-scan error is isolated (recorded ``failed``, batch continues). An input with
-    no scans is a no-op.
+    per-scan error is isolated (recorded ``failed``, batch continues). An empty (but
+    present) input directory is a no-op.
 
     Args:
         input_dir: Directory of staged scans.
         output_dir: Directory to write per-scan outputs into.
         source: Model-card source; ``None`` uses the production WandbRegistrySource.
-        peak_threshold: Peak-detection threshold for inference.
-        batch_size: Inference batch size.
         predict_code_sha: Provenance sha (falls back to ``SRP_PREDICT_CODE_SHA``).
         predict_container_digest: Provenance digest (env fallback).
 
     Returns:
         A :class:`BatchResult` with one :class:`ScanResult` per scan.
+
+    Raises:
+        FileNotFoundError: If ``input_dir`` does not exist.
+        ValueError: If two sidecars share a ``scan_key`` (a batch-level staging error,
+            surfaced before any prediction).
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -169,9 +181,7 @@ def run_batch(
         logger.warning("No scans discovered under %s", input_dir.as_posix())
         return result
 
-    worker = WarmModelWorker(
-        source=source, peak_threshold=peak_threshold, batch_size=batch_size
-    )
+    worker = WarmModelWorker(source=source)
     for scan in scans:
         out_scan_dir = output_dir / scan.scan_key
         manifest_path = out_scan_dir / f"{scan.scan_key}.predictions.json"
@@ -198,20 +208,31 @@ def _predict_one(
     worker: WarmModelWorker,
     scan: ScanInput,
     out_scan_dir: Path,
-    predict_code_sha: Optional[str],
-    predict_container_digest: Optional[str],
+    predict_code_sha: str | None,
+    predict_container_digest: str | None,
 ) -> None:
     """Predict one scan and write its outputs + copied sidecar. Raises on failure."""
     if not scan.frames:
         raise ValueError(
             f"no image frames co-located with sidecar {scan.sidecar_path.as_posix()}"
         )
+    assert scan.params is not None  # run_batch filters error scans (params-None) first
     refs = worker.resolve(scan.params)
     if not refs:
+        # A scan matching no model for any root type is a hard per-scan failure rather
+        # than an empty-artifacts manifest: write_prediction_outputs permits an empty
+        # manifest, but the downstream trait-extractor rejects one, so surface it here.
         raise ValueError(f"no models resolved for params {scan.params.values!r}")
     video = make_video_from_images(scan.frames, greyscale=True)
     labels = worker.predict(scan.params, video)
     out_scan_dir.mkdir(parents=True, exist_ok=True)
+    # Copy the sidecar BEFORE the manifest: write_prediction_outputs writes the manifest
+    # last as the resume commit-marker, so the sidecar must already be present when it
+    # lands — else a crash in between leaves a manifest with no sidecar that resume skips
+    # forever and the trait-extractor then rejects (an incomplete input tree).
+    shutil.copyfile(
+        scan.sidecar_path, out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
+    )
     write_prediction_outputs(
         labels,
         refs,
@@ -221,7 +242,4 @@ def _predict_one(
         output_params=worker.output_params(),
         predict_code_sha=predict_code_sha,
         predict_container_digest=predict_container_digest,
-    )
-    shutil.copyfile(
-        scan.sidecar_path, out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
     )

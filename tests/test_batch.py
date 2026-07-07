@@ -117,7 +117,9 @@ def test_run_batch_writes_outputs_and_copies_sidecar(
 def test_run_batch_predicts_every_scan(all_roots_source, tmp_path: Path):
     import shutil as _sh
 
-    src_frames = sorted(Path("tests/assets/images/centered_pair").glob("*.png"))
+    src_frames = sorted(
+        (Path(__file__).parent / "assets/images/centered_pair").glob("*.png")
+    )
     inp = tmp_path / "in"
     for key in ("scanX", "scanY"):
         d = inp / key
@@ -162,7 +164,7 @@ def test_rerun_skips_completed_scan(
     assert manifest.stat().st_mtime_ns == mtime  # not rewritten
 
 
-_FRAMES = sorted(Path("tests/assets/images/centered_pair").glob("*.png"))
+_FRAMES = sorted((Path(__file__).parent / "assets/images/centered_pair").glob("*.png"))
 _RICE = {"species": "rice", "mode": "cylinder", "age": 3}
 
 
@@ -262,3 +264,107 @@ def test_module_cli_over_registry(scan_input_dir: Path, tmp_path: Path):
     )
     assert proc.returncode == 0, proc.stderr
     assert (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
+
+
+def test_run_batch_constructs_single_worker(all_roots_source, tmp_path, monkeypatch):
+    import sleap_roots_predict.batch as batch_mod
+
+    counter = {"n": 0}
+    orig = batch_mod.WarmModelWorker
+
+    class _Counting(orig):
+        def __init__(self, *a, **k):
+            counter["n"] += 1
+            super().__init__(*a, **k)
+
+    monkeypatch.setattr(batch_mod, "WarmModelWorker", _Counting)
+    inp = tmp_path / "in"
+    _real_scan(inp, "s1", _RICE)
+    _real_scan(inp, "s2", _RICE)
+    result = run_batch(inp, tmp_path / "out", source=all_roots_source)
+    assert [s.status for s in result.scans] == ["ok", "ok"]
+    assert counter["n"] == 1  # one resident worker for the whole batch
+
+
+def test_missing_input_dir_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        run_batch(tmp_path / "does_not_exist", tmp_path / "out")
+
+
+def test_cli_missing_input_dir_returns_nonzero(tmp_path):
+    from sleap_roots_predict.__main__ import main
+
+    # discover_scans raises FileNotFoundError before the worker is built (no network),
+    # and main converts it to a clean non-zero exit.
+    assert main([str(tmp_path / "nope"), str(tmp_path / "out")]) == 2
+
+
+def test_sidecar_copy_failure_leaves_no_manifest(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
+):
+    import sleap_roots_predict.batch as batch_mod
+
+    def _boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(batch_mod.shutil, "copyfile", _boom)
+    out = tmp_path / "out"
+    result = run_batch(scan_input_dir, out, source=all_roots_source)
+    assert [s.status for s in result.scans] == ["failed"]
+    # sidecar is copied BEFORE the manifest, so a copy failure leaves no manifest ->
+    # resume re-runs the scan rather than skipping an incomplete tree.
+    assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
+
+
+def test_unreadable_json_sidecar_is_error(tmp_path: Path):
+    d = tmp_path / "scanBad"
+    d.mkdir()
+    (d / "scanBad.scan_metadata.json").write_text("{not valid json")
+    (scan,) = discover_scans(tmp_path)
+    assert scan.error is not None and "unreadable" in scan.error
+
+
+def test_uppercase_extension_frames_collected(tmp_path: Path):
+    d = tmp_path / "scanU"
+    d.mkdir()
+    Image.fromarray(np.zeros((16, 16), dtype="uint8")).save(
+        d / "FRAME_000.PNG", format="PNG"
+    )
+    (d / "scanU.scan_metadata.json").write_text(
+        json.dumps({"scan_key": "scanU", "params": _RICE})
+    )
+    (scan,) = discover_scans(tmp_path)
+    assert [p.name for p in scan.frames] == ["FRAME_000.PNG"]  # case-folded match
+
+
+def test_resume_mixed_skip_and_predict(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "sDone", _RICE)
+    out = tmp_path / "out"
+    run_batch(inp, out, source=all_roots_source)  # sDone predicted
+    _real_scan(inp, "sNew", _RICE)  # add a second, not-yet-done scan
+    result = run_batch(inp, out, source=all_roots_source)
+    statuses = {s.scan_key: s.status for s in result.scans}
+    assert statuses["sDone"] == "skipped"
+    assert statuses["sNew"] == "ok"
+
+
+def test_extra_params_keys_ignored(tmp_path: Path):
+    d = tmp_path / "scanE"
+    d.mkdir()
+    (d / "scanE.scan_metadata.json").write_text(
+        json.dumps(
+            {
+                "scan_key": "scanE",
+                "params": {
+                    "species": "rice",
+                    "mode": "cylinder",
+                    "age": 3,
+                    "extra": "ignored",
+                },
+            }
+        )
+    )
+    (scan,) = discover_scans(tmp_path)
+    assert scan.error is None
+    assert scan.params.values == {"species": "rice", "mode": "cylinder", "age": 3}

@@ -30,7 +30,9 @@ COPY pyproject.toml uv.lock README.md ./
 COPY sleap_roots_predict ./sleap_roots_predict
 
 # Install the project with the GPU (linux_cuda) inference extra from the frozen lockfile.
-# The committed lock already resolves linux_cuda; --no-dev keeps test/build tooling out.
+# The committed lock already resolves linux_cuda. Dev tooling is excluded because only
+# --extra linux_cuda is selected (extras are opt-in); --no-dev additionally guards against
+# a future default dependency-group.
 RUN uv sync --frozen --no-dev --extra linux_cuda --python 3.12
 
 # Put the project venv on PATH.

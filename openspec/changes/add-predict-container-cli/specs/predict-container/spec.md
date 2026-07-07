@@ -91,9 +91,11 @@ prediction-output artifacts defined by the `prediction-output` capability (the n
 `.slp` files and the `{scan_key}.predictions.json` manifest, via `write_prediction_outputs`),
 and SHALL additionally copy the scan's `{scan_key}.scan_metadata.json` sidecar **verbatim**
 (a byte-for-byte binary copy) into the same directory, so `<output_dir>/{scan_key}/` is a
-self-contained trait-extractor input tree (manifest + sidecar + `.slp` co-located). The runner
-SHALL NOT author or modify the sidecar's contents (its `image_ids`/`images_checksum` remain the
-upstream downloader's responsibility).
+self-contained trait-extractor input tree (manifest + sidecar + `.slp` co-located). The sidecar
+SHALL be copied **before** the manifest is written (the manifest is the resume marker), so the
+manifest never exists without its co-located sidecar. The runner SHALL NOT author or modify the
+sidecar's contents (its `image_ids`/`images_checksum` remain the upstream downloader's
+responsibility).
 
 #### Scenario: Writes manifest, .slp, and the copied sidecar
 
@@ -124,8 +126,10 @@ continues the batch, and still produces outputs for the other scans. `run_batch`
 `ok` (batch-level) iff no scan failed. The process SHALL exit `0` when no scan failed and
 non-zero when at least one scan failed. A scan that resolves to **zero** models across all root
 types SHALL be treated as `failed` (rather than emitting an empty-artifacts manifest that the
-downstream trait-extractor would reject). An input directory in which no scans are discovered
-SHALL be a no-op that logs a warning and exits `0`.
+downstream trait-extractor would reject). A **present-but-empty** input directory (no
+`*.scan_metadata.json`) SHALL be a no-op that logs a warning and exits `0`; a **missing** input
+directory SHALL instead be a batch-level error surfaced as a non-zero exit (distinguishing an
+idle mount from a mis-configured one).
 
 #### Scenario: One failing scan does not abort the batch
 
@@ -147,8 +151,14 @@ SHALL be a no-op that logs a warning and exits `0`.
 
 #### Scenario: Empty input directory is a no-op
 
-- **WHEN** the input directory contains no `*.scan_metadata.json`
+- **WHEN** a present-but-empty input directory contains no `*.scan_metadata.json`
 - **THEN** the runner logs a warning, writes nothing, and exits `0`
+
+#### Scenario: Missing input directory is an error
+
+- **WHEN** the input directory path does not exist
+- **THEN** the runner raises (surfaced by the CLI as a non-zero exit), rather than reporting
+  success with no outputs
 
 ### Requirement: Single-channel prediction input
 

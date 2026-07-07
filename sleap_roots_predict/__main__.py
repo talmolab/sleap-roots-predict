@@ -39,11 +39,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
-    # Lazy import: keeps ``--help`` import-light and lets this module load before
-    # ``batch.py`` exists during incremental development.
+    # Lazy import: `--help` exits inside parse_args above, so it never pulls in torch.
     from sleap_roots_predict.batch import run_batch
 
-    result = run_batch(args.input_dir, args.output_dir)
+    try:
+        result = run_batch(args.input_dir, args.output_dir)
+    except (FileNotFoundError, ValueError) as exc:
+        # Batch-level staging error (missing input mount / duplicate scan_key): a clean
+        # logged message + non-zero exit rather than a raw traceback.
+        logging.getLogger(__name__).error("Batch aborted: %s", exc)
+        return 2
+
     n_ok = sum(1 for s in result.scans if s.status == "ok")
     n_skip = sum(1 for s in result.scans if s.status == "skipped")
     n_fail = sum(1 for s in result.scans if s.status == "failed")
