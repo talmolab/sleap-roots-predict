@@ -72,8 +72,12 @@ def test_missing_params_is_error(tmp_path: Path):
 
 
 def test_duplicate_scan_key_raises(tmp_path: Path):
-    _write_scan(tmp_path / "a", "dup", {"species": "rice", "mode": "cylinder", "age": 3})
-    _write_scan(tmp_path / "b", "dup", {"species": "rice", "mode": "cylinder", "age": 3})
+    _write_scan(
+        tmp_path / "a", "dup", {"species": "rice", "mode": "cylinder", "age": 3}
+    )
+    _write_scan(
+        tmp_path / "b", "dup", {"species": "rice", "mode": "cylinder", "age": 3}
+    )
     with pytest.raises(ValueError, match="duplicate scan_key"):
         discover_scans(tmp_path)
 

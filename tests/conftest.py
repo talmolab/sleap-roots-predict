@@ -66,7 +66,9 @@ def centered_pair_image_dir() -> Path:
     return ASSETS_DIR / "images" / "centered_pair"
 
 
-def _card(root_type, registry_id, *, species="rice", version="v1", age_min=2, age_max=5):
+def _card(
+    root_type, registry_id, *, species="rice", version="v1", age_min=2, age_max=5
+):
     """Build a ModelCard for the vendored-model LocalCardSources."""
     return ModelCard(
         species=species,
