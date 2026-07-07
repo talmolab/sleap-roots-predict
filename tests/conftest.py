@@ -9,10 +9,17 @@ import h5py
 import numpy as np
 import pytest
 from PIL import Image
+from sleap_roots_contracts import ModelCard
+
+from sleap_roots_predict.model_registry import LocalCardSource
+from sleap_roots_predict.video_utils import make_video_from_images
 
 # Real, vendored inference fixtures (see tests/assets/README.md). Minimal
 # bottom-up models from sleap-nn v0.3.0, used for no-mock inference tests.
 ASSETS_DIR = Path(__file__).parent / "assets"
+
+# The committed input scan dir fixture (frames + co-located sidecar).
+SCAN_KEY = "scanCPTEST0"
 
 # The full env family a wandb-registry-source test must clear to be hermetic: a
 # stray var on a dev box would false-fail a "no env" assertion, and a stray
@@ -57,6 +64,55 @@ def sample_video_path() -> Path:
 def centered_pair_image_dir() -> Path:
     """Directory of 8 grayscale frames (all contain instances)."""
     return ASSETS_DIR / "images" / "centered_pair"
+
+
+def _card(root_type, registry_id, *, species="rice", version="v1", age_min=2, age_max=5):
+    """Build a ModelCard for the vendored-model LocalCardSources."""
+    return ModelCard(
+        species=species,
+        mode="cylinder",
+        age_min=age_min,
+        age_max=age_max,
+        root_type=root_type,
+        registry_id=registry_id,
+        version=version,
+    )
+
+
+@pytest.fixture
+def rice_source(native_model_dir: Path, legacy_model_dir: Path) -> LocalCardSource:
+    """A source: primary=native model, lateral=legacy model, both for rice."""
+    return LocalCardSource(
+        [
+            (_card("primary", "reg/rice-primary"), native_model_dir),
+            (_card("lateral", "reg/rice-lateral"), legacy_model_dir),
+        ]
+    )
+
+
+@pytest.fixture
+def all_roots_source(native_model_dir: Path, legacy_model_dir: Path) -> LocalCardSource:
+    """A source covering all three root types (crown reuses the native model)."""
+    return LocalCardSource(
+        [
+            (_card("primary", "reg/rice-primary"), native_model_dir),
+            (_card("lateral", "reg/rice-lateral"), legacy_model_dir),
+            (_card("crown", "reg/rice-crown"), native_model_dir),
+        ]
+    )
+
+
+@pytest.fixture(scope="module")
+def video(centered_pair_image_dir: Path):
+    """An 8-frame greyscale video built from the vendored frames."""
+    files = sorted(centered_pair_image_dir.glob("*.png"))
+    return make_video_from_images(files, greyscale=True)
+
+
+@pytest.fixture
+def scan_input_dir() -> Path:
+    """Committed input scan dir: scans/scanCPTEST0/<8 frames> + sidecar."""
+    return ASSETS_DIR / "scans"
 
 
 @pytest.fixture
