@@ -156,3 +156,105 @@ def test_rerun_skips_completed_scan(
     result2 = run_batch(scan_input_dir, out, source=all_roots_source)
     assert [s.status for s in result2.scans] == ["skipped"]
     assert manifest.stat().st_mtime_ns == mtime  # not rewritten
+
+
+_FRAMES = sorted(Path("tests/assets/images/centered_pair").glob("*.png"))
+_RICE = {"species": "rice", "mode": "cylinder", "age": 3}
+
+
+def _real_scan(root: Path, key: str, params):
+    """Create a scan dir with the 8 vendored frames + a sidecar."""
+    import shutil as _sh
+
+    d = root / key
+    d.mkdir(parents=True)
+    for f in _FRAMES:
+        _sh.copyfile(f, d / f.name)
+    (d / f"{key}.scan_metadata.json").write_text(
+        json.dumps(
+            {
+                "scan_key": key,
+                "image_ids": ["a"],
+                "images_checksum": "sha256:x",
+                "params": params,
+            }
+        )
+    )
+    return d
+
+
+def test_one_failing_scan_does_not_abort_batch(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanGOOD", _RICE)
+    # a bad scan: sidecar present, NO frames -> per-scan failure
+    bad = inp / "scanBAD"
+    bad.mkdir()
+    (bad / "scanBAD.scan_metadata.json").write_text(
+        json.dumps(
+            {
+                "scan_key": "scanBAD",
+                "image_ids": ["a"],
+                "images_checksum": "sha256:x",
+                "params": _RICE,
+            }
+        )
+    )
+    out = tmp_path / "out"
+    result = run_batch(inp, out, source=all_roots_source)
+    statuses = {s.scan_key: s.status for s in result.scans}
+    assert statuses["scanGOOD"] == "ok"
+    assert statuses["scanBAD"] == "failed"
+    assert result.ok is False
+    assert (out / "scanGOOD" / "scanGOOD.predictions.json").exists()
+
+
+def test_zero_resolved_models_is_failed(rice_source, tmp_path: Path):
+    # rice_source has no card for species "soybean" -> zero models resolve
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanZ", {"species": "soybean", "mode": "cylinder", "age": 3})
+    out = tmp_path / "out"
+    result = run_batch(inp, out, source=rice_source)
+    assert [s.status for s in result.scans] == ["failed"]
+    assert not (out / "scanZ" / "scanZ.predictions.json").exists()
+
+
+def test_empty_input_is_noop(tmp_path: Path):
+    empty = tmp_path / "empty_in"
+    empty.mkdir()
+    result = run_batch(empty, tmp_path / "out")
+    assert isinstance(result, BatchResult)
+    assert result.ok and result.scans == []
+
+
+def test_cli_main_exit_codes(scan_input_dir: Path, tmp_path: Path, monkeypatch):
+    from sleap_roots_predict.__main__ import main
+
+    class _Res:
+        def __init__(self, ok):
+            self.ok = ok
+            self.scans = []
+
+    state = {"ok": True}
+
+    def fake_run_batch(inp, out):
+        return _Res(state["ok"])
+
+    monkeypatch.setattr("sleap_roots_predict.batch.run_batch", fake_run_batch)
+    state["ok"] = True
+    assert main([str(scan_input_dir), str(tmp_path / "o1")]) == 0
+    state["ok"] = False
+    assert main([str(scan_input_dir), str(tmp_path / "o2")]) == 1
+
+
+@pytest.mark.wandb
+def test_module_cli_over_registry(scan_input_dir: Path, tmp_path: Path):
+    import subprocess
+
+    out = tmp_path / "out"
+    proc = subprocess.run(
+        [sys.executable, "-m", "sleap_roots_predict", str(scan_input_dir), str(out)],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
