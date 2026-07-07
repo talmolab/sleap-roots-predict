@@ -135,3 +135,11 @@ def test_run_batch_predicts_every_scan(all_roots_source, tmp_path: Path):
     assert [s.status for s in result.scans] == ["ok", "ok"]
     for key in ("scanX", "scanY"):
         assert (out / key / f"{key}.predictions.json").exists()
+
+
+def test_video_is_single_channel(scan_input_dir: Path):
+    from sleap_roots_predict.video_utils import make_video_from_images
+
+    (scan,) = discover_scans(scan_input_dir)
+    video = make_video_from_images(scan.frames, greyscale=True)
+    assert video.shape[-1] == 1  # 1-channel, matching in_channels:1 cylinder models
