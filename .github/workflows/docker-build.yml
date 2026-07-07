@@ -50,8 +50,16 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha
+            type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
+
+      # The linux_cuda image pulls multi-GB CUDA torch wheels; reclaim runner disk
+      # so the build fits ubuntu-latest (~14 GB free otherwise).
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL
+          df -h
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -61,5 +69,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Bake the build git sha into the image (ARG -> ENV -> manifest predict_code_sha).
+          # The type=sha,format=long tag == this value, so A4 pins an unambiguous reference.
+          build-args: |
+            SRP_PREDICT_CODE_SHA=${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # mode=min (not max): the multi-GB CUDA layers would overflow GitHub's 10 GB cache.
+          cache-to: type=gha,mode=min
