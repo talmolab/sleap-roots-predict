@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from sleap_roots_predict.batch import discover_scans
+from sleap_roots_predict.batch import BatchResult, discover_scans, run_batch
 
 
 def _write_scan(root: Path, scan_key: str, params, *, stem=None, extra_files=()):
@@ -82,3 +82,56 @@ def test_batch_does_not_import_trait_extractor():
     import sleap_roots_predict.batch  # noqa: F401
 
     assert "trait_extractor" not in sys.modules
+
+
+def test_run_batch_writes_outputs_and_copies_sidecar(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("SRP_PREDICT_CODE_SHA", "cafef00d")
+    out = tmp_path / "out"
+    result = run_batch(scan_input_dir, out, source=all_roots_source)
+
+    assert result.ok
+    assert [s.status for s in result.scans] == ["ok"]
+
+    scan_dir = out / "scanCPTEST0"
+    manifest = scan_dir / "scanCPTEST0.predictions.json"
+    assert manifest.exists()
+    slps = list(scan_dir.glob("scanCPTEST0.model*.root*.slp"))
+    assert len(slps) == 3  # primary, lateral, crown
+
+    # sidecar copied through, byte-identical
+    src = scan_input_dir / "scanCPTEST0" / "scanCPTEST0.scan_metadata.json"
+    dst = scan_dir / "scanCPTEST0.scan_metadata.json"
+    assert dst.read_bytes() == src.read_bytes()
+
+    # provenance sha picked up from the env
+    data = json.loads(manifest.read_text())
+    assert data["predict_code_sha"] == "cafef00d"
+
+
+def test_run_batch_predicts_every_scan(all_roots_source, tmp_path: Path):
+    import shutil as _sh
+
+    src_frames = sorted(Path("tests/assets/images/centered_pair").glob("*.png"))
+    inp = tmp_path / "in"
+    for key in ("scanX", "scanY"):
+        d = inp / key
+        d.mkdir(parents=True)
+        for f in src_frames:
+            _sh.copyfile(f, d / f.name)
+        (d / f"{key}.scan_metadata.json").write_text(
+            json.dumps(
+                {
+                    "scan_key": key,
+                    "image_ids": ["a"],
+                    "images_checksum": "sha256:x",
+                    "params": {"species": "rice", "mode": "cylinder", "age": 3},
+                }
+            )
+        )
+    out = tmp_path / "out"
+    result = run_batch(inp, out, source=all_roots_source)
+    assert [s.status for s in result.scans] == ["ok", "ok"]
+    for key in ("scanX", "scanY"):
+        assert (out / key / f"{key}.predictions.json").exists()

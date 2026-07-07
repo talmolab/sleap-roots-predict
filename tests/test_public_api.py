@@ -22,6 +22,7 @@ def test_public_surface_importable_without_credentials(monkeypatch):
         "ScanRequest",
         "write_prediction_outputs",
         "predict_and_write_batch",
+        "run_batch",
     ):
         assert hasattr(pkg, name), name
         assert name in pkg.__all__, f"{name} missing from __all__"
