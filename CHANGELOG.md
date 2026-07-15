@@ -10,7 +10,7 @@ All notable changes to this project are documented here. The format is based on
 - **Param resolution** (`resolve_params`): maps a single Bloom `cyl_scans_extended` row to a
   `ResolvedParams` (`species`/`mode`/`age`), so `choose_models` can select production models
   from real Bloom metadata (metadata → params → model). Re-exported from
-  `sleap_roots_predict`; implemented in `sleap-roots-contracts>=0.1.0a4` (predict's local
+  `sleap_roots_predict`; implemented in `sleap-roots-contracts==0.1.0a4` (predict's local
   copy is deleted — contracts is now the single source of truth across producers). **Behavior
   change vs. predict's prior local copy**: contracts hardens missing-data sentinel handling —
   `pd.NA`/`pd.NaT` species, `np.bool_`/`Decimal`/`inf` age, and non-string species (e.g. `123`)

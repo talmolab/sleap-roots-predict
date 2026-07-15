@@ -78,9 +78,9 @@
 
 ## 7. PR
 
-- [ ] 7.1 Open a PR referencing predict#28 and this change-id; note in the PR body that the
+- [x] 7.1 Open a PR referencing predict#28 and this change-id; note in the PR body that the
       `sleap-roots-pipeline` roadmap doc update is a pipeline-repo follow-up (not done here),
-      and that bloom#411 is already unblocked by the `0.1.0a4` release.
+      and that bloom#411 is already unblocked by the `0.1.0a4` release. (PR #29.)
 
 ## 8. Post-merge (not part of this PR's tasks; tracked separately)
 

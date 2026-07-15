@@ -42,8 +42,9 @@ importable library.
 ### Architecture Patterns
 - Package `sleap_roots_predict/`:
   - `predict.py` — sleap-nn prediction interface (`make_predictor`, `predict_on_video`)
-  - `model_selection.py` — pure model-selection matcher (`choose_models`); consumes
-    `resolve_params` from `sleap-roots-contracts` (predict re-exports it, no local copy)
+  - `model_selection.py` — pure model-selection matcher (`choose_models`); consumes a
+    `ResolvedParams`, e.g. one built by `sleap_roots_contracts.resolve_params` (re-exported
+    from `__init__.py`; predict carries no local copy of the resolver itself)
   - `model_registry.py` — model-card sources (`ModelCardSource`, `LocalCardSource`,
     `WandbRegistrySource`); all wandb/network access confined here (lazy import)
   - `warm_worker.py` — `WarmModelWorker`, keeps sleap-nn `Predictor`s resident across scans
