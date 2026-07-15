@@ -21,7 +21,7 @@ dependencies = [
     "pandas",
     "h5py",
     "imageio",
-    "sleap-roots-contracts==0.1.0a3",
+    "sleap-roots-contracts==0.1.0a4",
     # wandb is already a transitive dependency of sleap-nn 0.3.0; declared here
     # because WandbRegistrySource imports it directly (kept as a lazy import).
     "wandb",

@@ -4151,15 +4151,15 @@ wheels = [
 
 [[package]]
 name = "sleap-roots-contracts"
-version = "0.1.0a3"
+version = "0.1.0a4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/35/5c/acd1f870f68f29a05d9d9af4bfb9030521e3d43a88c3ebc40a57b4e5dad1/sleap_roots_contracts-0.1.0a3.tar.gz", hash = "sha256:2c7b5e229994c62e2ef800289d01c4137cba857c42ce22ae0e83f858a4aeaa95", size = 18146, upload-time = "2026-07-04T19:54:54.616Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/f6/7ca8cb8f5fac7b1e95e45d0e8edccee7d1f1308a1511981bd5db2ebc70d4/sleap_roots_contracts-0.1.0a4.tar.gz", hash = "sha256:95074adc9ec97875fa17b8bffaaa7f78afc46d32b3816d6100bafd6df963793c", size = 22668, upload-time = "2026-07-15T21:18:35.667Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/68/1305aa91d80b8ba37d5af79c989cef542188d8212516e77c4ed30af0114b/sleap_roots_contracts-0.1.0a3-py3-none-any.whl", hash = "sha256:7175e1ba5365c6085f9970f03cd3caf746788abd12ef4baec6c703a148cb5c47", size = 24250, upload-time = "2026-07-04T19:54:53.67Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/31/176b8ab34f1efb7f1f51f97ca1a9458719741ae4d92c28e72bdcaed08c3d/sleap_roots_contracts-0.1.0a4-py3-none-any.whl", hash = "sha256:1cb2edcc5485e4e4faabaa8a72947377ac1a6579acd7360fa0cd709af7d8c5b8", size = 29480, upload-time = "2026-07-15T21:18:34.702Z" },
 ]
 
 [[package]]
@@ -4238,7 +4238,7 @@ requires-dist = [
     { name = "sleap-nn", extras = ["torch-cuda128"], marker = "extra == 'linux-cuda'", specifier = "==0.3.0" },
     { name = "sleap-nn", extras = ["torch-cuda128"], marker = "extra == 'windows-cuda'", specifier = "==0.3.0" },
     { name = "sleap-roots", marker = "extra == 'dev'", specifier = ">=0.1.4" },
-    { name = "sleap-roots-contracts", specifier = "==0.1.0a3" },
+    { name = "sleap-roots-contracts", specifier = "==0.1.0a4" },
     { name = "toml", marker = "extra == 'dev'" },
     { name = "torch", marker = "extra == 'cpu'", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "sleap-roots-predict", extra = "cpu" } },
     { name = "torch", marker = "extra == 'linux-cuda'", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "sleap-roots-predict", extra = "linux-cuda" } },

@@ -31,7 +31,7 @@ from sleap_roots_predict.predict import (  # noqa: F401
 
 from sleap_roots_predict.model_selection import choose_models  # noqa: F401
 
-from sleap_roots_predict.param_resolution import resolve_params  # noqa: F401
+from sleap_roots_contracts import resolve_params  # noqa: F401
 
 from sleap_roots_predict.model_registry import (  # noqa: F401
     LocalCardSource,
