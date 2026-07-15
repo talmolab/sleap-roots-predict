@@ -1,7 +1,10 @@
 ## 1. Dependency bump (regression baseline)
 
 - [ ] 1.1 Bump `sleap-roots-contracts` to `==0.1.0a4` in `pyproject.toml`; run `uv lock` to
-      relock `uv.lock` in the same step.
+      relock `uv.lock` in the same step. Run `git diff uv.lock` and confirm the diff touches
+      only the `sleap-roots-contracts` entry (version/hash/url) — abort and investigate if
+      anything in the torch/sleap-nn stack moved (that stack is version-fragile per this
+      repo's own pyproject.toml comments).
 - [ ] 1.2 Verify: `python -c "import sleap_roots_contracts; print(sleap_roots_contracts.__version__)"`
       prints `0.1.0a4`, and the full existing test suite (`pytest`) is still green with no
       code changes yet — this is the baseline the rest of the change diffs against.
@@ -21,7 +24,10 @@
       describe its narrowed scope (the round-trip interop proof, not the oracle itself).
 - [ ] 2.4 Verify: `pytest` is green — no `ModuleNotFoundError`, the two kept tests pass
       against the contracts-produced `ResolvedParams`, `tests/test_public_api.py` still
-      passes unchanged (re-export intact).
+      passes unchanged (re-export intact). Additionally run
+      `pytest --collect-only tests/test_param_resolution.py` and confirm it collects exactly
+      2 items, both passing — "green" alone wouldn't catch a botched prune that silently
+      leaves 0 tests or reduces both to no-ops.
 
 ## 3. Doc sweep
 
@@ -29,12 +35,19 @@
       (excluding `openspec/changes/archive/`, which is immutable history) to confirm the
       complete set of remaining references.
 - [ ] 3.2 Update `README.md`: remove `param_resolution.py` from the architecture tree; update
-      the "See the `param-resolution` and `model-management` OpenSpec specs" line to
-      reference `sleap-roots-contracts` + `model-management` instead.
-- [ ] 3.3 Update `API.md`: same spec-reference fix, plus a short note that malformed/sentinel
-      inputs (non-string species, non-finite/`Decimal`/bool-like age) raise `ValueError`,
-      sourced from `sleap-roots-contracts`.
-- [ ] 3.4 Update `openspec/project.md`: remove the `param_resolution.py` module-layout bullet.
+      the test-tree line for `test_param_resolution.py` (currently "Param-resolution oracle
+      tests (offline)") to reflect its narrowed scope, e.g. "choose_models round-trip vs.
+      contracts' resolve_params (offline)" — the file survives (pruned, not deleted), so its
+      old description would otherwise go stale; update the "See the `param-resolution` and
+      `model-management` OpenSpec specs" line to reference `sleap-roots-contracts` +
+      `model-management` instead.
+- [ ] 3.3 Update `API.md`: same spec-reference fix, plus fold the new failure modes into the
+      existing semicolon-joined `resolve_params` Raises sentence (matching its style, not a
+      bolted-on note) — e.g. "...or a malformed/sentinel input (non-string `species`,
+      `pd.NA`/`pd.NaT`, non-finite/`Decimal`/bool-like `age`) — enforced by
+      `sleap-roots-contracts`; see CHANGELOG for the behavior-change history."
+- [ ] 3.4 Update `openspec/project.md`: remove the `param_resolution.py` module-layout bullet,
+      and bump its `sleap-roots-contracts (0.1.0a3)` version-string reference to `0.1.0a4`.
 - [ ] 3.5 Update `CLAUDE.md`: remove `param_resolution.py` from the Package Structure blurb.
 - [ ] 3.6 Re-run the grep from 3.1 to confirm zero remaining stale references outside
       `openspec/changes/archive/`.
@@ -42,10 +55,13 @@
 ## 4. CHANGELOG
 
 - [ ] 4.1 Edit the existing `[Unreleased]` "Param resolution" bullet in `CHANGELOG.md` in
-      place: attribute the implementation to `sleap-roots-contracts>=0.1.0a4`, note the
-      local copy is deleted, and call out the stricter sentinel handling (`pd.NA`/`pd.NaT`
-      species, `np.bool_`/`Decimal`/`inf` age, non-string species now raise `ValueError`
-      instead of silently coercing) as a behavior change.
+      place: this edit should net *shrink* the bullet, not grow it. Cut the now-redundant
+      internals prose (normalization/mode-seam detail — that's an implementation detail
+      owned by contracts now, not predict's to document) down to: what predict re-exports,
+      the `sleap-roots-contracts==0.1.0a4` version pin, and one compact behavior-change
+      sentence (not a restated table) covering the stricter sentinel handling (`pd.NA`/
+      `pd.NaT` species, `np.bool_`/`Decimal`/`inf` age, non-string species now raise
+      `ValueError` instead of silently coercing).
 
 ## 5. Spec validation
 
