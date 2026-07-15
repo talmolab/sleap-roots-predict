@@ -1,28 +1,28 @@
 ## 1. Dependency bump (regression baseline)
 
-- [ ] 1.1 Bump `sleap-roots-contracts` to `==0.1.0a4` in `pyproject.toml`; run `uv lock` to
+- [x] 1.1 Bump `sleap-roots-contracts` to `==0.1.0a4` in `pyproject.toml`; run `uv lock` to
       relock `uv.lock` in the same step. Run `git diff uv.lock` and confirm the diff touches
       only the `sleap-roots-contracts` entry (version/hash/url) — abort and investigate if
       anything in the torch/sleap-nn stack moved (that stack is version-fragile per this
       repo's own pyproject.toml comments).
-- [ ] 1.2 Verify: `python -c "import sleap_roots_contracts; print(sleap_roots_contracts.__version__)"`
+- [x] 1.2 Verify: `python -c "import sleap_roots_contracts; print(sleap_roots_contracts.__version__)"`
       prints `0.1.0a4`, and the full existing test suite (`pytest`) is still green with no
       code changes yet — this is the baseline the rest of the change diffs against.
 
 ## 2. Swap the implementation (import, delete, re-point tests)
 
-- [ ] 2.1 In `sleap_roots_predict/__init__.py`, replace
+- [x] 2.1 In `sleap_roots_predict/__init__.py`, replace
       `from sleap_roots_predict.param_resolution import resolve_params` with
       `from sleap_roots_contracts import resolve_params` (keep it in `__all__`).
-- [ ] 2.2 Delete `sleap_roots_predict/param_resolution.py`.
-- [ ] 2.3 Prune `tests/test_param_resolution.py` to only
+- [x] 2.2 Delete `sleap_roots_predict/param_resolution.py`.
+- [x] 2.3 Prune `tests/test_param_resolution.py` to only
       `test_round_trip_selects_expected_models` and
       `test_round_trip_unknown_species_selects_nothing`; update its imports to pull
       `resolve_params` from `sleap_roots_contracts` directly (not via predict's re-export)
       and drop now-unused imports (`param_resolution` module, the private helpers,
       `PLANT_AGE_DAYS_FIELD`/`SPECIES_NAME_FIELD`, `math`). Update the module docstring to
       describe its narrowed scope (the round-trip interop proof, not the oracle itself).
-- [ ] 2.4 Verify: `pytest` is green — no `ModuleNotFoundError`, the two kept tests pass
+- [x] 2.4 Verify: `pytest` is green — no `ModuleNotFoundError`, the two kept tests pass
       against the contracts-produced `ResolvedParams`, `tests/test_public_api.py` still
       passes unchanged (re-export intact). Additionally run
       `pytest --collect-only tests/test_param_resolution.py` and confirm it collects exactly
@@ -31,30 +31,29 @@
 
 ## 3. Doc sweep
 
-- [ ] 3.1 Grep the repo for `param_resolution`, `param-resolution`, and `resolve_params`
+- [x] 3.1 Grep the repo for `param_resolution`, `param-resolution`, and `resolve_params`
       (excluding `openspec/changes/archive/`, which is immutable history) to confirm the
       complete set of remaining references.
-- [ ] 3.2 Update `README.md`: remove `param_resolution.py` from the architecture tree; update
+- [x] 3.2 Update `README.md`: remove `param_resolution.py` from the architecture tree; update
       the test-tree line for `test_param_resolution.py` (currently "Param-resolution oracle
       tests (offline)") to reflect its narrowed scope, e.g. "choose_models round-trip vs.
       contracts' resolve_params (offline)" — the file survives (pruned, not deleted), so its
-      old description would otherwise go stale; update the "See the `param-resolution` and
-      `model-management` OpenSpec specs" line to reference `sleap-roots-contracts` +
-      `model-management` instead.
-- [ ] 3.3 Update `API.md`: same spec-reference fix, plus fold the new failure modes into the
+      old description would otherwise go stale. (The "See the `param-resolution` and
+      `model-management` OpenSpec specs" line lives in API.md, not README.md — handled in 3.3.)
+- [x] 3.3 Update `API.md`: same spec-reference fix, plus fold the new failure modes into the
       existing semicolon-joined `resolve_params` Raises sentence (matching its style, not a
       bolted-on note) — e.g. "...or a malformed/sentinel input (non-string `species`,
       `pd.NA`/`pd.NaT`, non-finite/`Decimal`/bool-like `age`) — enforced by
       `sleap-roots-contracts`; see CHANGELOG for the behavior-change history."
-- [ ] 3.4 Update `openspec/project.md`: remove the `param_resolution.py` module-layout bullet,
+- [x] 3.4 Update `openspec/project.md`: remove the `param_resolution.py` module-layout bullet,
       and bump its `sleap-roots-contracts (0.1.0a3)` version-string reference to `0.1.0a4`.
-- [ ] 3.5 Update `CLAUDE.md`: remove `param_resolution.py` from the Package Structure blurb.
-- [ ] 3.6 Re-run the grep from 3.1 to confirm zero remaining stale references outside
+- [x] 3.5 Update `CLAUDE.md`: remove `param_resolution.py` from the Package Structure blurb.
+- [x] 3.6 Re-run the grep from 3.1 to confirm zero remaining stale references outside
       `openspec/changes/archive/`.
 
 ## 4. CHANGELOG
 
-- [ ] 4.1 Edit the existing `[Unreleased]` "Param resolution" bullet in `CHANGELOG.md` in
+- [x] 4.1 Edit the existing `[Unreleased]` "Param resolution" bullet in `CHANGELOG.md` in
       place: this edit should net *shrink* the bullet, not grow it. Cut the now-redundant
       internals prose (normalization/mode-seam detail — that's an implementation detail
       owned by contracts now, not predict's to document) down to: what predict re-exports,
@@ -65,11 +64,17 @@
 
 ## 5. Spec validation
 
-- [ ] 5.1 Run `openspec validate consume-contracts-params --strict` and fix every issue.
+- [x] 5.1 Run `openspec validate consume-contracts-params --strict` and fix every issue.
 
 ## 6. Pre-merge gate
 
-- [ ] 6.1 Run `/pre-merge` (format check, lint, full test suite, build) and fix any failures.
+- [x] 6.1 Run `/pre-merge` (format check, lint, full test suite, build) and fix any failures.
+      Format/lint/codespell clean; CPU subset 238 passed (verified against the exact ci.yml
+      marker expression — the pre-merge skill's documented `-m "not gpu"` command is stale,
+      overrides `addopts`, and pulls in flaky `wandb`-marked tests; noted separately, not a
+      regression from this change); GPU subset 3 passed locally (CUDA available); `uv build`
+      succeeds. Local `docker build` skipped per user decision — no Dockerfile change and no
+      new resolved dependencies (verified), CI's PR-triggered build-only validation covers it.
 
 ## 7. PR
 
