@@ -91,8 +91,9 @@ Run prediction on a sleap_io.Video object.
 ### Model Selection
 
 Resolve Bloom scan metadata into params, then select a production model per root type
-(metadata → params → model). See the `param-resolution` and `model-management` OpenSpec
-specs for the full matching semantics (kept single-sourced there to avoid drift).
+(metadata → params → model). `resolve_params` is implemented in `sleap-roots-contracts`
+(predict re-exports it); see that package for its full semantics and the `model-management`
+OpenSpec spec for `choose_models` matching (kept single-sourced there to avoid drift).
 
 ```python
 from sleap_roots_predict import (
@@ -124,8 +125,10 @@ writes to `scans.csv`) to a `ResolvedParams` carrying `species` (normalized from
 **Returns:** A `ResolvedParams` (with `values` and a computed `param_hash`), ready for
 `choose_models`.
 
-**Raises:** `ValueError` on an unknown override key, a non-whole `plant_age_days`/`age`, or
-a still-missing `species`/`mode`/`age` after merging overrides.
+**Raises:** `ValueError` on an unknown override key, a non-whole `plant_age_days`/`age`, a
+still-missing `species`/`mode`/`age` after merging overrides, or a malformed/sentinel input
+(non-string `species`, `pd.NA`/`pd.NaT`, non-finite/`Decimal`/bool-like `age`) — enforced by
+`sleap-roots-contracts`; see CHANGELOG for the behavior-change history.
 
 ### Output Contract
 

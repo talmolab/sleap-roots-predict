@@ -57,9 +57,10 @@ Install with platform-specific extras for proper hardware acceleration:
 > (this `CLAUDE.md` is being retired in favor of `openspec/` + `README.md`; don't duplicate
 > lists here). In brief, `sleap_roots_predict/` is: inference (`predict.py`), model
 > selection/registry/warm worker (`model_selection.py`, `model_registry.py`,
-> `warm_worker.py`), param resolution (`param_resolution.py`), the per-scan output contract
-> (`output_contract.py`), the warm-batch container runner + CLI (`batch.py`, `__main__.py` —
-> `python -m sleap_roots_predict <in> <out>`), and image/timelapse utilities
+> `warm_worker.py` — `resolve_params` is imported from `sleap-roots-contracts`, no local
+> copy), the per-scan output contract (`output_contract.py`), the warm-batch container
+> runner + CLI (`batch.py`, `__main__.py` — `python -m sleap_roots_predict <in> <out>`),
+> and image/timelapse utilities
 > (`video_utils.py`, `plates_timelapse_experiment.py`).
 
 ### Key Dependencies
