@@ -42,9 +42,9 @@ importable library.
 ### Architecture Patterns
 - Package `sleap_roots_predict/`:
   - `predict.py` — sleap-nn prediction interface (`make_predictor`, `predict_on_video`)
-  - `param_resolution.py` — pure Bloom-metadata → `ResolvedParams` oracle (`resolve_params`);
-    feeds `choose_models`
-  - `model_selection.py` — pure model-selection matcher (`choose_models`)
+  - `model_selection.py` — pure model-selection matcher (`choose_models`); consumes a
+    `ResolvedParams`, e.g. one built by `sleap_roots_contracts.resolve_params` (re-exported
+    from `__init__.py`; predict carries no local copy of the resolver itself)
   - `model_registry.py` — model-card sources (`ModelCardSource`, `LocalCardSource`,
     `WandbRegistrySource`); all wandb/network access confined here (lazy import)
   - `warm_worker.py` — `WarmModelWorker`, keeps sleap-nn `Predictor`s resident across scans
@@ -102,7 +102,8 @@ downstream join.
 
 ## External Dependencies
 - **sleap-nn / sleap-io** — inference engine and label I/O.
-- **sleap-roots-contracts** (`==0.1.0a3`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`.
+- **sleap-roots-contracts** (`==0.1.0a4`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`,
+  and the `resolve_params` oracle (Bloom scan metadata → `ResolvedParams`).
 - **wandb** — the model registry the warm worker fetches root models from (network confined to
   `WandbRegistrySource`). Also a transitive sleap-nn dependency.
 - **sleap-roots model registry** — source of trained models (the wandb registry above).
