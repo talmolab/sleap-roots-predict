@@ -19,6 +19,13 @@ aliases) and SHALL perform no network access and no per-call filesystem I/O (the
 version is resolved once at import). It SHALL raise a clear error when a required param (`species`,
 `mode`, or `age`) is absent.
 
+The accepted `ResolvedParams` SHALL be accepted regardless of which module produced it — in
+particular, a `ResolvedParams` built by `sleap_roots_contracts.resolve_params` (the Bloom scan
+metadata → params oracle promoted into `sleap-roots-contracts`, consumed by predict rather than
+implemented by it) SHALL drive selection identically to a hand-built one, so a Bloom scan
+metadata row selects production models end-to-end (metadata → params → model), across the
+predict/contracts repo boundary.
+
 #### Scenario: Exactly one match selects a model per root type
 
 - **WHEN** `choose_models` is called with params and cards where each present root type has exactly
@@ -57,6 +64,14 @@ version is resolved once at import). It SHALL raise a clear error when a require
 
 - **WHEN** `choose_models` is called with params missing `species`, `mode`, or `age`
 - **THEN** it raises a clear error naming the missing param
+
+#### Scenario: A resolved Bloom row selects the expected model(s)
+
+- **WHEN** `choose_models(resolve_params(row), cards)` is called for a Bloom row whose
+  normalized `species`/`mode` and coerced `age` (resolved by
+  `sleap_roots_contracts.resolve_params`) match a small real `ModelCard` list
+- **THEN** it returns the expected `ModelRef` per matching root type (the metadata → params →
+  model round trip), without raising a missing-param error
 
 ### Requirement: Model Card Source Protocol And Local Source
 

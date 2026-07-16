@@ -84,7 +84,7 @@
 
 ## 8. Post-merge (not part of this PR's tasks; tracked separately)
 
-- [ ] 8.1 After merge: archive this OpenSpec change (`openspec archive consume-contracts-params`),
+- [x] 8.1 After merge: archive this OpenSpec change (`openspec archive consume-contracts-params`),
       applying the REMOVED/MODIFIED spec deltas to `openspec/specs/`.
 - [ ] 8.2 Comment on predict#20 to re-point its reference oracle at
       `sleap_roots_contracts.resolve_params`.
