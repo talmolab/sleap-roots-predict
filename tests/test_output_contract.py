@@ -216,6 +216,10 @@ def test_manifest_json_on_disk_round_trips(rice_source, video, tmp_path):
     # wrong-but-internally-consistent default couldn't slip through unnoticed.
     on_disk_json = json.loads(on_disk)
     assert all(a["kind"] == "predictions_slp" for a in on_disk_json["artifacts"])
+    # schema_version's literal value is predict's own format contract with
+    # downstream consumers, not just an internal contracts default — pin it here
+    # since no other predict test asserts it after the pure-model tests were pruned.
+    assert on_disk_json["schema_version"] == "1"
 
 
 def test_checksums_and_sizes_match_files(rice_source, video, tmp_path):
