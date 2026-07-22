@@ -8,10 +8,11 @@ serializes a :class:`PredictionManifest`: the manifest (per-root paths +
 ``ModelRef``s, effective inference config, code sha / container digest, and each
 ``.slp``'s checksum + file size).
 
-The schema is predict-local for now (it reuses ``ModelRef`` from
-``sleap-roots-contracts``); it is promoted to the shared contract once the traits
-stage (A3-traits) consumes it. Path strings are emitted via ``Path.as_posix()``
-(lab convention) so the manifest stays portable across POSIX and Windows.
+``PredictionArtifact``/``PredictionManifest`` are defined by
+``sleap-roots-contracts``' ``prediction-manifest-contract`` capability and
+imported here, not defined locally. Path strings are emitted via
+``Path.as_posix()`` (lab convention) so the manifest stays portable across
+POSIX and Windows.
 """
 
 import hashlib
@@ -23,75 +24,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import sleap_io as sio
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sleap_roots_contracts import ModelRef, ResolvedParams, RootType
+from sleap_roots_contracts import (
+    ModelRef,
+    PredictionArtifact,
+    PredictionManifest,
+    ResolvedParams,
+)
 
 if TYPE_CHECKING:
     from sleap_roots_predict.warm_worker import WarmModelWorker
-
-# Data containers, immutable. ``protected_namespaces=()`` disables pydantic's
-# ``model_``-prefix guard so the spec'd field ``model_id`` (and the ``model``
-# ModelRef field) validate without a namespace warning.
-_FROZEN = ConfigDict(frozen=True, protected_namespaces=())
-
-
-class PredictionArtifact(BaseModel):
-    """One predicted root type's ``.slp`` file plus its identity + integrity.
-
-    Attributes:
-        root_type: The root type this artifact carries.
-        model_id: Filename-safe slug of the model (a discovery label; the full
-            identity is ``model``).
-        model: The resolved ``ModelRef`` that produced this ``.slp``.
-        slp_path: Basename of the ``.slp`` (POSIX-style), relative to the
-            manifest's directory.
-        checksum: sha256 hex digest of the ``.slp`` file.
-        file_size: Size of the ``.slp`` file in bytes.
-    """
-
-    model_config = _FROZEN
-
-    root_type: RootType
-    model_id: str
-    model: ModelRef
-    slp_path: str
-    checksum: str
-    file_size: int
-
-
-class PredictionManifest(BaseModel):
-    """Per-scan output contract: manifest + predict-side provenance.
-
-    Attributes:
-        schema_version: Version of this predict-local manifest shape.
-        scan_key: Producer-side scan identifier (also the ``.slp`` filename stem).
-        plant_qr_code: Cross-scan plant key; defaults to ``scan_key`` when unset.
-        artifacts: One :class:`PredictionArtifact` per predicted root type (may be
-            empty when no root type resolved to a model).
-        predict_inference_config: Full effective inference config (audit).
-        predict_output_params: Output-defining subset of the inference config.
-        predict_code_sha: Git sha of the predict code (``""`` when unknown).
-        predict_container_digest: Image digest of the predict container (``""``
-            when unknown).
-    """
-
-    model_config = _FROZEN
-
-    schema_version: str = "1"
-    scan_key: str
-    plant_qr_code: str = ""
-    artifacts: list[PredictionArtifact] = Field(default_factory=list)
-    predict_inference_config: dict[str, Any] = Field(default_factory=dict)
-    predict_output_params: dict[str, Any] = Field(default_factory=dict)
-    predict_code_sha: str = ""
-    predict_container_digest: str = ""
-
-    @model_validator(mode="after")
-    def _default_plant_qr_code(self) -> "PredictionManifest":
-        """Default ``plant_qr_code`` to ``scan_key`` when not provided."""
-        if not self.plant_qr_code:
-            object.__setattr__(self, "plant_qr_code", self.scan_key)
-        return self
 
 
 # --- filename helpers -------------------------------------------------------

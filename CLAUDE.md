@@ -58,13 +58,14 @@ Install with platform-specific extras for proper hardware acceleration:
 > lists here). In brief, `sleap_roots_predict/` is: inference (`predict.py`), model
 > selection/registry/warm worker (`model_selection.py`, `model_registry.py`,
 > `warm_worker.py` — `resolve_params` is imported from `sleap-roots-contracts`, no local
-> copy), the per-scan output contract (`output_contract.py`), the warm-batch container
-> runner + CLI (`batch.py`, `__main__.py` — `python -m sleap_roots_predict <in> <out>`),
-> and image/timelapse utilities
+> copy), the per-scan output contract (`output_contract.py` — `PredictionArtifact`/
+> `PredictionManifest` are also imported from `sleap-roots-contracts`, no local copy), the
+> warm-batch container runner + CLI (`batch.py`, `__main__.py` — `python -m
+> sleap_roots_predict <in> <out>`), and image/timelapse utilities
 > (`video_utils.py`, `plates_timelapse_experiment.py`).
 
 ### Key Dependencies
-- **Core**: sleap-nn, sleap-io for pose estimation; sleap-roots-contracts for shared `ModelCard`/`ModelRef`/`ResolvedParams`; wandb for the model registry
+- **Core**: sleap-nn, sleap-io for pose estimation; sleap-roots-contracts for shared `ModelCard`/`ModelRef`/`ResolvedParams`/`PredictionArtifact`/`PredictionManifest`; wandb for the model registry
 - **Data Processing**: numpy, pandas, h5py, imageio
 - **Testing**: pytest, pytest-cov, PIL
 

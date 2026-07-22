@@ -49,7 +49,9 @@ importable library.
     `WandbRegistrySource`); all wandb/network access confined here (lazy import)
   - `warm_worker.py` — `WarmModelWorker`, keeps sleap-nn `Predictor`s resident across scans
   - `output_contract.py` — per-scan output writer (`write_prediction_outputs`,
-    `predict_and_write_batch`) + the manifest/artifact models
+    `predict_and_write_batch`); consumes `PredictionArtifact`/`PredictionManifest` from
+    `sleap_roots_contracts` (re-exported from `__init__.py`; predict carries no local copy
+    of the models themselves)
   - `batch.py` — the warm-batch container runner (`run_batch`, `discover_scans`)
   - `__main__.py` — the `python -m sleap_roots_predict <in> <out>` CLI entrypoint
   - `video_utils.py` — image I/O utilities (natural sort, greyscale, load/save, video build)
@@ -102,8 +104,9 @@ downstream join.
 
 ## External Dependencies
 - **sleap-nn / sleap-io** — inference engine and label I/O.
-- **sleap-roots-contracts** (`==0.1.0a4`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`,
-  and the `resolve_params` oracle (Bloom scan metadata → `ResolvedParams`).
+- **sleap-roots-contracts** (`==0.1.0a5`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`/
+  `PredictionArtifact`/`PredictionManifest`, and the `resolve_params` oracle (Bloom scan
+  metadata → `ResolvedParams`).
 - **wandb** — the model registry the warm worker fetches root models from (network confined to
   `WandbRegistrySource`). Also a transitive sleap-nn dependency.
 - **sleap-roots model registry** — source of trained models (the wandb registry above).

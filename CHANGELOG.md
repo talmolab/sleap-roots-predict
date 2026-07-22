@@ -28,7 +28,11 @@ All notable changes to this project are documented here. The format is based on
   `write_prediction_outputs`, `predict_and_write_batch`. Build identity is read from
   `SRP_PREDICT_CODE_SHA` / `SRP_PREDICT_CONTAINER_DIGEST` (fail-soft to `""`). Added
   `sleap-roots` as a test-only (`dev`) dependency for the `Series.load` acceptance test.
-  See the `prediction-output` OpenSpec spec.
+  `PredictionArtifact`/`PredictionManifest` are implemented in
+  `sleap-roots-contracts==0.1.0a5` (predict's local copies are deleted — contracts is now
+  the single source of truth, mirroring `resolve_params`); `PredictionArtifact` gains a
+  `kind` field (`BlobKind`, defaults to `"predictions_slp"`). See the `prediction-output`
+  OpenSpec spec.
 - **Predict container CLI** (`sleap_roots_predict.batch` + `__main__`): a warm-batch
   entrypoint — `sleap-roots-predict <input_scan_dir> <output_dir>` (also
   `python -m sleap_roots_predict`) and the `run_batch(...)` library function. Discovers scans
