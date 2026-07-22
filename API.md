@@ -134,9 +134,11 @@ still-missing `species`/`mode`/`age` after merging overrides, or a malformed/sen
 
 Write the per-scan artifacts the downstream sleap-roots traits stage reads — named
 per-root `.slp` (`{scan_key}.model{model_id}.root{root_type}.slp`) plus a combined
-`{scan_key}.predictions.json` manifest. See the `prediction-output` OpenSpec spec and the
-`sleap_roots_predict.output_contract` docstrings for the full artifact grammar and manifest
-schema (kept single-sourced there to avoid drift).
+`{scan_key}.predictions.json` manifest. `PredictionArtifact`/`PredictionManifest` are
+implemented in `sleap-roots-contracts` (predict re-exports them); see that package's
+`prediction-manifest-contract` OpenSpec spec for the full schema and this repo's
+`prediction-output` OpenSpec spec for the writer behavior (kept single-sourced there to
+avoid drift).
 
 ```python
 from sleap_roots_predict import (
@@ -144,7 +146,7 @@ from sleap_roots_predict import (
     predict_and_write_batch,   # drive a warm worker over N scans (one subdir per scan)
     ScanRequest,               # a batch scan input (scan_key, video, params, ...)
     PredictionManifest,        # per-scan manifest (manifest + predict-side provenance)
-    PredictionArtifact,        # one per-root record (model_id, ModelRef, slp_path, checksum, size)
+    PredictionArtifact,        # one per-root record (kind, model_id, ModelRef, slp_path, checksum, size)
 )
 ```
 

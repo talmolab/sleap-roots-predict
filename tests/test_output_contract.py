@@ -6,6 +6,7 @@ models (reusing the `rice_source` / `video` fixtures pattern from
 """
 
 import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -17,7 +18,6 @@ from sleap_roots_contracts import ModelCard, ModelRef, ResolvedParams
 from sleap_roots_predict.model_registry import LocalCardSource
 from sleap_roots_predict.output_contract import (
     _SCAN_KEY_FORBIDDEN,
-    PredictionArtifact,
     PredictionManifest,
     ScanRequest,
     _validate_scan_key,
@@ -89,33 +89,13 @@ def _ref(root_type="primary", registry_id="reg/rice-primary", version="v1"):
 # --- Task 2: schema models --------------------------------------------------
 
 
-def test_manifest_round_trips():
-    """A manifest with a real ModelRef dumps to JSON and reloads equal."""
-    artifact = PredictionArtifact(
-        root_type="primary",
-        model_id="reg-rice-primary-v1",
-        model=_ref(),
-        slp_path="s1.modelreg-rice-primary-v1.rootprimary.slp",
-        checksum="abc123",
-        file_size=42,
-    )
-    manifest = PredictionManifest(
-        scan_key="s1",
-        plant_qr_code="s1",
-        artifacts=[artifact],
-        predict_inference_config={"device": "cpu", "peak_threshold": 0.2},
-        predict_output_params={"peak_threshold": 0.2},
-    )
-    reloaded = PredictionManifest.model_validate_json(manifest.model_dump_json())
-    assert reloaded == manifest
-    assert reloaded.schema_version == "1"
-    assert reloaded.artifacts[0].model == _ref()
+def test_prediction_classes_are_reexported_from_contracts():
+    """PredictionArtifact/PredictionManifest are contracts' own classes, not local."""
+    import sleap_roots_contracts as contracts
+    from sleap_roots_predict.output_contract import PredictionArtifact
 
-
-def test_plant_qr_code_defaults_to_scan_key():
-    """An unset plant_qr_code defaults to scan_key."""
-    manifest = PredictionManifest(scan_key="scan0731")
-    assert manifest.plant_qr_code == "scan0731"
+    assert PredictionArtifact is contracts.PredictionArtifact
+    assert PredictionManifest is contracts.PredictionManifest
 
 
 # --- Task 3: slug + scan_key validation -------------------------------------
@@ -172,6 +152,7 @@ def test_writer_writes_named_slp_and_manifest(rice_source, video, tmp_path):
         output_params=worker.output_params(),
     )
     assert {a.root_type for a in manifest.artifacts} == {"primary", "lateral"}
+    assert all(a.kind == "predictions_slp" for a in manifest.artifacts)
     for art in manifest.artifacts:
         slp = tmp_path / art.slp_path
         assert slp.exists()
@@ -231,6 +212,14 @@ def test_manifest_json_on_disk_round_trips(rice_source, video, tmp_path):
     )
     on_disk = (tmp_path / "scan0731.predictions.json").read_text(encoding="utf-8")
     assert PredictionManifest.model_validate_json(on_disk) == manifest
+    # Parse the raw JSON directly (not only via model re-validation) so a
+    # wrong-but-internally-consistent default couldn't slip through unnoticed.
+    on_disk_json = json.loads(on_disk)
+    assert all(a["kind"] == "predictions_slp" for a in on_disk_json["artifacts"])
+    # schema_version's literal value is predict's own format contract with
+    # downstream consumers, not just an internal contracts default — pin it here
+    # since no other predict test asserts it after the pure-model tests were pruned.
+    assert on_disk_json["schema_version"] == "1"
 
 
 def test_checksums_and_sizes_match_files(rice_source, video, tmp_path):
