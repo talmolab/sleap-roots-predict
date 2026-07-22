@@ -1,13 +1,10 @@
 ## Why
 
 `PredictionArtifact`/`PredictionManifest` were promoted into `sleap-roots-contracts`
-(contracts PR #23, released `0.1.0a5` on PyPI) because bloom#407 needs a PyPI-installable way
-to read predict's manifest without a git dependency on this unpublished repo. predict still
-defines both classes locally in `sleap_roots_predict/output_contract.py` — a duplication risk
-once bloomctl constructs/validates against contracts' version, since the two definitions have
-no shared source of truth if they ever drift (contracts' version already differs by one field,
-`kind`). This mirrors exactly how `resolve_params` was consumed from contracts in predict#28/
-PR#29.
+(`0.1.0a5` on PyPI) so bloom#407 can read predict's manifest without a git dependency on this
+unpublished repo. predict still defines both classes locally, a duplication risk now that the
+two definitions already differ by one field (`kind`) with no shared source of truth — the same
+problem `resolve_params` had before predict#28/PR#29 consumed it from contracts.
 
 ## What Changes
 
@@ -40,5 +37,10 @@ PR#29.
   `CLAUDE.md`
 - No behavior change for well-formed callers: `kind` has a default (`"predictions_slp"`), and
   no `PredictionArtifact(...)` construction site in the repo uses positional arguments.
+- `docker-build.yml`'s PR trigger watches `pyproject.toml`/`uv.lock`/`sleap_roots_predict/**`,
+  so this PR will automatically run its build-only (no push) validation job — expected, not a
+  sign something is wrong. If it fails (e.g. an incompatible transitive dependency in
+  `0.1.0a5`), revert the dependency-bump commit and file an issue against
+  `sleap-roots-contracts` rather than pinning around it in this repo.
 - Closes sleap-roots-predict#30. Downstream: unblocks Salk-Harnessing-Plants-Initiative/
   bloom#407 (not touched here).
