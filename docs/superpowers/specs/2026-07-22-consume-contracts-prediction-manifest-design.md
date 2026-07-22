@@ -41,23 +41,37 @@ promoted models, exactly mirroring how `resolve_params` was consumed in #29.
 3. **The 2 pure-model tests in `tests/test_output_contract.py` are pruned to zero**
    (`test_manifest_round_trips`, `test_plant_qr_code_defaults_to_scan_key`). Contracts' own
    `tests/test_prediction_manifest.py` now owns this coverage (round-trip, immutability,
-   `plant_qr_code` default, `kind` default/validation, `root_type` validation). Unlike
-   `resolve_params` in #29 — a function predict calls at runtime through `choose_models`,
-   where the 2 kept tests verified predict's *own* wiring against an externally-produced
-   value — `PredictionArtifact`/`PredictionManifest` are now just imported data models with no
-   predict-specific logic wrapping them. There is no predict-side wiring left to test once the
-   import swaps; a thin smoke test would only re-assert "the import works," which
-   `tests/test_public_api.py`'s existing `hasattr`/`__all__` check plus every other test in the
-   file (all of which construct real manifests through the writer) already cover incidentally.
-   The other 24 tests in the file — which exercise the real warm-worker/filesystem writer —
-   are untouched.
+   `plant_qr_code` default, `kind` default/validation, `root_type` validation) — verified by
+   direct comparison, not assumption: contracts' round-trip test nests a real `ModelRef`
+   inside a `PredictionArtifact` exactly like predict's version did, and predict's own kept
+   tests (`test_manifest_json_on_disk_round_trips`, `test_rerun_overwrites_in_place`)
+   round-trip a real inference-produced manifest through JSON — a strictly stronger version of
+   the same assertion. Separately, predict's writer (`write_prediction_outputs`) always
+   pre-resolves `plant_qr_code = plant_qr_code or scan_key` before construction, so the
+   model's own default-defaulting validator is dead code from predict's runtime perspective
+   regardless of which repo defines it. Unlike `resolve_params` in #29 — a function predict
+   calls at runtime through `choose_models`, where the 2 kept tests verified predict's *own*
+   wiring against an externally-produced value — `PredictionArtifact`/`PredictionManifest` are
+   now just imported data models with no predict-specific logic wrapping them. There is no
+   predict-side wiring left to test once the import swaps; a thin smoke test would only
+   re-assert "the import works," which `tests/test_public_api.py`'s existing `hasattr`/
+   `__all__` check plus every other test in the file (all of which construct real manifests
+   through the writer) already cover incidentally. The other 26 tests in the file (28 total
+   today; 2 pruned leaves 26) — which exercise the real warm-worker/filesystem writer — are
+   untouched.
 4. **`openspec/specs/prediction-output/spec.md`: MODIFIED delta restates the full shape.**
-   Both affected requirements ("Combined per-scan manifest and provenance sidecar" and
-   the artifact fields it lists) get their complete requirement text pasted and edited per
-   OpenSpec's MODIFIED convention — add `kind` (`BlobKind`, defaults to `"predictions_slp"`)
-   to `PredictionArtifact`'s field list, and add one sentence noting the shape is now defined
-   by `sleap-roots-contracts`' `prediction-manifest-contract` capability and imported, not
-   defined locally in this repo. Chosen over a thin pointer-only delta so predict's own
+   Exactly **one** requirement needs the MODIFIED treatment: `### Requirement: Combined
+   per-scan manifest and provenance sidecar` (spec.md:36-74, header through all 4 of its
+   existing scenarios) — this is the only place `PredictionArtifact`'s field list appears;
+   there is no separate requirement describing artifact fields on their own, so the delta must
+   paste this one requirement's complete existing text and edit it in place, not fabricate a
+   second header. Edits: add `kind` (`BlobKind`, defaults to `"predictions_slp"`) to
+   `PredictionArtifact`'s field list, add one sentence noting the shape is now defined by
+   `sleap-roots-contracts`' `prediction-manifest-contract` capability and imported, not defined
+   locally in this repo, and **add one new scenario** ("Artifact kind defaults to
+   predictions_slp") covering the new field's default — following the precedent set by #29's
+   own MODIFIED delta (`model-management`), which added a new scenario for its new clause
+   rather than only touching prose. Chosen over a thin pointer-only delta so predict's own
    OpenSpec spec remains a complete, standalone reference for "what does predict write to
    disk" without a cross-repo lookup — consistent with how contracts and predict are
    independent OpenSpec installations with no cross-repo linking mechanism, so predict's spec
@@ -77,11 +91,14 @@ promoted models, exactly mirroring how `resolve_params` was consumed in #29.
 ## Behavior change
 
 None for existing well-formed callers. `PredictionArtifact` gains one new field, `kind:
-BlobKind = "predictions_slp"`, which has a default — `write_prediction_outputs`'s existing
-construction call site (`output_contract.py`'s `write_prediction_outputs`) does not need to
-pass it and continues to work unchanged (to be confirmed empirically during implementation,
-per the issue's own caution against assuming). All other fields match name-for-name and
-type-for-type between predict's old local classes and contracts' promoted versions.
+BlobKind = "predictions_slp"`, which has a default. Confirmed safe by an exhaustive grep of
+every `PredictionArtifact(` construction site in the repo (only two: `output_contract.py`'s
+`write_prediction_outputs` and the now-pruned `test_manifest_round_trips`) — both construct
+with 100% keyword arguments, so contracts inserting `kind` ahead of `root_type` in the field
+order cannot break either call site even though pydantic models are keyword-safe regardless.
+All other fields match name-for-name and type-for-type between predict's old local classes and
+contracts' promoted versions. Implementation should still assert this empirically (inspect a
+produced manifest's JSON for `"kind": "predictions_slp"`), per the "Testing approach" section.
 
 ## Components touched
 
@@ -89,22 +106,31 @@ type-for-type between predict's old local classes and contracts' promoted versio
 - `sleap_roots_predict/output_contract.py` — replace the two local class bodies with a
   contracts import; docstring's "schema is predict-local for now... promoted... once traits
   consumes it" note is now stale and gets updated to reflect the promotion has happened (§2).
+  Also delete `_FROZEN` (the `ConfigDict(frozen=True, protected_namespaces=())` at line 35,
+  plus its explanatory comment) — it exists solely for the two class bodies being removed and
+  becomes dead code once they're gone; contracts' own version defines an identical `_FROZEN`
+  independently, so nothing needs to import or share it.
 - `sleap_roots_predict/__init__.py` — unchanged (§2).
 - `tests/test_output_contract.py` — remove `test_manifest_round_trips` and
-  `test_plant_qr_code_defaults_to_scan_key`; remove the now-unused `PredictionArtifact`
-  import if nothing else in the file constructs one directly (confirm during implementation;
-  several of the remaining 24 tests reference `PredictionManifest` return values, so that
-  import likely stays) (§3).
+  `test_plant_qr_code_defaults_to_scan_key`; remove the now-unused `PredictionArtifact` import
+  (confirmed mandatory, not conditional — grep shows line 94, inside the test being deleted,
+  is `PredictionArtifact`'s only use in the file; leaving the import would fail ruff's F401)
+  (§3).
 - `openspec/specs/prediction-output/spec.md` — MODIFIED delta at archive time (§4).
 - `CHANGELOG.md` — edited in place (§5).
 - Doc references to update (grep-verified as the complete set): `API.md` (the "kept
   single-sourced there to avoid drift" line, now stale since the schema is imported, not
-  defined, in `output_contract.py`'s docstrings), `openspec/project.md` (the
-  `output_contract.py` bullet's "+ the manifest/artifact models" phrasing, updated to match
-  the `model_selection.py` bullet's existing "consumes... predict carries no local copy"
-  phrasing for `resolve_params`), `CLAUDE.md` (Package Structure blurb, same treatment).
-  `README.md`'s architecture-tree comment (`output_contract.py # Per-scan output artifacts`)
-  needs no change — it doesn't describe the models' origin.
+  defined, in `output_contract.py`'s docstrings), `openspec/project.md` **in two separate
+  spots** — the Architecture Patterns `output_contract.py` bullet's "+ the manifest/artifact
+  models" phrasing (line ~52, updated to match the `model_selection.py` bullet's existing
+  "consumes... predict carries no local copy" phrasing for `resolve_params`) AND the External
+  Dependencies section's `sleap-roots-contracts` (`==0.1.0a4`) version literal (line ~105,
+  bumped to `0.1.0a5` to match the `pyproject.toml` pin — found only by an independent repo
+  sweep, since it's a separate location from the Architecture Patterns bullet and easy to miss
+  if only that one spot is edited), `CLAUDE.md` (Package Structure blurb, same treatment as
+  the Architecture Patterns bullet). `README.md`'s architecture-tree comment
+  (`output_contract.py # Per-scan output artifacts`) needs no change — it doesn't describe the
+  models' origin.
 
 ## Testing approach
 
@@ -115,7 +141,7 @@ Subtractive refactor, not new-behavior work — same shape as #29:
   baseline before any code changes).
 - Import swap in `output_contract.py` + test-file pruning done together (interdependent —
   pruning first would leave dead imports; swapping first still passes since the field sets
-  match). Verification: full suite green, remaining 24 tests in `test_output_contract.py`
+  match). Verification: full suite green, remaining 26 tests in `test_output_contract.py`
   still pass unmodified (they exercise the writer, not the class definitions).
 - Empirically confirm the `kind` field's default means `write_prediction_outputs`'s
   construction call site needs no changes (per the issue's explicit caution) — run the
