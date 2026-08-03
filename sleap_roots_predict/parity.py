@@ -397,6 +397,58 @@ def resolve_ground_truth(
     )
 
 
+def run_sleap_nn_predictions(
+    ground_truth_path: Path, model_dir: Path, out_path: Path
+) -> Path:
+    """Run sleap-nn inference on a resolved ground truth's own images.
+
+    This is the sleap-nn side of the parity comparison: the same production
+    model weights (``model_dir``, the card's materialized artifact), run
+    through sleap-nn on the exact same images the ground truth's labeled
+    frames reference, producing a predicted ``.slp`` aligned frame-for-frame
+    with the ground truth for :func:`compute_metrics`.
+
+    Predicts once per distinct video referenced by the ground truth (most
+    real bundles reference many single-frame videos, one per plant/scan —
+    see the module docstring's design doc for why), keeping only the
+    predicted frames whose index matches a labeled ground-truth frame for
+    that video.
+
+    Args:
+        ground_truth_path: A resolved ground-truth ``.slp`` (see
+            :func:`resolve_ground_truth`).
+        model_dir: The production model's materialized directory (loadable
+            by ``sleap_roots_predict.predict.make_predictor``).
+        out_path: Where to save the predicted labels.
+
+    Returns:
+        ``out_path``.
+    """
+    from sleap_roots_predict.predict import make_predictor, predict_on_video
+
+    ground_truth = sio.load_slp(ground_truth_path.as_posix())
+    gt_frame_idxs_by_video = {}
+    for lf in ground_truth:
+        gt_frame_idxs_by_video.setdefault(lf.video, set()).add(lf.frame_idx)
+
+    predictor = make_predictor([model_dir])
+    predicted_frames = []
+    for video, frame_idxs in gt_frame_idxs_by_video.items():
+        predicted = predict_on_video(predictor, video)
+        for lf in predicted:
+            if lf.frame_idx in frame_idxs:
+                predicted_frames.append(lf)
+
+    predicted_labels = sio.Labels(
+        labeled_frames=predicted_frames,
+        videos=ground_truth.videos,
+        skeletons=predicted.skeletons if predicted_frames else ground_truth.skeletons,
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sio.save_slp(predicted_labels, out_path.as_posix())
+    return out_path
+
+
 def compute_metrics(
     ground_truth_path: Path,
     predicted_path: Path,

@@ -26,6 +26,7 @@ from sleap_roots_predict.parity import (
     relink_ground_truth,
     relink_ground_truth_by_basename_search,
     resolve_ground_truth,
+    run_sleap_nn_predictions,
     within_tolerance,
 )
 from sleap_roots_predict.parity import _pick_best_candidate
@@ -383,6 +384,39 @@ def test_resolve_ground_truth_uses_basename_search_as_last_resort(tmp_path, skel
     assert isinstance(result, ResolvedGroundTruth)
     assert result.source == "basename_search"
     assert result.n_frames_resolved == 1
+
+
+# --- run_sleap_nn_predictions --------------------------------------------------
+
+
+def test_run_sleap_nn_predictions_aligns_to_ground_truth_frames(
+    tmp_path, video, native_model_dir, skeleton
+):
+    # Ground-truth frame indices/skeleton are arbitrary here - the function
+    # only uses the ground truth for which video/frames to predict on, not
+    # its points, so a real vendored fly-pair model is fine to exercise the
+    # real (non-mocked) sleap-nn inference path end-to-end.
+    gt_frame_idxs = {0, 2}
+    labels = _make_labels(
+        video,
+        skeleton,
+        [[[1, 1], [2, 2]] for _ in gt_frame_idxs],
+        sio.Instance,
+    )
+    # Overwrite frame_idx to the specific indices under test (helper assigns
+    # sequential 0..N-1 by default).
+    for lf, idx in zip(labels, sorted(gt_frame_idxs)):
+        lf.frame_idx = idx
+    gt_path = tmp_path / "gt.slp"
+    sio.save_slp(labels, gt_path.as_posix())
+
+    out_path = tmp_path / "sleap_nn_predictions.slp"
+    result = run_sleap_nn_predictions(gt_path, native_model_dir, out_path)
+
+    assert result == out_path
+    predicted = sio.load_slp(out_path.as_posix())
+    predicted_idxs = {lf.frame_idx for lf in predicted}
+    assert predicted_idxs == gt_frame_idxs
 
 
 # --- compute_metrics / reference_metrics -------------------------------------
