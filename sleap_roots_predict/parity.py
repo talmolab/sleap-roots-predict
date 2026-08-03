@@ -81,6 +81,12 @@ class ResolvedGroundTruth:
     source: str  # "labels_registry" | "relinked_bundle" | "basename_search"
     n_frames_resolved: int
     n_frames_total: int
+    #: classic-SLEAP's ``labels_pr.val.slp``, relinked with the *same* mapping
+    #: used for `ground_truth_path` and filtered to the same frames, so the
+    #: two align for `reference_metrics`. ``None`` when the bundle has no
+    #: `labels_pr.val.slp`, or when the source is `"labels_registry"` (a
+    #: separate collection with no corresponding bundle predictions).
+    predicted_path: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +114,67 @@ def _filter_to_loadable_frames(labels: sio.Labels) -> list:
     return kept
 
 
+def _original_keys(labels: sio.Labels) -> dict:
+    """Map each labeled frame's ``id()`` to its ``(video_filename, frame_idx)`` before relinking.
+
+    ``replace_filenames`` mutates ``labels`` in place without recreating its
+    ``LabeledFrame`` objects, so ``id(lf)`` stays stable across the call —
+    this lets a caller recover, after relinking, which *original* video path
+    each surviving frame came from.
+    """
+    return {
+        id(lf): (getattr(lf.video, "filename", None), lf.frame_idx) for lf in labels
+    }
+
+
+def _save_filtered(labels: sio.Labels, kept: list, out_path: Path) -> Path:
+    filtered = sio.Labels(
+        labeled_frames=kept, videos=labels.videos, skeletons=labels.skeletons
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sio.save_slp(filtered, out_path.as_posix())
+    return out_path
+
+
+def _relink_predictions_aligned(
+    bundle_dir: Path, keep_keys: set, out_path: Path, **relink_kwargs
+) -> Optional[Path]:
+    """Relink ``labels_pr.val.slp`` with the same mapping used for its ground truth.
+
+    Classic-SLEAP's own predictions must be relinked with the *identical*
+    mapping applied to the ground truth they'll be compared against —
+    otherwise their video paths point at different locations than the
+    (already-relinked) ground truth and ``run_evaluation`` cannot pair any
+    frames (confirmed: this previously raised ``Empty Frame Pairs`` against
+    real data). Filters to ``keep_keys`` — the ``(original_filename,
+    frame_idx)`` pairs that survived in the ground truth — so the two stay
+    frame-for-frame aligned even when the ground truth itself was filtered or
+    sampled.
+
+    Args:
+        bundle_dir: The model's materialized artifact directory.
+        keep_keys: ``{(original_video_filename, frame_idx), ...}`` from the
+            ground truth's kept frames, keyed by their *pre-relink* identity.
+        out_path: Where to save the relinked, filtered predictions.
+        **relink_kwargs: Forwarded to ``sio.Labels.replace_filenames`` — pass
+            the *same* ``prefix_map=`` or ``filename_map=`` used for the
+            ground truth.
+
+    Returns:
+        ``out_path`` if any frame matches ``keep_keys``, else ``None``.
+    """
+    pr_path = bundle_dir / _PR_FILENAME
+    if not pr_path.exists():
+        return None
+    pr_labels = sio.load_slp(pr_path.as_posix())
+    original = _original_keys(pr_labels)
+    pr_labels.replace_filenames(**relink_kwargs)
+    matched = [lf for lf in pr_labels if original[id(lf)] in keep_keys]
+    if not matched:
+        return None
+    return _save_filtered(pr_labels, matched, out_path)
+
+
 def relink_ground_truth(bundle_dir: Path, prefix_map: dict, out_path: Path):
     """Relink a model bundle's ``labels_gt.val.slp`` via a path-prefix substitution.
 
@@ -118,9 +185,12 @@ def relink_ground_truth(bundle_dir: Path, prefix_map: dict, out_path: Path):
     in practice: a handful of stray videos under a different prefix mixed
     into an otherwise-uniform bundle) still yields a real, if smaller, ground
     truth rather than being silently treated as fully resolved or a total
-    gap. Returns ``None`` (not a raise) on any failure, including a missing
-    bundle file or zero frames resolving, so callers can treat this as one
-    priority-ordered resolution attempt among several.
+    gap. Also relinks ``labels_pr.val.slp`` (if present) with the same
+    prefix map, aligned to the same kept frames (see
+    :func:`_relink_predictions_aligned`). Returns ``None`` (not a raise) on
+    any failure, including a missing bundle file or zero frames resolving,
+    so callers can treat this as one priority-ordered resolution attempt
+    among several.
 
     Args:
         bundle_dir: A materialized model artifact directory (e.g. from
@@ -128,27 +198,32 @@ def relink_ground_truth(bundle_dir: Path, prefix_map: dict, out_path: Path):
             ``labels_gt.val.slp``.
         prefix_map: Passed through to ``sio.Labels.replace_filenames``, e.g.
             ``{"D:/SLEAP": "Z:/users/eberrigan/SLEAP"}``.
-        out_path: Where to save the relinked, filtered labels on success.
+        out_path: Where to save the relinked, filtered ground truth on
+            success. The aligned predictions (if any) are saved alongside it.
 
     Returns:
-        ``(out_path, n_frames_resolved, n_frames_total)`` when at least one
-        frame resolves, else ``None``.
+        ``(out_path, n_frames_resolved, n_frames_total, predicted_path)``
+        when at least one ground-truth frame resolves — `predicted_path` is
+        ``None`` when the bundle has no `labels_pr.val.slp` or none of it
+        aligns to the kept frames. Else ``None``.
     """
     gt_path = bundle_dir / _GT_FILENAME
     if not gt_path.exists():
         return None
     labels = sio.load_slp(gt_path.as_posix())
     n_total = len(labels)
+    original = _original_keys(labels)
     labels.replace_filenames(prefix_map=prefix_map)
     kept = _filter_to_loadable_frames(labels)
     if not kept:
         return None
-    filtered = sio.Labels(
-        labeled_frames=kept, videos=labels.videos, skeletons=labels.skeletons
+    keep_keys = {original[id(lf)] for lf in kept}
+    gt_out = _save_filtered(labels, kept, out_path)
+    pr_out_path = out_path.with_name(out_path.stem + ".pr" + out_path.suffix)
+    pr_out = _relink_predictions_aligned(
+        bundle_dir, keep_keys, pr_out_path, prefix_map=prefix_map
     )
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    sio.save_slp(filtered, out_path.as_posix())
-    return out_path, len(kept), n_total
+    return gt_out, len(kept), n_total, pr_out
 
 
 def build_basename_index(search_root: Path) -> dict:
@@ -261,6 +336,11 @@ def relink_ground_truth_by_basename_search(
     doesn't apply (the bundle's video paths were reorganized, not just moved
     under a new drive letter/root).
 
+    Also relinks ``labels_pr.val.slp`` (if present) with the same discovered
+    ``filename_map``, aligned to the same kept frames (see
+    :func:`_relink_predictions_aligned`) — necessary for the same reason as
+    :func:`relink_ground_truth`.
+
     Args:
         bundle_dir: A materialized model artifact directory expected to
             contain ``labels_gt.val.slp``.
@@ -268,17 +348,21 @@ def relink_ground_truth_by_basename_search(
             reused across models.
         card: The production ``ModelCard`` (used for age-range disambiguation
             in :func:`_pick_best_candidate`).
-        out_path: Where to save the filtered, relinked labels on success.
+        out_path: Where to save the filtered, relinked ground truth on
+            success. The aligned predictions (if any) are saved alongside it.
 
     Returns:
-        ``(out_path, n_frames_resolved, n_frames_total)`` when at least one
-        frame resolves, else ``None``.
+        ``(out_path, n_frames_resolved, n_frames_total, predicted_path)``
+        when at least one ground-truth frame resolves — `predicted_path` is
+        ``None`` when the bundle has no `labels_pr.val.slp` or none of it
+        aligns to the kept frames. Else ``None``.
     """
     gt_path = bundle_dir / _GT_FILENAME
     if not gt_path.exists():
         return None
     labels = sio.load_slp(gt_path.as_posix())
     n_total = len(labels)
+    original = _original_keys(labels)
 
     filename_map = {}
     for video in labels.videos:
@@ -297,12 +381,13 @@ def relink_ground_truth_by_basename_search(
     if not kept:
         return None
 
-    filtered = sio.Labels(
-        labeled_frames=kept, videos=labels.videos, skeletons=labels.skeletons
+    keep_keys = {original[id(lf)] for lf in kept}
+    gt_out = _save_filtered(labels, kept, out_path)
+    pr_out_path = out_path.with_name(out_path.stem + ".pr" + out_path.suffix)
+    pr_out = _relink_predictions_aligned(
+        bundle_dir, keep_keys, pr_out_path, filename_map=filename_map
     )
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    sio.save_slp(filtered, out_path.as_posix())
-    return out_path, len(kept), n_total
+    return gt_out, len(kept), n_total, pr_out
 
 
 def resolve_ground_truth(
@@ -361,7 +446,7 @@ def resolve_ground_truth(
         out_path = workdir / f"{safe_id}.{card.version}.relinked.slp"
         result = relink_ground_truth(bundle_dir, prefix_map, out_path)
         if result is not None:
-            path, n_resolved, n_total = result
+            path, n_resolved, n_total, predicted_path = result
             return ResolvedGroundTruth(
                 card=card,
                 ground_truth_path=path,
@@ -369,6 +454,7 @@ def resolve_ground_truth(
                 source="relinked_bundle",
                 n_frames_resolved=n_resolved,
                 n_frames_total=n_total,
+                predicted_path=predicted_path,
             )
 
     if basename_index is not None:
@@ -377,7 +463,7 @@ def resolve_ground_truth(
             bundle_dir, basename_index, card, out_path
         )
         if result is not None:
-            path, n_resolved, n_total = result
+            path, n_resolved, n_total, predicted_path = result
             return ResolvedGroundTruth(
                 card=card,
                 ground_truth_path=path,
@@ -385,6 +471,7 @@ def resolve_ground_truth(
                 source="basename_search",
                 n_frames_resolved=n_resolved,
                 n_frames_total=n_total,
+                predicted_path=predicted_path,
             )
 
     return GapRecord(
@@ -408,11 +495,12 @@ def run_sleap_nn_predictions(
     frames reference, producing a predicted ``.slp`` aligned frame-for-frame
     with the ground truth for :func:`compute_metrics`.
 
-    Predicts once per distinct video referenced by the ground truth (most
-    real bundles reference many single-frame videos, one per plant/scan —
-    see the module docstring's design doc for why), keeping only the
-    predicted frames whose index matches a labeled ground-truth frame for
-    that video.
+    Predicts once per distinct video referenced by the ground truth, passing
+    only the specific labeled frame indices needed for that video (real
+    bundle videos are full multi-frame scans, not one frame each — asking
+    ``sleap_nn`` to predict only the frames actually labeled, rather than the
+    whole video, avoids doing 10-50x more inference than the comparison
+    needs).
 
     Args:
         ground_truth_path: A resolved ground-truth ``.slp`` (see
@@ -424,7 +512,7 @@ def run_sleap_nn_predictions(
     Returns:
         ``out_path``.
     """
-    from sleap_roots_predict.predict import make_predictor, predict_on_video
+    from sleap_roots_predict.predict import make_predictor
 
     ground_truth = sio.load_slp(ground_truth_path.as_posix())
     gt_frame_idxs_by_video = {}
@@ -433,16 +521,18 @@ def run_sleap_nn_predictions(
 
     predictor = make_predictor([model_dir])
     predicted_frames = []
+    predicted_skeletons = ground_truth.skeletons
     for video, frame_idxs in gt_frame_idxs_by_video.items():
-        predicted = predict_on_video(predictor, video)
-        for lf in predicted:
-            if lf.frame_idx in frame_idxs:
-                predicted_frames.append(lf)
+        predicted = predictor.predict(
+            video, make_labels=True, frames=sorted(frame_idxs)
+        )
+        predicted_skeletons = predicted.skeletons
+        predicted_frames.extend(predicted)
 
     predicted_labels = sio.Labels(
         labeled_frames=predicted_frames,
         videos=ground_truth.videos,
-        skeletons=predicted.skeletons if predicted_frames else ground_truth.skeletons,
+        skeletons=predicted_skeletons,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sio.save_slp(predicted_labels, out_path.as_posix())
@@ -525,45 +615,51 @@ def _legacy_sleap_unpickle_shim():
 
 
 def reference_metrics(
-    bundle_dir: Path,
-    ground_truth_path: Path,
+    resolved: ResolvedGroundTruth,
     *,
     match_threshold: float = OKS_MATCH_THRESHOLD,
 ) -> Optional[ParityMetrics]:
     """Get classic-SLEAP's reference parity signal for a resolved model.
 
-    Recomputes via :func:`compute_metrics` against the bundle's
-    ``labels_pr.val.slp`` (classic-SLEAP's own predictions) when present, so the
-    comparison uses identical settings to the sleap-nn side.
+    Recomputes via :func:`compute_metrics` against `resolved.predicted_path`
+    (classic-SLEAP's own predictions, already relinked and frame-aligned to
+    `resolved.ground_truth_path` by :func:`resolve_ground_truth` — using the
+    *same* mapping for both is required, not optional: comparing a relinked
+    ground truth against still-broken-path predictions yields zero matched
+    frames) when present, so the comparison uses identical settings to the
+    sleap-nn side.
 
     Falls back to the bundle's stored ``metrics.val.npz`` when
-    ``labels_pr.val.slp`` is absent, read under :func:`_legacy_sleap_unpickle_shim`.
-    Note this stored file uses classic SLEAP's own flat, dot-separated key
-    schema (``dist.p95``, ``vis.recall``, ...) — a different shape from
-    ``sleap_nn.evaluation``'s nested ``distance_metrics``/``visibility_metrics``
-    dicts read in the recomputed branch above. If the file is missing or still
-    cannot be read even with the shim, this is treated as "no reference
-    available" — an explicit, logged, non-fatal gap for this model's
-    classic-SLEAP comparison, not a crash.
+    `resolved.predicted_path` is unavailable (no `labels_pr.val.slp` in the
+    bundle, none of it survived relinking, or the ground truth came from the
+    labels registry — a separate collection with no corresponding bundle
+    predictions to align against), read under
+    :func:`_legacy_sleap_unpickle_shim`. Note this stored file uses classic
+    SLEAP's own flat, dot-separated key schema (``dist.p95``, ``vis.recall``,
+    ...) — a different shape from ``sleap_nn.evaluation``'s nested
+    ``distance_metrics``/``visibility_metrics`` dicts read in the recomputed
+    branch above. If the file is missing or still cannot be read even with
+    the shim, this is treated as "no reference available" — an explicit,
+    logged, non-fatal gap for this model's classic-SLEAP comparison, not a
+    crash.
 
     Args:
-        bundle_dir: The model's materialized artifact directory.
-        ground_truth_path: The resolved ground-truth path (may be a relinked
-            copy, not necessarily ``bundle_dir``'s own file).
+        resolved: The :class:`ResolvedGroundTruth` for this model.
         match_threshold: Forwarded to :func:`compute_metrics` when recomputing.
 
     Returns:
         A :class:`ParityMetrics` with ``settings="recomputed"`` when
-        ``labels_pr.val.slp`` was used, ``"stored"`` when the stored
+        `resolved.predicted_path` was used, ``"stored"`` when the stored
         ``metrics.val.npz`` could be read, or ``None`` when neither is
         available/readable.
     """
-    labels_pr = bundle_dir / _PR_FILENAME
-    if labels_pr.exists():
+    if resolved.predicted_path is not None:
         return compute_metrics(
-            ground_truth_path, labels_pr, match_threshold=match_threshold
+            resolved.ground_truth_path,
+            resolved.predicted_path,
+            match_threshold=match_threshold,
         )
-    metrics_path = bundle_dir / _METRICS_FILENAME
+    metrics_path = resolved.bundle_dir / _METRICS_FILENAME
     if not metrics_path.exists():
         return None
     try:

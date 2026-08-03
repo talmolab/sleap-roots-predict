@@ -104,7 +104,39 @@ def test_relink_ground_truth_resolves_real_pixels(tmp_path, image_files, skeleto
     prefix_map = {"D:/SLEAP/fake_project": str(image_files[0].parent)}
     result = relink_ground_truth(bundle_dir, prefix_map, out_path)
 
-    assert result == (out_path, 1, 1)
+    assert result == (out_path, 1, 1, None)
+
+
+def test_relink_ground_truth_also_aligns_labels_pr(tmp_path, image_files, skeleton):
+    # Reproduces the real bug found running the live 13-model harness:
+    # comparing a relinked ground truth against a still-broken-path
+    # labels_pr.val.slp raised "Empty Frame Pairs" (zero matched frames)
+    # because the two pointed at different locations. labels_pr.val.slp
+    # must be relinked with the *same* mapping as the ground truth it's
+    # compared against.
+    broken_video = _broken_single_file_video()
+    gt = _make_labels(broken_video, skeleton, [[[10, 10], [20, 20]]], sio.Instance)
+    pr = _make_labels(
+        broken_video, skeleton, [[[11, 11], [21, 21]]], sio.PredictedInstance
+    )
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    sio.save_slp(gt, (bundle_dir / "labels_gt.val.slp").as_posix())
+    sio.save_slp(pr, (bundle_dir / "labels_pr.val.slp").as_posix())
+
+    out_path = tmp_path / "relinked.slp"
+    prefix_map = {"D:/SLEAP/fake_project": str(image_files[0].parent)}
+    result = relink_ground_truth(bundle_dir, prefix_map, out_path)
+
+    assert result is not None
+    gt_out, n_resolved, n_total, pr_out = result
+    assert n_resolved == 1
+    assert pr_out is not None
+
+    # The relinked predictions must resolve real pixels too (same relink),
+    # and compute_metrics must find the frame pair (the actual regression).
+    metrics = compute_metrics(gt_out, pr_out)
+    assert metrics.distance_avg == pytest.approx(1.4142, abs=1e-3)
     reloaded = sio.load_slp(out_path.as_posix())
     assert reloaded[0].image is not None
     assert reloaded[0].image.shape[0] > 0
@@ -349,10 +381,11 @@ def test_relink_ground_truth_by_basename_search_partial_resolution(tmp_path, ske
     result = relink_ground_truth_by_basename_search(bundle_dir, index, card, out_path)
 
     assert result is not None
-    path, n_resolved, n_total = result
+    path, n_resolved, n_total, predicted_path = result
     assert path == out_path
     assert n_resolved == 1
     assert n_total == 2
+    assert predicted_path is None  # no labels_pr.val.slp in this bundle
     reloaded = sio.load_slp(out_path.as_posix())
     assert len(reloaded) == 1
 
@@ -453,19 +486,42 @@ def test_compute_metrics_gives_real_per_node_distance_and_excludes_oks(
     assert not hasattr(result, "oks_map")
 
 
+def _resolved(
+    card,
+    ground_truth_path,
+    bundle_dir,
+    *,
+    predicted_path=None,
+    source="relinked_bundle",
+):
+    return ResolvedGroundTruth(
+        card=card,
+        ground_truth_path=ground_truth_path,
+        bundle_dir=bundle_dir,
+        source=source,
+        n_frames_resolved=1,
+        n_frames_total=1,
+        predicted_path=predicted_path,
+    )
+
+
 def test_reference_metrics_recomputes_when_labels_pr_present(
     tmp_path, image_files, skeleton
 ):
+    card = _card()
     video = sio.Video(filename=[str(f) for f in image_files])
     gt = _make_labels(video, skeleton, [[[10, 10], [20, 20]]], sio.Instance)
     pr = _make_labels(video, skeleton, [[[10, 10], [20, 20]]], sio.PredictedInstance)
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()
     gt_path = bundle_dir / "labels_gt.val.slp"
+    pr_path = bundle_dir / "labels_pr.val.slp"
     sio.save_slp(gt, gt_path.as_posix())
-    sio.save_slp(pr, (bundle_dir / "labels_pr.val.slp").as_posix())
+    sio.save_slp(pr, pr_path.as_posix())
 
-    result = reference_metrics(bundle_dir, gt_path)
+    result = reference_metrics(
+        _resolved(card, gt_path, bundle_dir, predicted_path=pr_path)
+    )
 
     assert result is not None
     assert result.settings == "recomputed"
@@ -473,11 +529,12 @@ def test_reference_metrics_recomputes_when_labels_pr_present(
 
 
 def test_reference_metrics_returns_none_when_nothing_available(tmp_path):
+    card = _card()
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()
     gt_path = tmp_path / "gt.slp"
 
-    result = reference_metrics(bundle_dir, gt_path)
+    result = reference_metrics(_resolved(card, gt_path, bundle_dir))
 
     assert result is None
 
@@ -487,15 +544,16 @@ def test_reference_metrics_reads_real_legacy_stored_npz_via_shim(tmp_path):
     # rice-cylinder-primary-age2-5 model), pickled by the legacy `sleap`
     # package. Confirms _legacy_sleap_unpickle_shim actually unpickles real
     # data, not just a synthetic stand-in.
+    card = _card()
     bundle_dir = tmp_path / "bundle"
     bundle_dir.mkdir()
     real_npz = (
         ASSETS_DIR / "legacy_metrics" / "rice_cylinder_primary_age2-5.metrics.val.npz"
     )
     (bundle_dir / "metrics.val.npz").write_bytes(real_npz.read_bytes())
-    gt_path = tmp_path / "gt.slp"  # unused in the stored branch
+    gt_path = tmp_path / "gt.slp"  # unused in the stored branch (no predicted_path)
 
-    result = reference_metrics(bundle_dir, gt_path)
+    result = reference_metrics(_resolved(card, gt_path, bundle_dir))
 
     assert result is not None
     assert result.settings == "stored"
