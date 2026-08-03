@@ -213,3 +213,5 @@ __marimo__/
 .serena/
 # Track .claude/commands (the shared dev-command suite) but keep local settings private.
 .claude/settings.local.json
+# wandb Api().artifact().download() default target (model/label artifacts materialized locally)
+artifacts/
