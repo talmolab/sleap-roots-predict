@@ -26,7 +26,7 @@ import re
 import sys
 import types
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -114,6 +114,16 @@ def _filter_to_loadable_frames(labels: sio.Labels) -> list:
     return kept
 
 
+def _hashable_filename(video) -> object:
+    """Return a hashable form of ``video.filename``.
+
+    As-is for a single-file video, a tuple for a multi-file (image-sequence)
+    video (``list`` isn't hashable).
+    """
+    fn = getattr(video, "filename", None)
+    return tuple(fn) if isinstance(fn, list) else fn
+
+
 def _original_keys(labels: sio.Labels) -> dict:
     """Map each labeled frame's ``id()`` to its ``(video_filename, frame_idx)`` before relinking.
 
@@ -122,9 +132,7 @@ def _original_keys(labels: sio.Labels) -> dict:
     this lets a caller recover, after relinking, which *original* video path
     each surviving frame came from.
     """
-    return {
-        id(lf): (getattr(lf.video, "filename", None), lf.frame_idx) for lf in labels
-    }
+    return {id(lf): (_hashable_filename(lf.video), lf.frame_idx) for lf in labels}
 
 
 def _save_filtered(labels: sio.Labels, kept: list, out_path: Path) -> Path:
@@ -482,6 +490,60 @@ def resolve_ground_truth(
             "relinking, and basename search all failed)"
         ),
     )
+
+
+def sample_ground_truth(
+    resolved: ResolvedGroundTruth, n: int, workdir: Path
+) -> ResolvedGroundTruth:
+    """Cap a resolved ground truth to at most ``n`` frames, keeping alignment.
+
+    Real bundles can carry hundreds of resolved frames; running sleap-nn
+    inference on all of them for every production model is not necessary to
+    get a meaningful empirical baseline. Takes the first ``n`` frames
+    (deterministic, not random, for reproducible runs) and, when
+    `resolved.predicted_path` is set, filters it to the same
+    ``(video_filename, frame_idx)`` keys so the sample stays aligned for
+    :func:`reference_metrics`.
+
+    `n_frames_resolved`/`n_frames_total` are left unchanged — they describe
+    true resolution coverage, not this working sample.
+
+    Args:
+        resolved: A resolved ground truth (see :func:`resolve_ground_truth`).
+        n: Maximum number of frames to keep.
+        workdir: Scratch directory for the sampled output files.
+
+    Returns:
+        `resolved` unchanged if it already has ``<= n`` frames, else a copy
+        with `ground_truth_path`/`predicted_path` pointing at the sample.
+    """
+    gt_labels = sio.load_slp(resolved.ground_truth_path.as_posix())
+    if len(gt_labels) <= n:
+        return resolved
+
+    kept = list(gt_labels)[:n]
+    keep_keys = {(_hashable_filename(lf.video), lf.frame_idx) for lf in kept}
+    safe_id = resolved.card.registry_id.replace("/", "_")
+    gt_out = _save_filtered(
+        gt_labels, kept, workdir / f"{safe_id}.{resolved.card.version}.sample_gt.slp"
+    )
+
+    pr_out = None
+    if resolved.predicted_path is not None:
+        pr_labels = sio.load_slp(resolved.predicted_path.as_posix())
+        pr_kept = [
+            lf
+            for lf in pr_labels
+            if (_hashable_filename(lf.video), lf.frame_idx) in keep_keys
+        ]
+        if pr_kept:
+            pr_out = _save_filtered(
+                pr_labels,
+                pr_kept,
+                workdir / f"{safe_id}.{resolved.card.version}.sample_pr.slp",
+            )
+
+    return replace(resolved, ground_truth_path=gt_out, predicted_path=pr_out)
 
 
 def run_sleap_nn_predictions(

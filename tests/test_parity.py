@@ -27,6 +27,7 @@ from sleap_roots_predict.parity import (
     relink_ground_truth_by_basename_search,
     resolve_ground_truth,
     run_sleap_nn_predictions,
+    sample_ground_truth,
     within_tolerance,
 )
 from sleap_roots_predict.parity import _pick_best_candidate
@@ -450,6 +451,51 @@ def test_run_sleap_nn_predictions_aligns_to_ground_truth_frames(
     predicted = sio.load_slp(out_path.as_posix())
     predicted_idxs = {lf.frame_idx for lf in predicted}
     assert predicted_idxs == gt_frame_idxs
+
+
+# --- sample_ground_truth -------------------------------------------------------
+
+
+def test_sample_ground_truth_keeps_gt_and_pr_aligned(tmp_path, image_files, skeleton):
+    card = _card()
+    video = sio.Video(filename=[str(f) for f in image_files[:5]])
+    gt = _make_labels(
+        video, skeleton, [[[i, i], [i + 1, i + 1]] for i in range(5)], sio.Instance
+    )
+    pr = _make_labels(
+        video,
+        skeleton,
+        [[[i, i], [i + 1, i + 1]] for i in range(5)],
+        sio.PredictedInstance,
+    )
+    gt_path = tmp_path / "gt.slp"
+    pr_path = tmp_path / "pr.slp"
+    sio.save_slp(gt, gt_path.as_posix())
+    sio.save_slp(pr, pr_path.as_posix())
+    resolved = _resolved(card, gt_path, tmp_path, predicted_path=pr_path)
+
+    sampled = sample_ground_truth(resolved, n=2, workdir=tmp_path)
+
+    assert sampled.ground_truth_path != gt_path
+    assert sampled.predicted_path is not None
+    sampled_gt = sio.load_slp(sampled.ground_truth_path.as_posix())
+    sampled_pr = sio.load_slp(sampled.predicted_path.as_posix())
+    assert len(sampled_gt) == 2
+    assert len(sampled_pr) == 2
+    assert {lf.frame_idx for lf in sampled_gt} == {lf.frame_idx for lf in sampled_pr}
+    # Coverage fields describe true resolution, unaffected by sampling.
+    assert sampled.n_frames_resolved == resolved.n_frames_resolved
+    assert sampled.n_frames_total == resolved.n_frames_total
+
+
+def test_sample_ground_truth_returns_unchanged_when_already_small(tmp_path, skeleton):
+    card = _card()
+    gt_path = _write_small_slp(tmp_path / "gt.slp", n_frames=1)
+    resolved = _resolved(card, gt_path, tmp_path)
+
+    sampled = sample_ground_truth(resolved, n=5, workdir=tmp_path)
+
+    assert sampled is resolved
 
 
 # --- compute_metrics / reference_metrics -------------------------------------
