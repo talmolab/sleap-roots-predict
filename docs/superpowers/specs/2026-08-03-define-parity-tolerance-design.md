@@ -129,18 +129,22 @@ proceeds now with the curated, explicitly-interim mapping from §2/§7, and cros
 sleap-roots-pipeline#15 and this change on `sleap-roots-training`#10/#11/#22 so that team knows
 there's a live downstream consumer once the real backfill exists.
 
-### 9. Bundled fix: predict#32 (`list_cards()` behavior on a malformed artifact)
+### 9. predict#32 is already resolved in code — no fix needed, just close it
 
 Bumping the contracts pin to `0.1.0a6` retypes `ModelCard.mode` to a strict `Mode` Literal.
 predict#32 asks whether `WandbRegistrySource.list_cards()` should skip-with-warning or hard-fail
-when one artifact's `mode` fails validation. Already de-risked: a live-registry enumeration
-(posted as a comment on #32) confirms all 13 `production`-aliased cards already carry an
-in-vocabulary `mode`, and `list_cards()` filters to the `production` alias *before* validating,
-so the other 93 non-aliased legacy artifacts are never attempted — the pin bump is safe with
-zero pre-migration. This change still implements **skip-with-warning** (catch
-`ValidationError` per artifact, log which collection/version and why, continue) as the decided
-behavior, since it's the correct lister semantics and directly touches the same
-`model_registry.py` code this change is already bumping the pin in. Closes predict#32.
+when one artifact's `mode` fails validation. Checked directly against the current code
+(`model_registry.py:195-230`, `_collect_cards`) and the current `model-management` spec (already
+has the full requirement + a "A non-conforming artifact is skipped with a warning" scenario):
+**skip-with-warning is already implemented and already spec'd**, isolating per-artifact
+`ModelCard.model_validate` failures with a logged warning while letting credential/network
+errors still propagate fail-loud. This predates #32 (present since the original warm-worker
+PR) — #32's premise ("the spec currently says nothing about a malformed artifact") was already
+stale when written. Combined with n-tehranchi's live-registry enumeration on #32 (all 13
+`production`-aliased cards already carry an in-vocabulary `mode`; `list_cards()` filters to the
+alias before validating, so the pin bump introduces zero new failures), there is nothing to
+implement here. This change closes predict#32 with a comment citing the existing code/spec,
+rather than bundling any code change.
 
 ### 10. Harness form: a new `parity` pytest marker, not a one-off script
 
@@ -158,16 +162,14 @@ import this module rather than duplicating instance-matching/metric code.
 None for existing callers of `sleap_roots_predict`'s public API. New additions only:
 - `sleap_roots_predict/parity.py` (new module: ground-truth resolution + metric wrapper).
 - A `parity` pytest marker + new gated test module.
-- `WandbRegistrySource.list_cards()` gains skip-with-warning behavior on a malformed artifact
-  (previously: any validation failure aborted the entire listing).
 - `sleap-roots-contracts` pin `0.1.0a5` → `0.1.0a6` (adds `LabelCard`; retypes `ModelCard.mode`
-  — confirmed safe against the live registry, §9).
+  — confirmed safe against the live registry and the existing skip-with-warning isolation, §9).
+  No `model-management` spec delta needed — `list_cards()`'s malformed-artifact behavior is
+  unchanged (already correct) and the spec already documents it.
 
 ## Components touched
 
 - `pyproject.toml` / `uv.lock` — contracts version bump + relock; new `parity` marker.
-- `sleap_roots_predict/model_registry.py` — `list_cards()` skip-with-warning on a malformed
-  artifact (closes predict#32).
 - `sleap_roots_predict/parity.py` (new) — ground-truth resolution (labels-registry lookup +
   path-relinking fallback), `LabelCard`-shaped local manifest, `run_evaluation` wrapper,
   tolerance constants.
@@ -180,7 +182,8 @@ None for existing callers of `sleap_roots_predict`'s public API. New additions o
 - `openspec/specs/` — new or modified capability spec(s) for the parity harness (and the
   `model-management` capability's `list_cards()` robustness behavior).
 - Cross-repo: comments on `sleap-roots-training`#10/#11/#22 noting this change as a downstream
-  `LabelCard` consumer; closes predict#32; closes sleap-roots-pipeline#15 (after recording the
+  `LabelCard` consumer; closes predict#32 (comment-only, citing the pre-existing
+  skip-with-warning implementation, §9); closes sleap-roots-pipeline#15 (after recording the
   decided tolerance + measured results); cross-links predict#8.
 
 ## Testing approach
@@ -191,8 +194,8 @@ None for existing callers of `sleap_roots_predict`'s public API. New additions o
 - The actual multi-model parity run is real-data/network-gated (`parity` marker), mirroring
   `acceptance`/`wandb` — not run in CI, run locally/on-demand, `-m parity -s` to see the
   measured numbers used to set the tolerance.
-- `list_cards()` skip-with-warning: test with a synthetic malformed artifact alongside valid
-  ones, confirm the malformed one is skipped-with-log and the valid ones still return.
+- After the pin bump, re-run the existing `model_registry.py` test suite unmodified — it already
+  covers the skip-with-warning path (§9); this is a regression check, not new test-writing.
 - Full `/pre-merge` gate (format, lint, test, build; GPU tests run locally per the standing
   requirement) before opening the PR.
 
@@ -218,8 +221,8 @@ None for existing callers of `sleap_roots_predict`'s public API. New additions o
   tolerance.
 - The ground-truth manifest is checked in, `LabelCard`-shaped, with explicit `None`s for
   unrecoverable fields and an explicit list of unresolved models (no silent gaps).
-- `list_cards()` skips a malformed artifact with a logged warning instead of aborting the
-  entire listing; predict#32 closed.
+- predict#32 closed with a comment citing the pre-existing skip-with-warning implementation and
+  spec (no code change — see §9).
 - sleap-roots-pipeline#15 closed with the decided tolerance, the reference set (13 models,
   coverage/gaps noted), and the measured baseline recorded in a closing comment (drafted for
   approval first).
