@@ -21,6 +21,8 @@ the full design rationale.
 
 import importlib.util
 import logging
+import os
+import re
 import sys
 import types
 from contextlib import contextmanager
@@ -54,6 +56,11 @@ _GT_FILENAME = "labels_gt.val.slp"
 _PR_FILENAME = "labels_pr.val.slp"
 _METRICS_FILENAME = "metrics.val.npz"
 
+#: Matches a day/age hint embedded in a lab folder name, e.g. "Day10_..." or
+#: "3_do"/"3do" ("do" = "days old"). Used to disambiguate basename-search
+#: candidates by which one falls inside a ModelCard's age range.
+_AGE_HINT_RE = re.compile(r"day(\d+)|(\d+)[\s_]*do\b", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class GapRecord:
@@ -71,7 +78,9 @@ class ResolvedGroundTruth:
     card: ModelCard
     ground_truth_path: Path
     bundle_dir: Path
-    source: str  # "labels_registry" | "relinked_bundle"
+    source: str  # "labels_registry" | "relinked_bundle" | "basename_search"
+    n_frames_resolved: int
+    n_frames_total: int
 
 
 @dataclass(frozen=True)
@@ -87,18 +96,30 @@ class ParityMetrics:
     settings: str  # "recomputed" | "stored"
 
 
-def relink_ground_truth(
-    bundle_dir: Path, prefix_map: dict, out_path: Path
-) -> Optional[Path]:
-    """Relink a model bundle's ``labels_gt.val.slp`` and verify it loads real pixels.
+def _filter_to_loadable_frames(labels: sio.Labels) -> list:
+    """Keep only the labeled frames whose video actually loads real pixels."""
+    kept = []
+    for lf in labels:
+        try:
+            if lf.image is not None:
+                kept.append(lf)
+        except Exception as e:  # noqa: BLE001 - unresolved/unopenable video, skip frame
+            logger.info("Frame %s not loadable: %s", lf, e)
+    return kept
+
+
+def relink_ground_truth(bundle_dir: Path, prefix_map: dict, out_path: Path):
+    """Relink a model bundle's ``labels_gt.val.slp`` via a path-prefix substitution.
 
     Loads ``bundle_dir/labels_gt.val.slp``, rewrites its embedded video paths via
-    ``sio.Labels.replace_filenames(prefix_map=...)``, and confirms the first
-    labeled frame's image actually loads (proving the relink resolved real
-    pixels, not just changed a string). On success the relinked labels are
-    saved to ``out_path`` and that path is returned; on any failure (missing
-    bundle file, or the first frame still not loadable after relinking) this
-    returns ``None`` rather than raising, so callers can treat it as one
+    ``sio.Labels.replace_filenames(prefix_map=...)``, and keeps only the
+    labeled frames whose video actually loads real pixels afterward — a
+    prefix map that fixes most, but not all, of a bundle's video paths (seen
+    in practice: a handful of stray videos under a different prefix mixed
+    into an otherwise-uniform bundle) still yields a real, if smaller, ground
+    truth rather than being silently treated as fully resolved or a total
+    gap. Returns ``None`` (not a raise) on any failure, including a missing
+    bundle file or zero frames resolving, so callers can treat this as one
     priority-ordered resolution attempt among several.
 
     Args:
@@ -107,25 +128,181 @@ def relink_ground_truth(
             ``labels_gt.val.slp``.
         prefix_map: Passed through to ``sio.Labels.replace_filenames``, e.g.
             ``{"D:/SLEAP": "Z:/users/eberrigan/SLEAP"}``.
-        out_path: Where to save the relinked labels on success.
+        out_path: Where to save the relinked, filtered labels on success.
 
     Returns:
-        ``out_path`` on success, else ``None``.
+        ``(out_path, n_frames_resolved, n_frames_total)`` when at least one
+        frame resolves, else ``None``.
     """
     gt_path = bundle_dir / _GT_FILENAME
     if not gt_path.exists():
         return None
     labels = sio.load_slp(gt_path.as_posix())
+    n_total = len(labels)
     labels.replace_filenames(prefix_map=prefix_map)
-    try:
-        if labels[0].image is None:
-            return None
-    except Exception as e:  # noqa: BLE001 - any backend failure means "not resolved"
-        logger.info("Relink did not resolve real pixels for %s: %s", gt_path, e)
+    kept = _filter_to_loadable_frames(labels)
+    if not kept:
         return None
+    filtered = sio.Labels(
+        labeled_frames=kept, videos=labels.videos, skeletons=labels.skeletons
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    sio.save_slp(labels, out_path.as_posix())
-    return out_path
+    sio.save_slp(filtered, out_path.as_posix())
+    return out_path, len(kept), n_total
+
+
+def build_basename_index(search_root: Path) -> dict:
+    """Index every ``.h5`` file under ``search_root`` by lowercase basename.
+
+    Building this walks the whole tree — O(files under ``search_root``), a
+    real cost on a large network share. Build it **once per harness run** and
+    reuse it across every model's resolution, not once per model.
+
+    Args:
+        search_root: Directory tree to index (e.g. a species-specific SLEAP
+            project root on the network share).
+
+    Returns:
+        ``{lowercase_basename: [full_path, ...]}`` — usually one path per
+        basename, but the same short ID can recur across day/timepoint
+        folders in a longitudinal study (see :func:`_pick_best_candidate`).
+    """
+    index: dict = {}
+    for dirpath, _, filenames in os.walk(search_root):
+        for fn in filenames:
+            if fn.lower().endswith(".h5"):
+                index.setdefault(fn.lower(), []).append(os.path.join(dirpath, fn))
+    return index
+
+
+def _age_hint(path: str) -> Optional[int]:
+    """Extract a day/age number from a folder name, e.g. ``Day10`` or ``3_do`` -> 10, 3."""
+    m = _AGE_HINT_RE.search(path)
+    if not m:
+        return None
+    return int(m.group(1) or m.group(2))
+
+
+def _pick_best_candidate(
+    broken_path: str, candidates: list, card: ModelCard
+) -> Optional[str]:
+    """Disambiguate multiple same-basename candidates for one broken video path.
+
+    The same short plant/scan ID can recur across day/timepoint folders in a
+    longitudinal study (confirmed by comparing file content: same basename,
+    different bytes, different day folder) — so basename alone is not enough.
+    Tried in order, each only when the previous step leaves more than one
+    candidate: (1) a single candidate is unambiguous by definition; (2) an
+    exact match on the immediate parent folder name (case/punctuation
+    normalized) — the day/date/batch is usually encoded there; (3) among
+    remaining candidates, one whose path contains a day/age hint (see
+    :func:`_age_hint`) inside the card's ``[age_min, age_max]``; (4) the
+    candidate(s) whose path shares the most normalized path segments with the
+    broken path. Returns ``None`` (an explicit non-match, not a guess) if a
+    step still leaves more than one candidate tied.
+    """
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    def normalize(s: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", s.lower())
+
+    def normalize_segment(s: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+
+    def segments(path: str) -> list:
+        return [s for s in re.split(r"[\\/]", path)[:-1] if s]
+
+    broken_parent = normalize(Path(broken_path).parent.name)
+    parent_matches = [
+        c for c in candidates if normalize(Path(c).parent.name) == broken_parent
+    ]
+    if len(parent_matches) == 1:
+        return parent_matches[0]
+
+    pool = parent_matches if parent_matches else candidates
+    age_matches = [
+        c
+        for c in pool
+        if (hint := _age_hint(c)) is not None and card.age_min <= hint <= card.age_max
+    ]
+    if len(age_matches) == 1:
+        return age_matches[0]
+
+    pool = age_matches if age_matches else pool
+    broken_segments = {normalize_segment(s) for s in segments(broken_path)}
+    scored = sorted(
+        (
+            (sum(1 for s in segments(c) if normalize_segment(s) in broken_segments), c)
+            for c in pool
+        ),
+        key=lambda pair: -pair[0],
+    )
+    top_score = scored[0][0]
+    winners = [c for score, c in scored if score == top_score]
+    return winners[0] if len(winners) == 1 else None
+
+
+def relink_ground_truth_by_basename_search(
+    bundle_dir: Path,
+    basename_index: dict,
+    card: ModelCard,
+    out_path: Path,
+):
+    """Relink a bundle's ground truth by basename search, partially if needed.
+
+    Unlike :func:`relink_ground_truth` (a single prefix substitution, all
+    frames or none), this searches ``basename_index`` per video and keeps
+    only the labeled frames whose video resolves — a model with some
+    unresolvable frames still gets a real (smaller) ground-truth set instead
+    of being treated as a total gap. Use when :func:`relink_ground_truth`
+    doesn't apply (the bundle's video paths were reorganized, not just moved
+    under a new drive letter/root).
+
+    Args:
+        bundle_dir: A materialized model artifact directory expected to
+            contain ``labels_gt.val.slp``.
+        basename_index: From :func:`build_basename_index`, built once and
+            reused across models.
+        card: The production ``ModelCard`` (used for age-range disambiguation
+            in :func:`_pick_best_candidate`).
+        out_path: Where to save the filtered, relinked labels on success.
+
+    Returns:
+        ``(out_path, n_frames_resolved, n_frames_total)`` when at least one
+        frame resolves, else ``None``.
+    """
+    gt_path = bundle_dir / _GT_FILENAME
+    if not gt_path.exists():
+        return None
+    labels = sio.load_slp(gt_path.as_posix())
+    n_total = len(labels)
+
+    filename_map = {}
+    for video in labels.videos:
+        fn = getattr(video, "filename", None)
+        if not isinstance(fn, str):
+            continue
+        candidates = basename_index.get(Path(fn).name.lower(), [])
+        winner = _pick_best_candidate(fn, candidates, card)
+        if winner is not None:
+            filename_map[fn] = winner
+    if not filename_map:
+        return None
+
+    labels.replace_filenames(filename_map=filename_map)
+    kept = _filter_to_loadable_frames(labels)
+    if not kept:
+        return None
+
+    filtered = sio.Labels(
+        labeled_frames=kept, videos=labels.videos, skeletons=labels.skeletons
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sio.save_slp(filtered, out_path.as_posix())
+    return out_path, len(kept), n_total
 
 
 def resolve_ground_truth(
@@ -135,15 +312,22 @@ def resolve_ground_truth(
     *,
     labels_registry_lookup: Optional[Callable[[ModelCard], Optional[Path]]] = None,
     prefix_map: Optional[dict] = None,
+    basename_index: Optional[dict] = None,
 ):
     """Resolve real ground truth for one production ``ModelCard``.
 
-    Tries, in order: (1) a matching collection in the ``wandb-registry-sleap-roots-labels``
-    registry via ``labels_registry_lookup`` (species/root-type/node-count join,
-    injected so this stays testable offline); (2) the model bundle's own
-    ``labels_gt.val.slp`` with ``prefix_map`` relinking. Neither resolving is not
-    an error — it is recorded as an explicit :class:`GapRecord` so a single
-    unresolvable model never aborts resolution for the rest of the batch.
+    Tries, in order: (1) a matching collection in the
+    ``wandb-registry-sleap-roots-labels`` registry via `labels_registry_lookup`
+    (species/root-type/node-count join, injected so this stays testable
+    offline) — full coverage, since those collections are self-contained;
+    (2) the model bundle's own ``labels_gt.val.slp`` with `prefix_map`
+    relinking (see :func:`relink_ground_truth`) — full or partial coverage;
+    (3) `basename_index` search with disambiguation (see
+    :func:`relink_ground_truth_by_basename_search`) for bundles whose video
+    paths were reorganized, not just moved under a new drive letter/root —
+    typically partial coverage. None resolving is not an error — it is
+    recorded as an explicit :class:`GapRecord` so a single unresolvable model
+    never aborts resolution for the rest of the batch.
 
     Args:
         card: The production ``ModelCard`` to resolve ground truth for.
@@ -153,6 +337,8 @@ def resolve_ground_truth(
             matching labels-registry collection's labels file, or ``None``.
         prefix_map: Optional path-prefix map for bundle relinking (see
             :func:`relink_ground_truth`).
+        basename_index: Optional basename index (see
+            :func:`build_basename_index`) for the basename-search fallback.
 
     Returns:
         A :class:`ResolvedGroundTruth` on success, else a :class:`GapRecord`.
@@ -160,29 +346,54 @@ def resolve_ground_truth(
     if labels_registry_lookup is not None:
         found = labels_registry_lookup(card)
         if found is not None:
+            n_frames = len(sio.load_slp(found.as_posix()))
             return ResolvedGroundTruth(
                 card=card,
                 ground_truth_path=found,
                 bundle_dir=bundle_dir,
                 source="labels_registry",
+                n_frames_resolved=n_frames,
+                n_frames_total=n_frames,
             )
+
+    safe_id = card.registry_id.replace("/", "_")
     if prefix_map is not None:
-        out_path = (
-            workdir
-            / f"{card.registry_id.replace('/', '_')}.{card.version}.relinked.slp"
-        )
-        relinked = relink_ground_truth(bundle_dir, prefix_map, out_path)
-        if relinked is not None:
+        out_path = workdir / f"{safe_id}.{card.version}.relinked.slp"
+        result = relink_ground_truth(bundle_dir, prefix_map, out_path)
+        if result is not None:
+            path, n_resolved, n_total = result
             return ResolvedGroundTruth(
                 card=card,
-                ground_truth_path=relinked,
+                ground_truth_path=path,
                 bundle_dir=bundle_dir,
                 source="relinked_bundle",
+                n_frames_resolved=n_resolved,
+                n_frames_total=n_total,
             )
+
+    if basename_index is not None:
+        out_path = workdir / f"{safe_id}.{card.version}.basename_search.slp"
+        result = relink_ground_truth_by_basename_search(
+            bundle_dir, basename_index, card, out_path
+        )
+        if result is not None:
+            path, n_resolved, n_total = result
+            return ResolvedGroundTruth(
+                card=card,
+                ground_truth_path=path,
+                bundle_dir=bundle_dir,
+                source="basename_search",
+                n_frames_resolved=n_resolved,
+                n_frames_total=n_total,
+            )
+
     return GapRecord(
         registry_id=card.registry_id,
         version=card.version,
-        reason="no ground truth source resolved (labels registry and bundle relinking both failed)",
+        reason=(
+            "no ground truth source resolved (labels registry, bundle "
+            "relinking, and basename search all failed)"
+        ),
     )
 
 

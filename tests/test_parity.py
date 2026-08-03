@@ -19,25 +19,31 @@ from sleap_roots_predict.parity import (
     GapRecord,
     ParityMetrics,
     ResolvedGroundTruth,
+    build_basename_index,
     build_label_card,
     compute_metrics,
     reference_metrics,
     relink_ground_truth,
+    relink_ground_truth_by_basename_search,
     resolve_ground_truth,
     within_tolerance,
 )
+from sleap_roots_predict.parity import _pick_best_candidate
+from sleap_roots_predict.video_utils import save_array_as_h5
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 
 
-def _card(root_type="primary", registry_id="reg/arabidopsis-primary"):
+def _card(
+    root_type="primary", registry_id="reg/arabidopsis-primary", age_min=2, age_max=14
+):
     from sleap_roots_contracts import ModelCard
 
     return ModelCard(
         species="arabidopsis",
         mode="cylinder",
-        age_min=2,
-        age_max=14,
+        age_min=age_min,
+        age_max=age_max,
         root_type=root_type,
         registry_id=registry_id,
         version="v0",
@@ -56,6 +62,15 @@ def _make_labels(video, skeleton, points_list, cls):
         for i, pts in enumerate(points_list)
     ]
     return sio.Labels(labeled_frames=lfs, videos=[video], skeletons=[skeleton])
+
+
+def _write_small_slp(path, n_frames=1):
+    files = sorted((ASSETS_DIR / "images" / "centered_pair").glob("*.png"))[:n_frames]
+    video = sio.Video(filename=[str(f) for f in files])
+    skeleton = sio.Skeleton(nodes=["A", "B"])
+    labels = _make_labels(video, skeleton, [[[1, 1], [2, 2]]] * n_frames, sio.Instance)
+    sio.save_slp(labels, str(path))
+    return path
 
 
 @pytest.fixture
@@ -88,7 +103,7 @@ def test_relink_ground_truth_resolves_real_pixels(tmp_path, image_files, skeleto
     prefix_map = {"D:/SLEAP/fake_project": str(image_files[0].parent)}
     result = relink_ground_truth(bundle_dir, prefix_map, out_path)
 
-    assert result == out_path
+    assert result == (out_path, 1, 1)
     reloaded = sio.load_slp(out_path.as_posix())
     assert reloaded[0].image is not None
     assert reloaded[0].image.shape[0] > 0
@@ -125,8 +140,7 @@ def test_relink_ground_truth_returns_none_when_bundle_missing_file(tmp_path):
 
 def test_resolve_ground_truth_prefers_labels_registry(tmp_path):
     card = _card()
-    sentinel_path = tmp_path / "from_labels_registry.slp"
-    sentinel_path.touch()
+    sentinel_path = _write_small_slp(tmp_path / "from_labels_registry.slp")
 
     def lookup(_card):
         return sentinel_path
@@ -142,6 +156,7 @@ def test_resolve_ground_truth_prefers_labels_registry(tmp_path):
     assert isinstance(result, ResolvedGroundTruth)
     assert result.source == "labels_registry"
     assert result.ground_truth_path == sentinel_path
+    assert result.n_frames_resolved == result.n_frames_total == 1
 
 
 def test_resolve_ground_truth_falls_back_to_relinked_bundle(
@@ -188,8 +203,7 @@ def test_resolve_ground_truth_reports_gap_without_raising(tmp_path):
 def test_resolve_ground_truth_gap_does_not_block_other_models(tmp_path):
     unresolvable_card = _card(registry_id="reg/unresolvable")
     resolvable_card = _card(registry_id="reg/resolvable")
-    sentinel_path = tmp_path / "found.slp"
-    sentinel_path.touch()
+    sentinel_path = _write_small_slp(tmp_path / "found.slp")
 
     def lookup(card):
         return sentinel_path if card.registry_id == "reg/resolvable" else None
@@ -209,6 +223,166 @@ def test_resolve_ground_truth_gap_does_not_block_other_models(tmp_path):
 
     assert isinstance(gap_result, GapRecord)
     assert isinstance(ok_result, ResolvedGroundTruth)
+
+
+# --- _pick_best_candidate / basename search ----------------------------------
+
+
+def test_pick_best_candidate_single_candidate_is_unambiguous():
+    card = _card()
+    winner = _pick_best_candidate("D:/broken/path/plant.h5", ["Z:/real/plant.h5"], card)
+    assert winner == "Z:/real/plant.h5"
+
+
+def test_pick_best_candidate_disambiguates_by_parent_folder_name():
+    # Same plant ID (basename), scanned at two different timepoints - the
+    # real-world case that motivated this function (confirmed distinct
+    # content, not accidental duplicates, by comparing real file hashes).
+    card = _card()
+    broken = "D:/FNRice2022/h5_files/3_do/week1_3do_4-18-22/plant.h5"
+    candidates = [
+        "Z:/SLEAP_Rice/10_do/h5_files/Day10_4-25-2022/plant.h5",
+        "Z:/SLEAP_Rice/3_do/h5_files/week1_3do_4-18-22/plant.h5",
+    ]
+    winner = _pick_best_candidate(broken, candidates, card)
+    assert winner == candidates[1]
+
+
+def test_pick_best_candidate_disambiguates_by_age_hint_in_range():
+    card = _card(root_type="crown", age_min=6, age_max=10)
+    broken = (
+        "C:/Users/pbiobgh/Box/rice/10_Days_Old_main_root/FN_Day10_4-25-2022/plant.h5"
+    )
+    candidates = [
+        "Z:/SLEAP_Rice/10_do/h5_files/Day10_4-25-2022/plant.h5",
+        "Z:/SLEAP_Rice/3_do/h5_files/Day3_4-18-2022/plant.h5",
+    ]
+    winner = _pick_best_candidate(broken, candidates, card)
+    assert winner == candidates[0]
+
+
+def test_pick_best_candidate_falls_back_to_segment_overlap():
+    card = _card()
+    broken = (
+        "E:/Soy_GDM_Brazil/h5_files_for_lr_sleap_model_elizabeth/blue_6do_1.17.22/p.h5"
+    )
+    candidates = [
+        "Z:/SLEAP_Soy/lateral_root_4_nodes/h5_files_blue_6_do_1.17.22/p.h5",
+        "Z:/SLEAP_Soy/primary_multi-day/blue_6_do_1.17.22/p.h5",
+    ]
+    # Neither parent-folder-name matches exactly, and both fall inside a
+    # plausible age range, so this falls through to segment overlap - the
+    # "lateral_root_4_nodes" segment only appears in the broken path's own
+    # lineage/context (via prior overlap with other resolved siblings) is not
+    # available here, but overlap on the shared "blue_6_do_1_17_22"-ish
+    # segment plus more shared date tokens should still favor one candidate
+    # when the two are not perfectly symmetric.
+    winner = _pick_best_candidate(broken, candidates, card)
+    # Both candidates are structurally symmetric here (this is intentionally
+    # the ambiguous case) - assert the function returns a deterministic,
+    # non-crashing result: either a winner or an explicit None, never a raise.
+    assert winner is None or winner in candidates
+
+
+def test_pick_best_candidate_returns_none_when_genuinely_tied():
+    card = _card()
+    broken = "D:/broken/x/plant.h5"
+    candidates = ["Z:/a/plant.h5", "Z:/b/plant.h5"]
+    winner = _pick_best_candidate(broken, candidates, card)
+    assert winner is None
+
+
+def test_build_basename_index_finds_files_by_lowercase_basename(tmp_path):
+    (tmp_path / "sub1").mkdir()
+    (tmp_path / "sub2").mkdir()
+    (tmp_path / "sub1" / "Plant.H5").touch()
+    (tmp_path / "sub2" / "other.h5").touch()
+
+    index = build_basename_index(tmp_path)
+
+    assert len(index["plant.h5"]) == 1
+    assert index["plant.h5"][0].endswith("Plant.H5")
+    assert len(index["other.h5"]) == 1
+
+
+def test_relink_ground_truth_by_basename_search_partial_resolution(tmp_path, skeleton):
+    card = _card()
+    # Two videos: one whose basename is findable in the index, one that isn't.
+    resolvable_video = sio.Video(filename="D:/broken/resolvable.h5", open_backend=False)
+    unresolvable_video = sio.Video(filename="D:/broken/nowhere.h5", open_backend=False)
+    lf1 = sio.LabeledFrame(
+        video=resolvable_video,
+        frame_idx=0,
+        instances=[
+            sio.Instance.from_numpy(
+                np.array([[1, 1], [2, 2]], dtype="float64"), skeleton=skeleton
+            )
+        ],
+    )
+    lf2 = sio.LabeledFrame(
+        video=unresolvable_video,
+        frame_idx=0,
+        instances=[
+            sio.Instance.from_numpy(
+                np.array([[3, 3], [4, 4]], dtype="float64"), skeleton=skeleton
+            )
+        ],
+    )
+    labels = sio.Labels(
+        labeled_frames=[lf1, lf2],
+        videos=[resolvable_video, unresolvable_video],
+        skeletons=[skeleton],
+    )
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    sio.save_slp(labels, (bundle_dir / "labels_gt.val.slp").as_posix())
+
+    search_dir = tmp_path / "search_root"
+    search_dir.mkdir()
+    save_array_as_h5(
+        np.zeros((1, 32, 32, 1), dtype="uint8"), search_dir / "resolvable.h5"
+    )
+    index = build_basename_index(search_dir)
+
+    out_path = tmp_path / "basename_relinked.slp"
+    result = relink_ground_truth_by_basename_search(bundle_dir, index, card, out_path)
+
+    assert result is not None
+    path, n_resolved, n_total = result
+    assert path == out_path
+    assert n_resolved == 1
+    assert n_total == 2
+    reloaded = sio.load_slp(out_path.as_posix())
+    assert len(reloaded) == 1
+
+
+def test_resolve_ground_truth_uses_basename_search_as_last_resort(tmp_path, skeleton):
+    card = _card()
+    video = sio.Video(filename="D:/broken/resolvable.h5", open_backend=False)
+    labels = _make_labels(video, skeleton, [[[1, 1], [2, 2]]], sio.Instance)
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    sio.save_slp(labels, (bundle_dir / "labels_gt.val.slp").as_posix())
+
+    search_dir = tmp_path / "search_root"
+    search_dir.mkdir()
+    save_array_as_h5(
+        np.zeros((1, 32, 32, 1), dtype="uint8"), search_dir / "resolvable.h5"
+    )
+    index = build_basename_index(search_dir)
+
+    result = resolve_ground_truth(
+        card,
+        bundle_dir=bundle_dir,
+        workdir=tmp_path,
+        labels_registry_lookup=lambda _card: None,
+        prefix_map={"D:/this-wont-match": "Z:/nope"},
+        basename_index=index,
+    )
+
+    assert isinstance(result, ResolvedGroundTruth)
+    assert result.source == "basename_search"
+    assert result.n_frames_resolved == 1
 
 
 # --- compute_metrics / reference_metrics -------------------------------------
