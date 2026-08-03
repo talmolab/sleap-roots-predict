@@ -25,17 +25,28 @@ explicitly does not apply here since no retraining is involved); gating on trait
    real human-labeled validation split), not the legacy pipeline's own field-experiment
    predictions (an earlier, corrected framing mistake — predictions are not ground truth).
 
-2. **Ground-truth image resolution, in priority order:**
+2. **Ground-truth image resolution, in priority order** (`resolve_ground_truth`):
    a. A matching collection in `wandb-registry-sleap-roots-labels` (8 named collections;
       several already carry `images_embedded: True` — fully portable).
-   b. The model bundle's own `labels_gt.val.slp` + `sio.Labels.replace_filenames()` with the
-      prefix map `{"D:/SLEAP": "Z:/users/eberrigan/SLEAP"}` — confirmed to resolve real frames
-      for the `D:/SLEAP/SLEAP_arabidopsis` / `SLEAP_Canola_Pennycress` video pool. Check
-      `Z:\users\eberrigan\SLEAP\SLEAP_Rice` and `...\SLEAP_Soy` (pointed to directly by the
-      repo owner) for the remaining prefixes (`D:/FNRice*`, `C:/Users/pbiobgh`,
-      `E:/Soy_GDM_Brazil`, `F:/Soy_GDM_Brazil`) during implementation — resolvability not yet
-      individually confirmed for each.
-   c. Otherwise: an explicit, logged gap. Never silently drop a model from the report.
+   b. The model bundle's own `labels_gt.val.slp` + `relink_ground_truth` (prefix-map
+      substitution, keeping only frames whose video actually resolves afterward). Two confirmed
+      prefixes resolve **8/13 models fully**: `D:/SLEAP` → `Z:/users/eberrigan/SLEAP`
+      (arabidopsis/arabidopsis-multiplant/pennycress/canola primary) and
+      `C:/Users/pbiobgh/Desktop/SLEAP` → the same tree (the same 4 species' lateral models).
+   c. `relink_ground_truth_by_basename_search` for the remaining 5 (rice ×3, soybean ×2), whose
+      video paths were *reorganized*, not just moved under a new root — indexes every `.h5`
+      under a search root by basename, then disambiguates same-basename candidates via
+      `_pick_best_candidate` (single-candidate shortcut → exact parent-folder-name match →
+      day/age hint inside the card's age range → shared path-segment overlap → an explicit
+      non-match on a genuine tie, never a guess). Necessary because the same short plant/scan ID
+      *genuinely recurs* across different day/timepoint folders in a longitudinal study
+      (confirmed via file-content-hash comparison — not an accidental duplicate). Measured:
+      soybean-lateral/primary 100%, `rice-crown-age2-5` 100%, `rice-crown-age6-10` 54%,
+      `rice-primary-age2-5` 9% — a low percentage yields a smaller real ground truth, not a
+      failure.
+   d. Otherwise: an explicit, logged gap. Never silently drop a model from the report.
+      `ResolvedGroundTruth.n_frames_resolved`/`.n_frames_total` report partial coverage from (b)
+      or (c) transparently — resolution is frame-level, not a per-model binary.
 
 3. **Metric engine: `sleap_nn.evaluation.run_evaluation`, `match_method="oks"` at
    `match_threshold=0.0`.** No custom keypoint-matching code. OKS-based *matching* is used (the

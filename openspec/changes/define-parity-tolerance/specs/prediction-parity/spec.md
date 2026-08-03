@@ -6,29 +6,77 @@ For each production `ModelCard`, the system SHALL attempt to resolve real human-
 truth in this priority order: (1) a matching collection in the `wandb-registry-sleap-roots-labels`
 registry, joined by species/root-type/node-count; (2) the model's own bundled
 `labels_gt.val.slp`, with its embedded video paths relinked via a configurable prefix map (e.g.
-`D:/SLEAP` → a network-share root); (3) an explicit, logged gap when neither resolves. A model
-whose ground truth cannot be resolved SHALL be recorded as an explicit gap in the harness's
-report and SHALL NOT be silently omitted or cause the harness to fail for the other models.
+`D:/SLEAP` → a network-share root); (3) a basename search across a configurable search root,
+for bundles whose video paths were reorganized rather than just moved under a new prefix; (4) an
+explicit, logged gap when none resolve. Resolution SHALL be tracked at the **frame level**, not
+only per model: tiers (2) and (3) SHALL keep whichever labeled frames actually resolve and
+SHALL NOT require every frame in a model's ground truth to resolve for that model to count as
+resolved. A model whose ground truth cannot be resolved at all SHALL be recorded as an explicit
+gap in the harness's report and SHALL NOT be silently omitted or cause the harness to fail for
+the other models.
 
 #### Scenario: Ground truth resolves via the labels registry
 
 - **WHEN** a `ModelCard`'s species/root-type/node-count matches a `wandb-registry-sleap-roots-labels`
   collection
 - **THEN** that collection's labeled frames are used as ground truth for the model, and no
-  path-relinking against the model's own bundle is attempted
+  path-relinking or basename search against the model's own bundle is attempted
 
 #### Scenario: Ground truth resolves via bundled labels with path relinking
 
-- **WHEN** no labels-registry collection matches a `ModelCard`, but its bundled
+- **WHEN** no labels-registry collection matches a `ModelCard`, but one or more of its bundled
   `labels_gt.val.slp`'s embedded video paths resolve after applying the configured prefix map
-- **THEN** those relinked frames are used as ground truth for the model
+- **THEN** the frames whose video resolved are used as ground truth for the model, and the
+  harness records how many of the model's total frames resolved
+
+#### Scenario: Ground truth resolves via basename search when relinking doesn't apply
+
+- **WHEN** neither the labels registry nor prefix-map relinking resolves a `ModelCard`'s ground
+  truth, but one or more of its videos' basenames are found (and unambiguously disambiguated,
+  per the Basename Search Disambiguation requirement) under a configured search root
+- **THEN** the frames whose video resolved are used as ground truth for the model, and the
+  harness records how many of the model's total frames resolved
 
 #### Scenario: Unresolvable ground truth is an explicit, non-fatal gap
 
-- **WHEN** neither the labels registry nor bundled-labels path relinking resolves a `ModelCard`'s
-  ground truth
+- **WHEN** none of the labels registry, bundled-labels path relinking, or basename search
+  resolves even one frame of a `ModelCard`'s ground truth
 - **THEN** the harness records that model as a named gap in its report, continues resolving and
   evaluating the remaining models, and does not raise
+
+### Requirement: Basename Search Disambiguation
+
+The system SHALL disambiguate multiple same-basename candidates found during basename search
+(Ground Truth Resolution Per Model, tier 3) in this order, stopping at the first step that
+leaves exactly one candidate: (1) an exact, normalized match on the immediate parent folder
+name; (2) among remaining candidates, one whose path contains a day/age hint falling inside the
+`ModelCard`'s `[age_min, age_max]`; (3) among remaining candidates, the one sharing the most
+normalized path segments with the broken path. The system SHALL treat a tie at any step as an
+unresolved candidate for that video (contributing to the model's unresolved-frame count) rather
+than selecting one arbitrarily.
+
+#### Scenario: A single candidate is unambiguous
+
+- **WHEN** a basename search returns exactly one candidate for a video
+- **THEN** that candidate is used without further disambiguation
+
+#### Scenario: Parent folder name disambiguates same-basename candidates
+
+- **WHEN** a basename search returns multiple candidates, and exactly one candidate's immediate
+  parent folder name matches the broken path's parent folder name (normalized)
+- **THEN** that candidate is used
+
+#### Scenario: Age hint disambiguates when parent names don't match
+
+- **WHEN** parent-folder-name matching leaves more than one candidate, and exactly one
+  candidate's path contains a day/age hint within the `ModelCard`'s age range
+- **THEN** that candidate is used
+
+#### Scenario: A genuine tie resolves to no match, not a guess
+
+- **WHEN** every disambiguation step still leaves more than one candidate
+- **THEN** that video is treated as unresolved (its frame does not count toward the model's
+  resolved frames), and the system does not guess
 
 ### Requirement: Parity Metric Computation Avoids OKS Scores
 

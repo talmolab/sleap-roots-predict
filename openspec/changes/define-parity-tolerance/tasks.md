@@ -29,6 +29,35 @@
       match and an unresolvable bundle path, resolution returns a `GapRecord` (not an exception),
       and a second, resolvable `ModelCard` processed independently still resolves normally.
       **Implemented:** the `GapRecord` branch.
+- [x] 2.4 **Investigated against the live network share (not originally scoped, found
+      necessary):** checked `Z:\users\eberrigan\SLEAP\SLEAP_Rice`/`SLEAP_Soy` per the design
+      doc's open question. Two more confirmed prefix-map entries
+      (`C:/Users/pbiobgh/Desktop/SLEAP` → the same `Z:/users/eberrigan/SLEAP` tree) brought
+      prefix-map coverage to **8/13 models**. The remaining 5 (rice ×3, soybean ×2) don't resolve
+      via any prefix map — `SLEAP_Rice`'s layout was reorganized since training, and 2 of the 3
+      rice models plus both soybean models reference paths not on the network share at all
+      (Box-synced folders, `E:`/`F:` drives). A basename search across the whole indexed
+      `SLEAP_Rice`/`SLEAP_Soy` tree finds every basename (0 missing), but often **ambiguously**
+      (the same basename recurs in multiple folders) — confirmed via file-content-hash
+      comparison that these are genuinely different scans of the same plant at different
+      timepoints, not accidental duplicate files, so basename alone cannot disambiguate.
+      **Test first:** `test_pick_best_candidate_*` (single-candidate shortcut, parent-folder-name
+      exact match, age-hint-in-range, segment-overlap fallback, genuine-tie-returns-None).
+      **Implemented:** `_pick_best_candidate`, `build_basename_index`. Measured resolution rate
+      on the live tree: `rice-crown-age2-5` 100%, `rice-crown-age6-10` 54%, `rice-primary-age2-5`
+      9%, both soybean models 100%.
+- [x] 2.5 **Test first:** `test_relink_ground_truth_by_basename_search_partial_resolution` +
+      `test_resolve_ground_truth_uses_basename_search_as_last_resort` — a bundle with one
+      resolvable and one unresolvable video yields a filtered ground truth containing only the
+      resolved frame, wired as `resolve_ground_truth`'s third tier. **Implemented:**
+      `relink_ground_truth_by_basename_search`; `ResolvedGroundTruth` gained
+      `n_frames_resolved`/`n_frames_total` so partial coverage is reported, not collapsed to a
+      binary pass/gap. **Also upgraded** `relink_ground_truth` (the prefix-map tier) to the same
+      keep-only-loadable-frames behavior — it previously only checked frame 0, which would have
+      silently included any other unresolved frames in a mostly-working prefix map.
+      `specs/prediction-parity/spec.md`'s "Ground Truth Resolution Per Model" requirement
+      rewritten for three tiers + frame-level (not per-model) resolution; new "Basename Search
+      Disambiguation" requirement added.
 
 ## 3. Metric computation
 

@@ -57,14 +57,36 @@ file paths (e.g. `D:/SLEAP/SLEAP_arabidopsis/...`, `C:/Users/pbiobgh/...`,
    descriptions make this legible, e.g. "Soybean lateral root labels (4 nodes...)" →
    `soybean-cylinder-lateral-age2-8`). There is currently no programmatic join between the two
    registries (see §5) — the mapping is curated by hand for this change.
-2. **Model bundle's own `labels_gt.val.slp` + path relinking** — for models not covered by
-   (1). Confirmed working: `D:/SLEAP/` → `Z:/users/eberrigan/SLEAP/` resolves exactly (verified
-   by loading a real frame's image after `Labels.replace_filenames()`). Other original-machine
-   prefixes (`C:/Users/pbiobgh`, `D:/FNRice*`, `E:/Soy_GDM_Brazil`, `F:/Soy_GDM_Brazil`) are not
-   yet known to resolve; check `Z:\users\eberrigan\SLEAP\SLEAP_Rice` and
-   `Z:\users\eberrigan\SLEAP\SLEAP_Soy` (pointed to directly by the user) during implementation.
-3. **Documented gap.** Not every one of the 13 production `ModelCard`s is expected to resolve.
-   The harness reports what it could and couldn't verify — no silent coverage claims.
+2. **Model bundle's own `labels_gt.val.slp` + prefix-map relinking** (`relink_ground_truth`) —
+   for models not covered by (1). Two confirmed prefix entries resolve **8 of 13** models
+   outright: `D:/SLEAP` → `Z:/users/eberrigan/SLEAP` (arabidopsis-primary,
+   arabidopsis-multiplant-primary, pennycress-primary, canola-primary) and
+   `C:/Users/pbiobgh/Desktop/SLEAP` → the same tree (arabidopsis-lateral,
+   arabidopsis-multiplant-lateral, pennycress-lateral, canola-lateral). This tier keeps only the
+   labeled frames whose video actually resolves (not an all-or-nothing check against just the
+   first frame) — a prefix map that fixes most, but not all, of a bundle's videos still yields a
+   real, if smaller, ground truth.
+3. **Basename search with disambiguation** (`relink_ground_truth_by_basename_search`) — for the
+   remaining 5 (rice ×3, soybean ×2), whose video paths were *reorganized*, not just moved under
+   a new drive letter/root (confirmed: `SLEAP_Rice`'s directory layout changed since training;
+   `rice-cylinder-crown-age6-10`/`rice-cylinder-primary-age2-5` point at Box-synced folders not
+   on the network share at all). Indexes every `.h5` under a search root by basename, then
+   disambiguates same-basename candidates — necessary because the same short plant/scan ID
+   *genuinely recurs* across different day/timepoint folders in a longitudinal study (confirmed
+   by comparing file content hashes: same basename, different bytes, different day folder — not
+   an accidental duplicate). Disambiguation order: (a) a single candidate is unambiguous by
+   definition; (b) exact match on the immediate parent folder name (day/date/batch is usually
+   encoded there — resolved soybean-lateral and soybean-primary to **100%**); (c) a day/age hint
+   in the path falling inside the `ModelCard`'s `[age_min, age_max]` (resolved
+   `rice-cylinder-crown-age2-5` to **100%**); (d) shared normalized path segments as a last
+   resort. A tie at any step returns no match rather than guessing. Measured coverage on the
+   live registry: `rice-cylinder-crown-age2-5` 100%, `rice-cylinder-crown-age6-10` 54%,
+   `rice-cylinder-primary-age2-5` 9%, both soybean models 100%. This tier also keeps only
+   resolved frames, so a low percentage is a smaller real ground truth, not a failure.
+4. **Documented gap.** Not every one of the 13 production `ModelCard`s, and not every frame
+   within a model, is expected to resolve. The harness reports what it could and couldn't verify
+   — no silent coverage claims. `ResolvedGroundTruth.n_frames_resolved`/`.n_frames_total` make
+   partial coverage visible rather than collapsing it to a binary pass/gap.
 
 ### 3. Metric engine: reuse `sleap_nn.evaluation`, not custom code
 
