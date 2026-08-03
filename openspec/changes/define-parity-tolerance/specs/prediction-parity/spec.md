@@ -64,10 +64,15 @@ settings used for sleap-nn's metrics, when a resolved model's bundle includes
 `labels_pr.val.slp` (classic-SLEAP's own predictions on the ground truth). When
 `labels_pr.val.slp` is absent, the system SHALL attempt to fall back to the bundle's stored
 `metrics.val.npz` via `sleap_nn.evaluation.load_metrics()`. That file is pickled by classic
-SLEAP's own (TensorFlow-based) `sleap` package, which this system SHALL NOT depend on; when it
-cannot be read with only `sleap_nn` installed, the system SHALL treat classic-SLEAP's reference
-as unavailable for that model (not raise), and SHALL report that model's sleap-nn metrics with
-an explicit "no reference available" marker rather than a comparison.
+SLEAP's own (TensorFlow-based) `sleap` package, which this system SHALL NOT depend on; the
+system SHALL instead read it under a minimal, temporary unpickling shim (bare `numpy.ndarray`
+stand-ins for the one legacy class the pickle references, removed immediately after reading —
+not a persistent dependency on the legacy package) and SHALL translate its flat, dot-separated
+key schema (e.g. `dist.p95`, `vis.recall`) into the same shape used for the recomputed case. If
+the file still cannot be read even with the shim (or is absent), the system SHALL treat
+classic-SLEAP's reference as unavailable for that model (not raise), and SHALL report that
+model's sleap-nn metrics with an explicit "no reference available" marker rather than a
+comparison.
 
 #### Scenario: Reference number is recomputed when predictions are available
 

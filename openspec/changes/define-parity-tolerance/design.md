@@ -78,15 +78,18 @@ explicitly does not apply here since no retraining is involved); gating on trait
   (rice/soybean paths in particular). Accepted trade-off: document gaps explicitly rather than
   block the whole gate on 100% coverage; the manifest structure supports adding resolved models
   later without redesign.
-- **`labels_pr.val.slp` isn't in every bundle, and the `metrics.val.npz` fallback may not be
-  readable at all.** Confirmed during implementation: `metrics.val.npz` is pickled by classic
-  SLEAP's own (TensorFlow-based) `sleap` package, which this repo does not and should not
-  depend on — `load_metrics()` raises `ModuleNotFoundError: No module named 'sleap'` on a real
-  stored file with only `sleap_nn` installed. `reference_metrics()` treats this the same as "no
-  reference available" (returns `None`, logs a warning) rather than crashing or adding the
-  legacy dependency. A model with `labels_pr.val.slp` absent and an unreadable `metrics.val.npz`
-  gets a sleap-nn-only report entry with no classic-SLEAP comparison — flagged explicitly, not
-  silently treated as passing or failing.
+- **`labels_pr.val.slp` isn't in every bundle; `metrics.val.npz` is pickled by the legacy
+  `sleap` package.** `load_metrics()` raises `ModuleNotFoundError: No module named 'sleap'` on a
+  real stored file with only `sleap_nn` installed — this repo does not and should not depend on
+  that (TensorFlow-based) package. Resolved via `parity._legacy_sleap_unpickle_shim`: a minimal,
+  temporary stand-in registering bare `numpy.ndarray` subclasses under fake `sleap`/
+  `sleap.instance` modules (the pickle references exactly one custom class,
+  `sleap.instance.PointArray`, confirmed by disassembling a real file's opcodes), removed
+  immediately after reading. Verified against all 13 live production models' real stored files —
+  full stored-reference coverage, not a rare fallback. `reference_metrics()` still returns `None`
+  (logs a warning) for the residual case where neither `labels_pr.val.slp` nor a readable
+  `metrics.val.npz` exists, rather than crashing — a model in that state gets a sleap-nn-only
+  report entry with no classic-SLEAP comparison, flagged explicitly.
 - **One tolerance number across heterogeneous models/species** may not fit every model equally
   well. Accepted for v1 (matches the issue's ask for *a* decided tolerance); revisit
   per-model/per-species tolerances as a follow-up if the empirical spread is large.

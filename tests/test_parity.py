@@ -8,6 +8,7 @@ the bottom of this file, mirroring the ``acceptance``/``wandb`` precedent.
 """
 
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -271,6 +272,29 @@ def test_reference_metrics_returns_none_when_nothing_available(tmp_path):
     result = reference_metrics(bundle_dir, gt_path)
 
     assert result is None
+
+
+def test_reference_metrics_reads_real_legacy_stored_npz_via_shim(tmp_path):
+    # A real classic-SLEAP-produced metrics.val.npz (from the live production
+    # rice-cylinder-primary-age2-5 model), pickled by the legacy `sleap`
+    # package. Confirms _legacy_sleap_unpickle_shim actually unpickles real
+    # data, not just a synthetic stand-in.
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    real_npz = (
+        ASSETS_DIR / "legacy_metrics" / "rice_cylinder_primary_age2-5.metrics.val.npz"
+    )
+    (bundle_dir / "metrics.val.npz").write_bytes(real_npz.read_bytes())
+    gt_path = tmp_path / "gt.slp"  # unused in the stored branch
+
+    result = reference_metrics(bundle_dir, gt_path)
+
+    assert result is not None
+    assert result.settings == "stored"
+    assert 0.0 <= result.visibility_recall <= 1.0
+    assert result.distance_p95 > 0.0
+    # The shim is temporary - it must not leak into the ambient environment.
+    assert "sleap" not in sys.modules
 
 
 # --- build_label_card ---------------------------------------------------------

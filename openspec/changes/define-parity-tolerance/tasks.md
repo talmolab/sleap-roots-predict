@@ -53,21 +53,27 @@
       the classic-SLEAP reference number comes from a fresh `run_evaluation` call with the same
       settings as 3.1 (`distance_avg == 0.0`), not from any stored file. **Implemented:** the
       recompute branch in `parity.reference_metrics`.
-- [x] 3.3 **Test first:** `test_reference_metrics_returns_none_when_nothing_available` — given a
-      bundle with neither `labels_pr.val.slp` nor `metrics.val.npz`, `reference_metrics` returns
-      `None` rather than raising. **Correction found during implementation:** the planned
-      "fall back to stored `metrics.val.npz`" branch cannot actually be exercised against a real
-      stored file in this environment — every real `metrics.val.npz` checked (materialized from
-      the live registry) is pickled by classic SLEAP's own (TensorFlow-based) `sleap` package,
-      and `load_metrics()` raises `ModuleNotFoundError: No module named 'sleap'` with only
+- [x] 3.3 **Test first:** `test_reference_metrics_returns_none_when_nothing_available` (no
+      `labels_pr.val.slp`/`metrics.val.npz` at all → `None`, not a raise) and
+      `test_reference_metrics_reads_real_legacy_stored_npz_via_shim` (a real stored
+      `metrics.val.npz`, committed as `tests/assets/legacy_metrics/
+      rice_cylinder_primary_age2-5.metrics.val.npz`, reads successfully). **Correction found
+      during implementation, then resolved:** every real `metrics.val.npz` checked (materialized
+      from the live registry) is pickled by classic SLEAP's own (TensorFlow-based) `sleap`
+      package — `load_metrics()` raises `ModuleNotFoundError: No module named 'sleap'` with only
       `sleap_nn` installed. Adding that legacy dependency here would undermine this repo's whole
-      purpose. **Implemented:** `reference_metrics` now returns `Optional[ParityMetrics]` —
-      attempts the stored-`.npz` read, catches any failure (including the expected
-      `ModuleNotFoundError`), logs a warning, and returns `None` (treated as "no reference
-      available," not a crash) rather than the originally-planned unconditional stored-metrics
-      object. `specs/prediction-parity/spec.md`'s "Classic-SLEAP Reference Number" and
-      "Documented, Enforced Tolerance" requirements updated with this three-way outcome
-      (recomputed / stored / unavailable).
+      purpose. Disassembling the pickle opcodes showed only one custom class is referenced
+      (`sleap.instance.PointArray`), so **implemented** `parity._legacy_sleap_unpickle_shim`: a
+      temporary, minimal `numpy.ndarray`-subclass stand-in registered in `sys.modules` only for
+      the duration of the read, then removed. Verified against all 13 live production models'
+      real stored files (not just the committed fixture) — full stored-reference coverage, not a
+      rare fallback. Also found: the stored file's key schema is classic SLEAP's own flat,
+      dot-separated one (`dist.p95`, `vis.recall`), different from `sleap_nn.evaluation`'s nested
+      `distance_metrics`/`visibility_metrics` — `reference_metrics` translates it.
+      `reference_metrics` returns `Optional[ParityMetrics]`; `None` is reserved for the residual
+      case where neither source is available/readable at all (expected to be rare).
+      `specs/prediction-parity/spec.md`'s "Classic-SLEAP Reference Number" and "Documented,
+      Enforced Tolerance" requirements updated accordingly.
 
 ## 4. LabelCard-shaped manifest
 

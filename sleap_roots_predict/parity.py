@@ -19,11 +19,16 @@ for identical inputs) when tried against a real 2-node skeleton. See
 the full design rationale.
 """
 
+import importlib.util
 import logging
+import sys
+import types
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+import numpy as np
 import sleap_io as sio
 from sleap_nn.evaluation import load_metrics, run_evaluation
 from sleap_roots_contracts import LabelCard, ModelCard
@@ -214,6 +219,48 @@ def compute_metrics(
     )
 
 
+@contextmanager
+def _legacy_sleap_unpickle_shim():
+    """Temporarily register a minimal stand-in for the legacy ``sleap`` package.
+
+    A real ``metrics.val.npz`` is pickled by classic SLEAP's own
+    (TensorFlow-based) ``sleap`` package, referencing exactly one custom class:
+    ``sleap.instance.PointArray`` (confirmed by disassembling the pickle
+    opcodes of a real stored file — no other legacy-package classes are
+    referenced). Installing the full legacy package here would reintroduce
+    the TensorFlow-based stack this repo exists to move away from, just to
+    read a few small archival files. Instead, register bare-minimum
+    ``numpy.ndarray`` subclasses under fake ``sleap``/``sleap.instance``
+    modules — enough for ``pickle`` to reconstruct the array data — for the
+    duration of the ``with`` block only, then remove them.
+
+    Does nothing if a real ``sleap`` is already importable (never shadow a
+    genuine install).
+    """
+    if "sleap" in sys.modules or importlib.util.find_spec("sleap") is not None:
+        yield
+        return
+
+    class PointArray(np.ndarray):
+        """Stand-in for ``sleap.instance.PointArray`` (unpickling only)."""
+
+    class PredictedPointArray(np.ndarray):
+        """Stand-in for ``sleap.instance.PredictedPointArray`` (unpickling only)."""
+
+    sleap_mod = types.ModuleType("sleap")
+    instance_mod = types.ModuleType("sleap.instance")
+    instance_mod.PointArray = PointArray
+    instance_mod.PredictedPointArray = PredictedPointArray
+    sleap_mod.instance = instance_mod
+    sys.modules["sleap"] = sleap_mod
+    sys.modules["sleap.instance"] = instance_mod
+    try:
+        yield
+    finally:
+        del sys.modules["sleap"]
+        del sys.modules["sleap.instance"]
+
+
 def reference_metrics(
     bundle_dir: Path,
     ground_truth_path: Path,
@@ -227,12 +274,14 @@ def reference_metrics(
     comparison uses identical settings to the sleap-nn side.
 
     Falls back to the bundle's stored ``metrics.val.npz`` when
-    ``labels_pr.val.slp`` is absent — but that file was pickled by classic
-    SLEAP's own (TensorFlow-based) ``sleap`` package, which this repo does not
-    and should not depend on. When it cannot be unpickled with only
-    ``sleap_nn`` installed (the expected case), this is treated the same as
-    "no reference available" — an explicit, logged, non-fatal gap for this
-    model's classic-SLEAP comparison, not a crash.
+    ``labels_pr.val.slp`` is absent, read under :func:`_legacy_sleap_unpickle_shim`.
+    Note this stored file uses classic SLEAP's own flat, dot-separated key
+    schema (``dist.p95``, ``vis.recall``, ...) — a different shape from
+    ``sleap_nn.evaluation``'s nested ``distance_metrics``/``visibility_metrics``
+    dicts read in the recomputed branch above. If the file is missing or still
+    cannot be read even with the shim, this is treated as "no reference
+    available" — an explicit, logged, non-fatal gap for this model's
+    classic-SLEAP comparison, not a crash.
 
     Args:
         bundle_dir: The model's materialized artifact directory.
@@ -255,16 +304,19 @@ def reference_metrics(
     if not metrics_path.exists():
         return None
     try:
-        stored = load_metrics(metrics_path.as_posix())
-        recall = float(stored["visibility_metrics"]["recall"])
-    except Exception as e:  # noqa: BLE001 - e.g. missing legacy `sleap` package
+        with _legacy_sleap_unpickle_shim():
+            stored = load_metrics(metrics_path.as_posix())
+        distance_avg = float(stored["dist.avg"])
+        distance_p95 = float(stored["dist.p95"])
+        recall = float(stored["vis.recall"])
+    except Exception as e:  # noqa: BLE001 - any unpickle/shape surprise is a gap
         logger.warning(
             "Could not read stored reference metrics %s: %s", metrics_path, e
         )
         return None
     return ParityMetrics(
-        distance_avg=float(stored["distance_metrics"]["avg"]),
-        distance_p95=float(stored["distance_metrics"]["p95"]),
+        distance_avg=distance_avg,
+        distance_p95=distance_p95,
         visibility_recall=recall,
         settings="stored",
     )

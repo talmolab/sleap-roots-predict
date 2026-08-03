@@ -89,13 +89,27 @@ centroid-detection model), not per-node distance between two full multi-node ske
 Confirmed empirically — trying it against a real 2-node skeleton produced a nonzero distance
 even for two exactly identical instances, an unusable result for this harness's purpose.
 
-### 4. Reference number: recompute classic-SLEAP's own eval, don't just trust the stored one
+### 4. Reference number: recompute classic-SLEAP's own eval when possible, else read the stored one
 
 For apples-to-apples settings, prefer recomputing classic-SLEAP's number via
 `run_evaluation(labels_gt.val.slp, labels_pr.val.slp)` using the *same* `match_method`/
 `match_threshold` the harness uses for sleap-nn, when `labels_pr.val.slp` is present in the
-bundle. Fall back to the stored `metrics.val.npz` (via `sleap_nn.evaluation.load_metrics()`)
-only when `labels_pr` is absent.
+bundle. Fall back to the stored `metrics.val.npz` when `labels_pr` is absent.
+
+That stored file is pickled by classic SLEAP's own (TensorFlow-based) `sleap` package, which
+this repo does not and should not depend on — `sleap_nn.evaluation.load_metrics()` raises
+`ModuleNotFoundError: No module named 'sleap'` on a real file with only `sleap_nn` installed.
+Disassembling the pickle opcodes of a real stored file showed it references exactly one custom
+class, `sleap.instance.PointArray` — not deep framework code. A minimal, temporary shim
+(bare `numpy.ndarray` subclasses registered under fake `sleap`/`sleap.instance` modules, removed
+immediately after reading) unpickles it successfully — verified against all 13 live production
+models' real stored files, not just one. This gives **full stored-reference coverage** rather
+than "usually unavailable": the "no reference at all" gap only applies to a model with neither
+`labels_pr.val.slp` nor a readable `metrics.val.npz`, expected to be rare. One more correction
+found this way: the stored file uses classic SLEAP's own flat, dot-separated key schema
+(`dist.p95`, `vis.recall`, ...), not `sleap_nn.evaluation`'s nested `distance_metrics`/
+`visibility_metrics` dicts — the two schemas must be read differently even though both ultimately
+populate the same `ParityMetrics` shape.
 
 ### 5. Coverage: all 13 production `ModelCard`s, not a curated field-experiment subset
 
