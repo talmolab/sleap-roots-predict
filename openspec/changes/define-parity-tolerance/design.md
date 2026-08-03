@@ -37,12 +37,18 @@ explicitly does not apply here since no retraining is involved); gating on trait
       individually confirmed for each.
    c. Otherwise: an explicit, logged gap. Never silently drop a model from the report.
 
-3. **Metric engine: `sleap_nn.evaluation.run_evaluation`, `match_method="centroid"`.** No
-   custom keypoint-matching code. OKS-based matching/scoring (`match_method="oks"`, `mOKS`,
-   VOC `oks_voc.mAP`/`mAR`) is deliberately avoided — `sleap-roots-training`#17 found OKS
-   metrics collapse near-zero on the root-keypoint domain regardless of model quality (likely
-   uncalibrated sigma constants inherited from human/animal pose). Gate on
-   `distance_metrics.p95` (or `.avg`) and `visibility_metrics.recall`.
+3. **Metric engine: `sleap_nn.evaluation.run_evaluation`, `match_method="oks"` at
+   `match_threshold=0.0`.** No custom keypoint-matching code. OKS-based *matching* is used (the
+   library default) since `distance_metrics`/`visibility_metrics` are computed on whatever pairing
+   results and are unaffected by OKS's scale; the maximally permissive `match_threshold=0.0`
+   decouples "which instances correspond" from "how good is the match." What's deliberately
+   avoided is reading OKS-derived *score* fields (`mOKS`, VOC `oks_voc.mAP`/`mAR`) —
+   `sleap-roots-training`#17 found those collapse near-zero on the root-keypoint domain
+   regardless of model quality (likely uncalibrated sigma constants inherited from human/animal
+   pose). Gate on `distance_metrics.p95` (or `.avg`) and `visibility_metrics.recall` instead.
+   `match_method="centroid"` was tried first and rejected: confirmed empirically to produce a
+   nonzero distance even for two identical instances on a real multi-node skeleton — it's
+   designed for single-node/centroid-only predictions, not this use case.
 
 4. **Classic-SLEAP's own number:** recompute via `run_evaluation(labels_gt.val.slp,
    labels_pr.val.slp)` with the *same* settings used for sleap-nn, when `labels_pr.val.slp` is
@@ -72,11 +78,15 @@ explicitly does not apply here since no retraining is involved); gating on trait
   (rice/soybean paths in particular). Accepted trade-off: document gaps explicitly rather than
   block the whole gate on 100% coverage; the manifest structure supports adding resolved models
   later without redesign.
-- **`labels_pr.val.slp` isn't in every bundle.** Falling back to stored `metrics.val.npz` means
-  the classic-SLEAP reference number for those models was computed with whatever settings
-  classic-SLEAP's own training pipeline used, not necessarily identical to this harness's
-  `match_method="centroid"` settings — a slightly less apples-to-apples comparison. Flag this
-  per-model in the harness's report rather than treating all 13 numbers as equally comparable.
+- **`labels_pr.val.slp` isn't in every bundle, and the `metrics.val.npz` fallback may not be
+  readable at all.** Confirmed during implementation: `metrics.val.npz` is pickled by classic
+  SLEAP's own (TensorFlow-based) `sleap` package, which this repo does not and should not
+  depend on — `load_metrics()` raises `ModuleNotFoundError: No module named 'sleap'` on a real
+  stored file with only `sleap_nn` installed. `reference_metrics()` treats this the same as "no
+  reference available" (returns `None`, logs a warning) rather than crashing or adding the
+  legacy dependency. A model with `labels_pr.val.slp` absent and an unreadable `metrics.val.npz`
+  gets a sleap-nn-only report entry with no classic-SLEAP comparison — flagged explicitly, not
+  silently treated as passing or failing.
 - **One tolerance number across heterogeneous models/species** may not fit every model equally
   well. Accepted for v1 (matches the issue's ask for *a* decided tolerance); revisit
   per-model/per-species tolerances as a follow-up if the empirical spread is large.

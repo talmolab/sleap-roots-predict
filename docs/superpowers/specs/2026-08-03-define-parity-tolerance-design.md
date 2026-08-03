@@ -72,13 +72,22 @@ file paths (e.g. `D:/SLEAP/SLEAP_arabidopsis/...`, `C:/Users/pbiobgh/...`,
 classic SLEAP's own `sleap.nn.evals`) already provides instance matching, distance metrics, OKS,
 VOC mAP/mAR, PCK, and visibility precision/recall. No custom keypoint-matching/distance code.
 
-**Do not use OKS-based scoring or matching for the gate.** `sleap-roots-training`#17 (open,
-assigned) found `oks_map`/VOC OKS metrics collapse near-zero on the root-keypoint domain
-regardless of model quality — likely inherited human/animal-pose sigma constants, uncalibrated
-for roots. Their team already works around this by using `distance_metrics` and
-`visibility_metrics` instead of OKS-based ones. This harness follows the same precedent:
-`match_method="centroid"` (pixel-distance matching, sidesteps the sigma issue in matching too,
-not just scoring), gating on `distance_metrics.p95` (or `.avg`) and `visibility_metrics.recall`.
+**Do not use OKS-derived *scores* for the gate; OKS-based *matching* is fine and necessary.**
+`sleap-roots-training`#17 (open, assigned) found `oks_map`/VOC OKS metrics collapse near-zero on
+the root-keypoint domain regardless of model quality — likely inherited human/animal-pose sigma
+constants, uncalibrated for roots. Their team already works around this by using
+`distance_metrics` and `visibility_metrics` instead of OKS-based ones, while still running the
+library's normal OKS-based instance matching. This harness follows the same precedent:
+`match_method="oks"` at the library's own maximally permissive default `match_threshold=0.0`
+(any OKS > 0 counts as a correspondence, decoupling "which instances correspond" from "how good
+is the match"), gating on `distance_metrics.p95` (or `.avg`) and `visibility_metrics.recall` —
+never `mOKS`/`voc_metrics`.
+
+Centroid-mode matching (`match_method="centroid"`) was considered and rejected during
+implementation: it is designed for single-node/centroid-only predictions (e.g. a
+centroid-detection model), not per-node distance between two full multi-node skeletons.
+Confirmed empirically — trying it against a real 2-node skeleton produced a nonzero distance
+even for two exactly identical instances, an unusable result for this harness's purpose.
 
 ### 4. Reference number: recompute classic-SLEAP's own eval, don't just trust the stored one
 

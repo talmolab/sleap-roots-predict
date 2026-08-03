@@ -12,13 +12,16 @@ No parity harness or ground-truth-comparison capability exists in this repo toda
 ## What Changes
 
 - Add a new `prediction-parity` capability: a harness that, for each production `ModelCard`,
-  resolves real human-labeled ground truth (the `labels_gt.val.slp` bundled in the model's own
-  wandb artifact, or a matching collection in the separate `wandb-registry-sleap-roots-labels`
-  registry when available — network-path relinking for the latter's stale drive-letter
-  references), runs sleap-nn inference on that ground truth, and compares it against
-  classic-SLEAP's own eval on the same ground truth via `sleap_nn.evaluation.run_evaluation`
-  (`match_method="centroid"` — OKS-based scoring/matching is avoided per
-  `sleap-roots-training`#17's finding that OKS is miscalibrated for the root-keypoint domain).
+  resolves real human-labeled ground truth (a matching collection in the separate
+  `wandb-registry-sleap-roots-labels` registry when available, else the `labels_gt.val.slp`
+  bundled in the model's own wandb artifact with network-path relinking for its stale
+  drive-letter references), runs sleap-nn inference on that ground truth, and compares it
+  against classic-SLEAP's own eval on the same ground truth via
+  `sleap_nn.evaluation.run_evaluation` (`match_method="oks"` at the library's permissive default
+  `match_threshold=0.0` for instance matching — OKS-derived *score* fields are never read, per
+  `sleap-roots-training`#17's finding that they're miscalibrated for the root-keypoint domain;
+  `match_method="centroid"` was tried and rejected, confirmed unusable for full-skeleton
+  comparison).
 - Add `sleap_roots_predict/parity.py`: ground-truth resolution + a thin wrapper around
   `run_evaluation`, reusable by predict#8's future `peak_threshold` sweep.
 - Add a checked-in, `LabelCard`-shaped ground-truth manifest (one record per production
