@@ -136,8 +136,19 @@ def _original_keys(labels: sio.Labels) -> dict:
 
 
 def _save_filtered(labels: sio.Labels, kept: list, out_path: Path) -> Path:
+    """Save ``kept`` frames, dropping any video not referenced by them.
+
+    A real bundle can list hundreds of videos while only a handful have
+    labeled/kept frames (e.g. one video per plant, most unused in a sample).
+    ``sleap_nn.evaluation.run_evaluation``'s video-matching step scales with
+    the *listed* video count, not just the frame count — confirmed to take
+    ~10 minutes for a real 355-video/20-frame file — so keeping only the
+    referenced videos matters for more than file size.
+    """
+    kept_videos = {id(lf.video) for lf in kept}
+    videos = [v for v in labels.videos if id(v) in kept_videos]
     filtered = sio.Labels(
-        labeled_frames=kept, videos=labels.videos, skeletons=labels.skeletons
+        labeled_frames=kept, videos=videos, skeletons=labels.skeletons
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sio.save_slp(filtered, out_path.as_posix())
