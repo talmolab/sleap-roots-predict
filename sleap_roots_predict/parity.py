@@ -91,15 +91,62 @@ class ResolvedGroundTruth:
 
 @dataclass(frozen=True)
 class ParityMetrics:
-    """The parity signal for one model: distance + visibility recall, no OKS.
+    """The full metric set from one ``run_evaluation`` (or stored-npz) call.
 
-    Deliberately excludes ``mOKS``/``voc_metrics`` — see the module docstring.
+    ``distance_p95`` and ``visibility_recall`` are what :func:`within_tolerance`
+    gates on (see the module docstring for why: unaffected by the root-domain
+    OKS-sigma miscalibration `sleap-roots-training#17` found). Every other
+    field here is captured for completeness/analysis — e.g. to sanity-check an
+    outlier model's ``p95`` against its ``pck_at_10px`` or
+    ``visibility_precision`` — but is **not** read by the gate. ``moks``/
+    ``voc_oks_map``/``voc_oks_mar`` are captured too, purely informational;
+    they must never be used for gating (that miscalibration is exactly why
+    this harness exists in its current shape).
     """
 
-    distance_avg: float
+    # Gated (see within_tolerance)
     distance_p95: float
     visibility_recall: float
+
+    # Captured, not gated
+    distance_avg: float
+    distance_p50: float
+    distance_p75: float
+    distance_p90: float
+    distance_p99: float
+    visibility_precision: float
+    pck_mean: float
+    pck_at_5px: float
+    pck_at_10px: float
+    moks: float
+    voc_oks_map: float
+    voc_oks_mar: float
+    voc_pck_map: float
+    voc_pck_mar: float
+
     settings: str  # "recomputed" | "stored"
+
+    def to_dict(self) -> dict:
+        """Return a plain-``float``/``str`` dict, safe for ``json.dump``."""
+        return {
+            "distance_p95": float(self.distance_p95),
+            "visibility_recall": float(self.visibility_recall),
+            "distance_avg": float(self.distance_avg),
+            "distance_p50": float(self.distance_p50),
+            "distance_p75": float(self.distance_p75),
+            "distance_p90": float(self.distance_p90),
+            "distance_p99": float(self.distance_p99),
+            "visibility_precision": float(self.visibility_precision),
+            "pck_mean": float(self.pck_mean),
+            "pck_at_5px": float(self.pck_at_5px),
+            "pck_at_10px": float(self.pck_at_10px),
+            "moks": float(self.moks),
+            "voc_oks_map": float(self.voc_oks_map),
+            "voc_oks_mar": float(self.voc_oks_mar),
+            "voc_pck_map": float(self.voc_pck_map),
+            "voc_pck_mar": float(self.voc_pck_mar),
+            "settings": self.settings,
+        }
 
 
 def _filter_to_loadable_frames(labels: sio.Labels) -> list:
@@ -637,11 +684,35 @@ def compute_metrics(
         match_method=MATCH_METHOD,
         match_threshold=match_threshold,
     )
+    return _parity_metrics_from_run_evaluation(metrics, settings="recomputed")
+
+
+def _parity_metrics_from_run_evaluation(
+    metrics: dict, *, settings: str
+) -> ParityMetrics:
+    """Build a :class:`ParityMetrics` from a raw ``run_evaluation`` result."""
+    dist = metrics["distance_metrics"]
+    vis = metrics["visibility_metrics"]
+    pck = metrics["pck_metrics"]
+    voc = metrics["voc_metrics"]
     return ParityMetrics(
-        distance_avg=float(metrics["distance_metrics"]["avg"]),
-        distance_p95=float(metrics["distance_metrics"]["p95"]),
-        visibility_recall=float(metrics["visibility_metrics"]["recall"]),
-        settings="recomputed",
+        distance_p95=float(dist["p95"]),
+        visibility_recall=float(vis["recall"]),
+        distance_avg=float(dist["avg"]),
+        distance_p50=float(dist["p50"]),
+        distance_p75=float(dist["p75"]),
+        distance_p90=float(dist["p90"]),
+        distance_p99=float(dist["p99"]),
+        visibility_precision=float(vis["precision"]),
+        pck_mean=float(pck["mPCK"]),
+        pck_at_5px=float(pck["PCK@5"]),
+        pck_at_10px=float(pck["PCK@10"]),
+        moks=float(metrics["mOKS"]["mOKS"]),
+        voc_oks_map=float(voc["oks_voc.mAP"]),
+        voc_oks_mar=float(voc["oks_voc.mAR"]),
+        voc_pck_map=float(voc["pck_voc.mAP"]),
+        voc_pck_mar=float(voc["pck_voc.mAR"]),
+        settings=settings,
     )
 
 
@@ -738,18 +809,45 @@ def reference_metrics(
     try:
         with _legacy_sleap_unpickle_shim():
             stored = load_metrics(metrics_path.as_posix())
-        distance_avg = float(stored["dist.avg"])
-        distance_p95 = float(stored["dist.p95"])
-        recall = float(stored["vis.recall"])
+        return _parity_metrics_from_stored_npz(stored)
     except Exception as e:  # noqa: BLE001 - any unpickle/shape surprise is a gap
         logger.warning(
             "Could not read stored reference metrics %s: %s", metrics_path, e
         )
         return None
+
+
+def _parity_metrics_from_stored_npz(stored: dict) -> ParityMetrics:
+    """Build a :class:`ParityMetrics` from a legacy ``metrics.val.npz`` dict.
+
+    Classic SLEAP's own stored file uses flat, dot-separated keys (``dist.p95``,
+    ``vis.recall``, ...) rather than ``sleap_nn.evaluation``'s nested shape —
+    see :func:`reference_metrics`. ``PCK@5``/``PCK@10`` are never present in a
+    stored file (confirmed: ``run_evaluation`` computes them only for its log
+    output, *after* the branch that writes ``save_metrics``) — recomputed here
+    from the stored raw per-instance ``dist.dists`` array the same way
+    ``run_evaluation`` does, so the "stored" and "recomputed" settings report
+    symmetric fields rather than leaving two blank.
+    """
+    dists = np.asarray(stored["dist.dists"], dtype=float)
+    dists_clean = np.where(np.isnan(dists), np.inf, dists)
     return ParityMetrics(
-        distance_avg=distance_avg,
-        distance_p95=distance_p95,
-        visibility_recall=recall,
+        distance_p95=float(stored["dist.p95"]),
+        visibility_recall=float(stored["vis.recall"]),
+        distance_avg=float(stored["dist.avg"]),
+        distance_p50=float(stored["dist.p50"]),
+        distance_p75=float(stored["dist.p75"]),
+        distance_p90=float(stored["dist.p90"]),
+        distance_p99=float(stored["dist.p99"]),
+        visibility_precision=float(stored["vis.precision"]),
+        pck_mean=float(stored["pck.mPCK"]),
+        pck_at_5px=float((dists_clean < 5).mean()),
+        pck_at_10px=float((dists_clean < 10).mean()),
+        moks=float(stored["oks.mOKS"]),
+        voc_oks_map=float(stored["oks_voc.mAP"]),
+        voc_oks_mar=float(stored["oks_voc.mAR"]),
+        voc_pck_map=float(stored["pck_voc.mAP"]),
+        voc_pck_mar=float(stored["pck_voc.mAR"]),
         settings="stored",
     )
 
@@ -841,3 +939,75 @@ def within_tolerance(
     distance_delta = abs(sleap_nn.distance_p95 - classic_sleap.distance_p95)
     recall_delta = abs(sleap_nn.visibility_recall - classic_sleap.visibility_recall)
     return distance_delta <= distance_tolerance_px and recall_delta <= recall_tolerance
+
+
+def build_report_entry(
+    resolved: ResolvedGroundTruth,
+    n_frames_evaluated: int,
+    sleap_nn_metrics: ParityMetrics,
+    reference: Optional[ParityMetrics],
+) -> dict:
+    """Build one model's JSON-serializable entry for a persisted parity report.
+
+    Every field ``run_evaluation`` produces is included (via
+    :meth:`ParityMetrics.to_dict`) for both sides, plus the two gated deltas,
+    so a saved report is a complete, inspectable record — not just the two
+    numbers the tolerance decision reads.
+
+    Args:
+        resolved: The model's :class:`ResolvedGroundTruth`.
+        n_frames_evaluated: How many frames the metrics below were computed
+            over (may be less than `resolved.n_frames_resolved` if sampled —
+            see :func:`sample_ground_truth`).
+        sleap_nn_metrics: This harness's own computed metrics.
+        reference: Classic-SLEAP's reference metrics, or ``None`` if
+            unavailable for this model (see :func:`reference_metrics`).
+
+    Returns:
+        A plain dict, safe for ``json.dump``.
+    """
+    entry = {
+        "registry_id": resolved.card.registry_id,
+        "version": resolved.card.version,
+        "species": resolved.card.species,
+        "mode": resolved.card.mode,
+        "root_type": resolved.card.root_type,
+        "age_min": resolved.card.age_min,
+        "age_max": resolved.card.age_max,
+        "weights_checksum": resolved.card.weights_checksum,
+        "ground_truth_source": resolved.source,
+        "n_frames_resolved": resolved.n_frames_resolved,
+        "n_frames_total": resolved.n_frames_total,
+        "n_frames_evaluated": n_frames_evaluated,
+        "sleap_nn": sleap_nn_metrics.to_dict(),
+        "classic_sleap_reference": reference.to_dict() if reference else None,
+    }
+    if reference is not None:
+        entry["distance_p95_delta"] = abs(
+            sleap_nn_metrics.distance_p95 - reference.distance_p95
+        )
+        entry["visibility_recall_delta"] = abs(
+            sleap_nn_metrics.visibility_recall - reference.visibility_recall
+        )
+    else:
+        entry["distance_p95_delta"] = None
+        entry["visibility_recall_delta"] = None
+    return entry
+
+
+def write_parity_report(entries: list, out_path: Path) -> Path:
+    """Persist a list of :func:`build_report_entry` dicts as an indented JSON file.
+
+    Args:
+        entries: Per-model report entries.
+        out_path: Where to write the report.
+
+    Returns:
+        ``out_path``.
+    """
+    import json
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(entries, f, indent=2)
+    return out_path

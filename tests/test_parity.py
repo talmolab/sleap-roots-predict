@@ -21,6 +21,7 @@ from sleap_roots_predict.parity import (
     ResolvedGroundTruth,
     build_basename_index,
     build_label_card,
+    build_report_entry,
     compute_metrics,
     reference_metrics,
     relink_ground_truth,
@@ -29,6 +30,7 @@ from sleap_roots_predict.parity import (
     run_sleap_nn_predictions,
     sample_ground_truth,
     within_tolerance,
+    write_parity_report,
 )
 from sleap_roots_predict.parity import _pick_best_candidate
 from sleap_roots_predict.video_utils import save_array_as_h5
@@ -642,43 +644,101 @@ def test_build_label_card_derives_content_fields(tmp_path, image_files, skeleton
 # --- within_tolerance ---------------------------------------------------------
 
 
-def test_within_tolerance_true_when_deltas_are_small():
-    a = ParityMetrics(
+def _metrics(
+    distance_p95=1.0, visibility_recall=0.98, settings="recomputed", **overrides
+):
+    defaults = dict(
+        distance_p95=distance_p95,
+        visibility_recall=visibility_recall,
         distance_avg=1.0,
-        distance_p95=1.5,
-        visibility_recall=0.98,
-        settings="recomputed",
+        distance_p50=1.0,
+        distance_p75=1.0,
+        distance_p90=1.0,
+        distance_p99=1.0,
+        visibility_precision=1.0,
+        pck_mean=1.0,
+        pck_at_5px=1.0,
+        pck_at_10px=1.0,
+        moks=0.5,
+        voc_oks_map=0.5,
+        voc_oks_mar=0.5,
+        voc_pck_map=0.5,
+        voc_pck_mar=0.5,
+        settings=settings,
     )
-    b = ParityMetrics(
-        distance_avg=1.0, distance_p95=1.6, visibility_recall=0.99, settings="stored"
-    )
+    defaults.update(overrides)
+    return ParityMetrics(**defaults)
+
+
+def test_within_tolerance_true_when_deltas_are_small():
+    a = _metrics(distance_p95=1.5, visibility_recall=0.98, settings="recomputed")
+    b = _metrics(distance_p95=1.6, visibility_recall=0.99, settings="stored")
 
     assert within_tolerance(a, b, distance_tolerance_px=2.0, recall_tolerance=0.05)
 
 
 def test_within_tolerance_false_when_distance_delta_too_large():
-    a = ParityMetrics(
-        distance_avg=1.0,
-        distance_p95=10.0,
-        visibility_recall=0.98,
-        settings="recomputed",
-    )
-    b = ParityMetrics(
-        distance_avg=1.0, distance_p95=1.0, visibility_recall=0.98, settings="stored"
-    )
+    a = _metrics(distance_p95=10.0, visibility_recall=0.98, settings="recomputed")
+    b = _metrics(distance_p95=1.0, visibility_recall=0.98, settings="stored")
 
     assert not within_tolerance(a, b, distance_tolerance_px=2.0, recall_tolerance=0.05)
 
 
 def test_within_tolerance_false_when_recall_delta_too_large():
-    a = ParityMetrics(
-        distance_avg=1.0, distance_p95=1.0, visibility_recall=0.5, settings="recomputed"
-    )
-    b = ParityMetrics(
-        distance_avg=1.0, distance_p95=1.0, visibility_recall=0.98, settings="stored"
-    )
+    a = _metrics(distance_p95=1.0, visibility_recall=0.5, settings="recomputed")
+    b = _metrics(distance_p95=1.0, visibility_recall=0.98, settings="stored")
 
     assert not within_tolerance(a, b, distance_tolerance_px=2.0, recall_tolerance=0.05)
+
+
+def test_parity_metrics_to_dict_is_json_safe():
+    import json
+
+    m = _metrics()
+    json.dumps(m.to_dict())  # must not raise
+
+
+# --- build_report_entry / write_parity_report ---------------------------------
+
+
+def test_build_report_entry_includes_full_metrics_and_deltas(tmp_path):
+    card = _card()
+    resolved = _resolved(card, tmp_path / "gt.slp", tmp_path, source="basename_search")
+    sleap_nn = _metrics(distance_p95=5.0, visibility_recall=0.9)
+    reference = _metrics(distance_p95=7.0, visibility_recall=0.8, settings="stored")
+
+    entry = build_report_entry(resolved, 42, sleap_nn, reference)
+
+    assert entry["registry_id"] == card.registry_id
+    assert entry["n_frames_evaluated"] == 42
+    assert entry["sleap_nn"]["distance_p95"] == 5.0
+    assert entry["classic_sleap_reference"]["distance_p95"] == 7.0
+    assert entry["distance_p95_delta"] == pytest.approx(2.0)
+    assert entry["visibility_recall_delta"] == pytest.approx(0.1)
+
+
+def test_build_report_entry_handles_missing_reference(tmp_path):
+    card = _card()
+    resolved = _resolved(card, tmp_path / "gt.slp", tmp_path)
+    sleap_nn = _metrics()
+
+    entry = build_report_entry(resolved, 10, sleap_nn, None)
+
+    assert entry["classic_sleap_reference"] is None
+    assert entry["distance_p95_delta"] is None
+    assert entry["visibility_recall_delta"] is None
+
+
+def test_write_parity_report_round_trips_via_json(tmp_path):
+    import json
+
+    entries = [{"registry_id": "reg/a", "value": 1.5}]
+    out_path = write_parity_report(entries, tmp_path / "report.json")
+
+    assert out_path.exists()
+    with open(out_path) as f:
+        reloaded = json.load(f)
+    assert reloaded == entries
 
 
 # --- parity marker (real-data, network-gated) --------------------------------
