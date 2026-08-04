@@ -177,15 +177,17 @@
       no GPU-relevant code path, so that's a clean N/A, not a deferred verification); `uv
       build` → wheel builds successfully with `parity.py` included; no Dockerfile/image
       change in this branch, so no `docker build` needed.
-- [ ] 7.3 Close predict#32 with a comment citing the existing skip-with-warning implementation
-      (`model_registry.py`) and spec — no code change. **Drafted** (scratchpad
-      `draft_comment_predict32.md`), shown to the user, **not yet posted** (awaiting approval).
-- [ ] 7.4 Draft the sleap-roots-pipeline#15 closing comment (decided tolerance + measured
-      baseline + reference-set coverage/gaps) and the `docs/bloom-integration/roadmap.md`
-      A3-predict row diff; show both for approval before posting/committing. **Drafted**
-      (scratchpad `draft_comment_pipeline15.md` / `draft_roadmap_diff.md`), shown to the user,
-      **not yet posted/applied**.
-- [ ] 7.5 Cross-link this change on `sleap-roots-training`#10/#11/#22 (downstream `LabelCard`
-      consumer) and predict#8 (shared reference set + reusable `parity.py`) — comment drafts
-      shown for approval first. **Drafted** (scratchpad `draft_crosslink_comments.md`), shown to
-      the user, **not yet posted**.
+- [x] 7.3 Closed predict#32 with a comment citing the existing skip-with-warning implementation
+      (`model_registry.py`) and spec — no code change.
+- [x] 7.4 Posted the sleap-roots-pipeline#15 closing comment (decided tolerance + measured
+      baseline + reference-set coverage/gaps) and closed the issue. Opened
+      [sleap-roots-pipeline#39](https://github.com/talmolab/sleap-roots-pipeline/pull/39) with
+      the `docs/bloom-integration/roadmap.md` A3-predict row diff (top-line summary, sub-table
+      cell, tracking-column row, and a new status-log entry).
+- [x] 7.5 Cross-linked this change on `sleap-roots-training`#10/#11/#22 (downstream `LabelCard`
+      consumer) and predict#8 (shared reference set + reusable `parity.py`). Also filed
+      [sleap-roots-training#39](https://github.com/talmolab/sleap-roots-training/issues/39)
+      (the shared-model-registry-duplication finding surfaced while building this harness) —
+      drafted, shown, and approved before posting.
+- [x] 7.6 Pushed the `define-parity-tolerance` branch and opened
+      [sleap-roots-predict#33](https://github.com/talmolab/sleap-roots-predict/pull/33).
