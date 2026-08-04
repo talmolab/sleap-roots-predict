@@ -142,11 +142,73 @@ Reference set = the ground truth resolved (per §2) for each of these 13, not a 
 sample of field-experiment scans. This automatically tracks the registry's real species/root-
 type spread instead of requiring manual curation of "representative" scans.
 
-### 6. Tolerance: empirical, set after measuring
+### 6. Tolerance: empirical, measured, and relative (not a fixed pixel threshold)
 
-Run the harness across all 13 models first to observe the real sleap-nn-vs-classic-SLEAP
-distance/recall deltas, then set the tolerance as a documented margin above the observed
-baseline (e.g., "observed max Δp95 = 0.8px → tolerance Δp95 ≤ 2px"). Not an a priori guess.
+Ran the harness against all 13 production `ModelCard`s at `n=100` sampled frames per model
+(full frame count when fewer were resolved), persisting every `run_evaluation` field for both
+sides plus the gated deltas to
+`docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`. Deduplicating by
+`weights_checksum` (§ "shared model registry duplication" — several `registry_id`s point at the
+same physical weights, so they always produce identical numbers) leaves **8 distinct models**.
+
+The initial working assumption — a single fixed-pixel `distance_p95` tolerance — broke down on
+one model, `rice-cylinder-crown-age6-10`: its Δp95 (39.8px, sleap-nn=194.1px vs
+classic-SLEAP=233.9px) was 2-8x every other model's, which ranged 0.4-17.0px. Investigation
+(not guessing) ruled out an engine bug:
+
+- **Coarser metrics agree almost exactly** for this model: Δpck@10px = 0.001, Δvisibility_
+  precision = 0.0014 — both engines rank matches the same way; only the *p95/p99 distance tail*
+  diverges.
+- **Instance density is ~2x higher** than this model's own age2-5 sibling (measured directly
+  from the harness log: 8.75 instances/frame at age6-10 vs 4.47 at age2-5) — day-6-10 crown
+  roots have visibly more lateral branching, so OKS-based instance matching (§3,
+  `match_threshold=0.0`) has more ambiguous candidates per frame, and a few wrong matches under
+  permissive matching produce large one-off distances that dominate a p95/p99 estimate over only
+  57 evaluated frames.
+- **The model is independently known to be less precise at this growth stage**: Berrigan et al.
+  2024 (*Plant Phenomics*, 10.34133/plantphenomics.0175 — this harness's own reference paper)
+  reports median localization error (against human ground truth) of 0.662mm for rice crown roots
+  at 3 DAG vs 2.281mm at 10 DAG — a **3.4x** increase from root complexity alone, independent of
+  which inference engine is used. (Note: an intermediate check of this against the harness's own
+  `distance_p50` used an incorrect 10.6 px/mm scale factor pulled from an automated paper-content
+  fetch; the correct calibration is 170 px/cm = 17 px/mm, confirmed directly. At that scale the
+  harness's own `distance_p50`s run systematically lower than the paper's published values by
+  ~2-3x across models — expected, since this harness's resolved ground-truth frames are not the
+  paper's original evaluation set — so the absolute px figures don't cross-check line-for-line.
+  What *does* replicate is the direction and rough magnitude of the growth-stage effect: the
+  paper's own 3.4x ratio between 3-DAG and 10-DAG crown-root error vs. this harness's ~5x ratio
+  between the same two models' `distance_p50` (22-25px at age6-10 vs ~4.4px at age2-5) — both
+  independently show older/more-branched crown roots are inherently noisier to localize, for
+  either engine.)
+
+Conclusion: an absolute-pixel gate is the wrong shape for a registry where per-model intrinsic
+difficulty already varies by an order of magnitude for reasons unrelated to engine parity. The
+**decided tolerance is relative**:
+
+```
+distance_p95 relative delta = |sleap_nn.distance_p95 - reference.distance_p95| / reference.distance_p95 <= 0.25
+visibility_recall delta     = sleap_nn.visibility_recall - reference.visibility_recall           >= -0.10
+```
+
+(`visibility_recall` stays a directional, absolute-point check — sleap-nn scoring *higher* than
+the reference never fails; it isn't a "difficulty" quantity that needs relative scaling the way
+raw pixel distance does.) Measured against all 8 distinct models, both with real headroom to
+spare and no special-cased exception:
+
+| model (`weights_checksum`) | Δp95 (relative) | Δrecall |
+|---|---|---|
+| soybean-primary-age2-8 | 0.6% | +0.008 |
+| arabidopsis/canola/pennycress-primary-age2-14 (shared, 4 aliases) | 1.3% | -0.085 |
+| rice-primary-age2-5 | 3.9% | 0.000 |
+| pennycress/canola-lateral-age2-14 (shared, 2 aliases) | 6.1% | +0.001 |
+| rice-crown-age2-5 | 5.9% | -0.010 |
+| arabidopsis/multiplant-lateral-age2-14 (shared, 2 aliases) | 7.5% | -0.043 |
+| soybean-lateral-age2-8 | 11.7% | +0.001 |
+| rice-crown-age6-10 | 17.0% | -0.053 |
+
+`within_tolerance()` (`sleap_roots_predict/parity.py`) implements this gate; see
+`tests/test_parity.py`'s `within_tolerance` tests for the boundary cases (including the
+directional-recall case: sleap-nn recall far *above* the reference must not fail).
 
 ### 7. `LabelCard`-shaped ground-truth manifest (bump the contracts pin)
 

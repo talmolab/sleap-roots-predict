@@ -128,30 +128,37 @@
       `acceptance`/`wandb` skip pattern exactly. **Implemented and verified:** collecting
       `tests/test_parity.py` with no env vars set skips that test (confirmed via the full suite
       run: `251 passed, 7 deselected`, one more deselected than before this change landed).
-- [ ] 5.2 **Not yet implemented — real-data, gated, tracked as a follow-up within this same
-      change before merge:** `test_parity_harness_reports_all_production_models` currently
-      `pytest.skip()`s with an explicit note. Wiring this up requires, per model card: (a) a
-      real `labels_registry_lookup` implementation against `wandb-registry-sleap-roots-labels`
-      (species/root-type/node-count join against the 8 real collections), (b) the real
-      per-species `prefix_map` entries (confirmed working: `D:/SLEAP` → the arabidopsis/
-      canola/pennycress video pool; still to check: `Z:\users\eberrigan\SLEAP\SLEAP_Rice` and
-      `...\SLEAP_Soy`, pointed to directly by the repo owner, for the `D:/FNRice*`,
-      `C:/Users/pbiobgh`, `E:/Soy_GDM_Brazil`, `F:/Soy_GDM_Brazil` prefixes), and (c) materializing
-      all 13 live `ModelCard`s via `WandbRegistrySource`. **Test:** the harness produces one
-      result (metrics + delta, or an explicit gap) per production `ModelCard`, with no model
-      silently missing from the report.
+- [x] 5.2 **Implemented via a scratch harness script** (not a committed test — the real,
+      network/registry-touching run is a one-time empirical measurement, not a standing test;
+      the standing `parity`-marked test still exercises the reusable functions against
+      fixtures). Ran against all 13 live `ModelCard`s with the real `prefix_map`
+      (`D:/SLEAP` and `C:/Users/pbiobgh/Desktop/SLEAP` → `Z:/users/eberrigan/SLEAP`) and
+      basename-search fallback at `n=100` sampled frames/model. Every one of the 13 produced a
+      result (metrics + delta) — full coverage, no gaps, no model silently missing. Persisted to
+      `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json` via the new
+      `build_report_entry()`/`write_parity_report()` (also newly added: full `ParityMetrics`
+      capture — distance percentiles, PCK, visibility precision, OKS/VOC fields — not just the
+      two gated numbers).
 
 ## 6. Empirical tolerance
 
-- [ ] 6.1 Run the wired-up `parity` marker test locally (`uv run pytest -m parity -s`) against
-      the live registry + resolved ground truth. Record the observed `distance_metrics`/
-      `visibility_metrics.recall` deltas per model in this file and in
-      `docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md`.
-- [ ] 6.2 **Test first:** `test_within_tolerance_true_when_deltas_are_small` /
-      `test_within_tolerance_false_when_*_delta_too_large` — already implemented and passing
-      against placeholder tolerance values; once 6.1's real numbers are in, revisit whether the
-      placeholder margins still make sense and update `parity.py`'s tolerance constants with a
-      comment citing 6.1's measurement.
+- [x] 6.1 Ran the harness (see 5.2) at `n=100`. Deduplicating by `weights_checksum` (several
+      `registry_id`s share physical weights) leaves 8 distinct models; measured `distance_p95`/
+      `visibility_recall` deltas recorded in
+      `docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md` §6 and the full
+      per-model JSON report (2026-08-04). One model (`rice-cylinder-crown-age6-10`) diverged
+      2-8x more than the rest in absolute px — investigated (not assumed): coarser metrics
+      (pck@10px, visibility_precision) agree almost exactly, instance density is ~2x its own
+      age2-5 sibling, and the growth stage is independently documented as less precise in
+      Berrigan et al. 2024 (10.34133/plantphenomics.0175) — not an engine-parity bug.
+- [x] 6.2 **Test first, then implementation:** added
+      `test_within_tolerance_true_when_sleap_nn_recall_is_much_higher` (new — verifies the
+      directional recall check) alongside the existing `within_tolerance` tests, updated to the
+      new relative-distance signature. Then changed `within_tolerance()` in `parity.py` from a
+      fixed-pixel `distance_tolerance_px` to a relative `distance_relative_tolerance` (measured
+      max 17.0% across all 8 distinct models; gate set at 25% for headroom), and made
+      `recall_tolerance` directional (only fails when sleap-nn scores lower; measured max
+      -0.053, gate set at -0.10). No fixed-pixel exception needed for any model — see 6.1.
 
 ## 7. Docs, cleanup, closing
 

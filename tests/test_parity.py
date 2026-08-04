@@ -674,21 +674,40 @@ def test_within_tolerance_true_when_deltas_are_small():
     a = _metrics(distance_p95=1.5, visibility_recall=0.98, settings="recomputed")
     b = _metrics(distance_p95=1.6, visibility_recall=0.99, settings="stored")
 
-    assert within_tolerance(a, b, distance_tolerance_px=2.0, recall_tolerance=0.05)
+    # relative distance delta = 0.1 / 1.6 ~= 0.0625; recall delta = -0.01
+    assert within_tolerance(
+        a, b, distance_relative_tolerance=0.25, recall_tolerance=0.05
+    )
 
 
 def test_within_tolerance_false_when_distance_delta_too_large():
     a = _metrics(distance_p95=10.0, visibility_recall=0.98, settings="recomputed")
     b = _metrics(distance_p95=1.0, visibility_recall=0.98, settings="stored")
 
-    assert not within_tolerance(a, b, distance_tolerance_px=2.0, recall_tolerance=0.05)
+    # relative distance delta = 9.0 / 1.0 = 9.0, far over tolerance
+    assert not within_tolerance(
+        a, b, distance_relative_tolerance=0.25, recall_tolerance=0.05
+    )
 
 
 def test_within_tolerance_false_when_recall_delta_too_large():
     a = _metrics(distance_p95=1.0, visibility_recall=0.5, settings="recomputed")
     b = _metrics(distance_p95=1.0, visibility_recall=0.98, settings="stored")
 
-    assert not within_tolerance(a, b, distance_tolerance_px=2.0, recall_tolerance=0.05)
+    assert not within_tolerance(
+        a, b, distance_relative_tolerance=0.25, recall_tolerance=0.05
+    )
+
+
+def test_within_tolerance_true_when_sleap_nn_recall_is_much_higher():
+    # sleap-nn scoring *higher* on recall than the reference must never fail,
+    # even though the magnitude of the delta exceeds recall_tolerance.
+    a = _metrics(distance_p95=1.0, visibility_recall=0.99, settings="recomputed")
+    b = _metrics(distance_p95=1.0, visibility_recall=0.5, settings="stored")
+
+    assert within_tolerance(
+        a, b, distance_relative_tolerance=0.25, recall_tolerance=0.05
+    )
 
 
 def test_parity_metrics_to_dict_is_json_safe():

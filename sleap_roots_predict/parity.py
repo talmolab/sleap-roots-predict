@@ -922,23 +922,39 @@ def within_tolerance(
     sleap_nn: ParityMetrics,
     classic_sleap: ParityMetrics,
     *,
-    distance_tolerance_px: float,
+    distance_relative_tolerance: float,
     recall_tolerance: float,
 ) -> bool:
     """Check whether sleap-nn's metrics are within tolerance of classic-SLEAP's.
 
+    ``distance_p95`` is gated relatively, not by a fixed pixel threshold:
+    per-model intrinsic difficulty varies by an order of magnitude across the
+    production registry (e.g. rice crown roots at 10 days post-germination
+    have a published median localization error ~3.4x that of the same root
+    type at 3 DAG — Berrigan et al. 2024, 10.34133/plantphenomics.0175), so a
+    fixed-px bound would either be too loose to catch a regression on an easy
+    model or fail a hard model that was never expected to be pixel-precise.
+
     Args:
         sleap_nn: This harness's own computed metrics.
         classic_sleap: The reference metrics (recomputed or stored).
-        distance_tolerance_px: Maximum allowed ``|Δ distance_p95|``, in pixels.
-        recall_tolerance: Maximum allowed ``|Δ visibility_recall|``.
+        distance_relative_tolerance: Maximum allowed
+            ``|Δ distance_p95| / classic_sleap.distance_p95``.
+        recall_tolerance: How much lower sleap-nn's ``visibility_recall`` may
+            be than classic-SLEAP's; sleap-nn scoring *higher* never fails.
 
     Returns:
         ``True`` when both deltas are within their tolerances.
     """
-    distance_delta = abs(sleap_nn.distance_p95 - classic_sleap.distance_p95)
-    recall_delta = abs(sleap_nn.visibility_recall - classic_sleap.visibility_recall)
-    return distance_delta <= distance_tolerance_px and recall_delta <= recall_tolerance
+    distance_relative_delta = (
+        abs(sleap_nn.distance_p95 - classic_sleap.distance_p95)
+        / classic_sleap.distance_p95
+    )
+    recall_delta = sleap_nn.visibility_recall - classic_sleap.visibility_recall
+    return (
+        distance_relative_delta <= distance_relative_tolerance
+        and recall_delta >= -recall_tolerance
+    )
 
 
 def build_report_entry(

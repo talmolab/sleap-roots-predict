@@ -183,18 +183,35 @@ tolerance SHALL fail the assertion for that model. A model with no classic-SLEAP
 available SHALL NOT be asserted against the tolerance and SHALL NOT count as a pass or a
 failure — it is reported informationally only.
 
+The `distance_p95` tolerance SHALL be relative to the classic-SLEAP reference value
+(`|sleap_nn.distance_p95 - reference.distance_p95| / reference.distance_p95`), not a fixed
+pixel threshold, because per-model intrinsic localization difficulty varies by an order of
+magnitude across the production registry for reasons independent of engine parity (e.g. root
+complexity/branching increasing with plant age — confirmed both by this harness's own measured
+instance-density and by the published localization-error growth-stage effect in Berrigan et al.
+2024, 10.34133/plantphenomics.0175). The `visibility_recall` tolerance SHALL be directional: it
+SHALL only fail when sleap-nn's recall is lower than the reference's by more than the tolerance;
+sleap-nn scoring higher than the reference SHALL NOT fail regardless of magnitude.
+
 #### Scenario: A delta within tolerance passes
 
-- **WHEN** a resolved model has both metrics and its measured delta is within the documented
-  tolerance
+- **WHEN** a resolved model has both metrics, its `distance_p95` relative delta is within the
+  documented relative tolerance, and its `visibility_recall` is not lower than the reference by
+  more than the documented tolerance
 - **THEN** the harness's assertion for that model passes
 
-#### Scenario: A delta exceeding tolerance fails
+#### Scenario: A relative distance delta exceeding tolerance fails
 
-- **WHEN** a resolved model has both metrics and its measured delta exceeds the documented
-  tolerance
+- **WHEN** a resolved model's `distance_p95` relative delta (as a fraction of the reference
+  value) exceeds the documented tolerance
 - **THEN** the harness's assertion for that model fails, naming the model and the measured vs.
-  tolerated values
+  tolerated relative deltas
+
+#### Scenario: sleap-nn recall scoring higher than the reference never fails
+
+- **WHEN** a resolved model's sleap-nn `visibility_recall` is higher than the classic-SLEAP
+  reference's, by any margin
+- **THEN** the harness's assertion for that model does not fail on the recall check
 
 #### Scenario: A model with no reference is reported without a pass/fail verdict
 
