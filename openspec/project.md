@@ -59,7 +59,8 @@ importable library.
   - `parity.py` — the A3-predict parity harness: ground-truth resolution (labels registry,
     path relinking, basename search), a `run_evaluation` wrapper (OKS-matched
     `distance_metrics`/`visibility_metrics`, never OKS scores), and `within_tolerance`
-    (resolves sleap-roots-pipeline#15)
+    (resolves sleap-roots-pipeline#15). Measured results across all 13 production models:
+    `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`
   - `__main__.py` — the `python -m sleap_roots_predict <in> <out>` CLI entrypoint
   - `video_utils.py` — image I/O utilities (natural sort, greyscale, load/save, video build)
   - `plates_timelapse_experiment.py` — timelapse experiment orchestration
