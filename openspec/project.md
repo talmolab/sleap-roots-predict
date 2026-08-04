@@ -17,9 +17,12 @@ importable library.
 > (the `prediction-output` capability: named per-root `.slp` + a combined
 > `{scan}.predictions.json` manifest) landed, and the **serving protocol/CLI** now lands
 > (the `predict-container` capability: the warm-batch `python -m sleap_roots_predict` CLI +
-> the real GPU service-image `ENTRYPOINT`). Remaining A3/A4 work: emitting the full
-> `Provenance`/`ResultEnvelope` (traits assembles these from predict's manifest) and the
-> prediction-parity harness.
+> the real GPU service-image `ENTRYPOINT`). The **prediction-parity** harness (this repo's
+> `sleap_roots_predict.parity`, resolving sleap-roots-pipeline#15) also landed, with a
+> measured, relative empirical tolerance (`distance_p95` ≤ 25% relative delta,
+> `visibility_recall` ≥ -0.10) across all 13 production `ModelCard`s. Remaining A3/A4 work:
+> emitting the full `Provenance`/`ResultEnvelope` (traits assembles these from predict's
+> manifest).
 
 ## Tech Stack
 - **Python** ≥ 3.11 (CI matrix: 3.11, 3.12)
@@ -53,6 +56,10 @@ importable library.
     `sleap_roots_contracts` (re-exported from `__init__.py`; predict carries no local copy
     of the models themselves)
   - `batch.py` — the warm-batch container runner (`run_batch`, `discover_scans`)
+  - `parity.py` — the A3-predict parity harness: ground-truth resolution (labels registry,
+    path relinking, basename search), a `run_evaluation` wrapper (OKS-matched
+    `distance_metrics`/`visibility_metrics`, never OKS scores), and `within_tolerance`
+    (resolves sleap-roots-pipeline#15)
   - `__main__.py` — the `python -m sleap_roots_predict <in> <out>` CLI entrypoint
   - `video_utils.py` — image I/O utilities (natural sort, greyscale, load/save, video build)
   - `plates_timelapse_experiment.py` — timelapse experiment orchestration
@@ -83,6 +90,9 @@ a copy-and-fill template. (Env vars are model-scoped — `SRP_WANDB_MODEL_REGIST
 - **Acceptance test** (`@pytest.mark.acceptance`): real-data, CI-skipped. Gate with
   `SRP_CYLINDER_DIR` (image frames) and `SRP_MODEL_DIRS` (os-pathsep-joined model
   dirs; extract legacy `.zip` models first), then `uv run pytest -m acceptance -s`.
+- **Parity test** (`@pytest.mark.parity`): real-data/registry-gated, CI-skipped. Gates the
+  A3-predict parity harness (`sleap_roots_predict.parity`) on `WANDB_API_KEY` plus a
+  network-share root for ground-truth path relinking; skips cleanly without them.
 - Coverage via `pytest --cov=sleap_roots_predict`.
 
 ### Git Workflow
@@ -104,9 +114,9 @@ downstream join.
 
 ## External Dependencies
 - **sleap-nn / sleap-io** — inference engine and label I/O.
-- **sleap-roots-contracts** (`==0.1.0a5`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`/
-  `PredictionArtifact`/`PredictionManifest`, and the `resolve_params` oracle (Bloom scan
-  metadata → `ResolvedParams`).
+- **sleap-roots-contracts** (`==0.1.0a6`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`/
+  `PredictionArtifact`/`PredictionManifest`/`LabelCard`, and the `resolve_params` oracle (Bloom
+  scan metadata → `ResolvedParams`).
 - **wandb** — the model registry the warm worker fetches root models from (network confined to
   `WandbRegistrySource`). Also a transitive sleap-nn dependency.
 - **sleap-roots model registry** — source of trained models (the wandb registry above).
