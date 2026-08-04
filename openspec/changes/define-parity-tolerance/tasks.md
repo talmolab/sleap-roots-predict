@@ -162,17 +162,30 @@
 
 ## 7. Docs, cleanup, closing
 
-- [ ] 7.1 Update `CHANGELOG.md` (`[Unreleased]`), `openspec/project.md` (contracts version
-      literal, a `parity.py` bullet in Architecture Patterns, and the roadmap note at the top
-      that currently lists "the prediction-parity harness" as remaining A3/A4 work — drop or
-      reword now that it's landing), and any stale doc references (grep sweep).
-- [ ] 7.2 Full `/pre-merge` gate: format, lint, test (including `-m gpu` locally per the
-      standing requirement), build.
+- [x] 7.1 Updated `CHANGELOG.md` (`[Unreleased]`), `openspec/project.md` (contracts version
+      literal `0.1.0a6`, a `parity.py` bullet in Architecture Patterns, a `parity` marker
+      bullet in Testing Strategy, and the roadmap note reworded now that the harness has
+      landed). Swept for stale `0.1.0a5` references — the remaining ones are legitimate
+      historical mentions (this change's own docs describing the bump, and an archived prior
+      change), not stale current-state claims. `API.md` intentionally unchanged —
+      `parity.py` is not re-exported from `__init__.py` (an internal/harness module, per the
+      design), so it's outside that doc's documented public-API surface.
+- [x] 7.2 Full `/pre-merge` gate: `black --check` and `ruff check sleap_roots_predict/` and
+      `codespell` all clean; `pytest -m "not gpu and not acceptance and not wandb" tests/` →
+      269 passed, 1 skipped (parity test self-skips cleanly, no env vars set), 6 deselected;
+      `pytest -m gpu tests/` → 3 skipped (this machine has no CUDA/MPS — this change touches
+      no GPU-relevant code path, so that's a clean N/A, not a deferred verification); `uv
+      build` → wheel builds successfully with `parity.py` included; no Dockerfile/image
+      change in this branch, so no `docker build` needed.
 - [ ] 7.3 Close predict#32 with a comment citing the existing skip-with-warning implementation
-      (`model_registry.py`) and spec — no code change.
+      (`model_registry.py`) and spec — no code change. **Drafted** (scratchpad
+      `draft_comment_predict32.md`), shown to the user, **not yet posted** (awaiting approval).
 - [ ] 7.4 Draft the sleap-roots-pipeline#15 closing comment (decided tolerance + measured
       baseline + reference-set coverage/gaps) and the `docs/bloom-integration/roadmap.md`
-      A3-predict row diff; show both for approval before posting/committing.
+      A3-predict row diff; show both for approval before posting/committing. **Drafted**
+      (scratchpad `draft_comment_pipeline15.md` / `draft_roadmap_diff.md`), shown to the user,
+      **not yet posted/applied**.
 - [ ] 7.5 Cross-link this change on `sleap-roots-training`#10/#11/#22 (downstream `LabelCard`
       consumer) and predict#8 (shared reference set + reusable `parity.py`) — comment drafts
-      shown for approval first.
+      shown for approval first. **Drafted** (scratchpad `draft_crosslink_comments.md`), shown to
+      the user, **not yet posted**.
