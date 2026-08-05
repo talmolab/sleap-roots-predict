@@ -415,7 +415,7 @@ written — see that doc's revision notes).
       non-auto-deleted temp directory by default, so a gapped model's intermediates stay
       inspectable after a long real run — matches the harness's existing convention of never
       silently discarding evidence.
-- [ ] 9.3 **Chore, separate commit, lands immediately after 9.2:** extend the `black`/`ruff`
+- [x] 9.3 **Chore, separate commit, lands immediately after 9.2:** extend the `black`/`ruff`
       targets to include `scripts` in `.github/workflows/ci.yml`, **and** add `scripts/**` to
       `ci.yml`'s own `paths:` trigger filter (currently `sleap_roots_predict/**`, `tests/**`,
       `.github/workflows/ci.yml`, `pyproject.toml` — omitting `scripts/**` means a future PR
@@ -429,6 +429,14 @@ written — see that doc's revision notes).
       for this chore (already outside every lint target, a pre-existing state this task doesn't
       change). Verify locally (`black --check scripts`, `ruff check scripts`) that 9.2's script
       is already clean — this is the commit that would go red if it weren't.
+
+      **Implemented and verified:** `ci.yml`'s lint job now runs `black --check
+      sleap_roots_predict tests scripts` and `ruff check sleap_roots_predict/ scripts/`;
+      `paths:` gained `scripts/**`. All five `.claude/commands/*.md` files' lint-target
+      strings updated (every occurrence, including `lint.md`'s auto-fix hint and
+      `pr-description.md`'s template checkboxes). Re-ran the exact new commands locally:
+      `black --check sleap_roots_predict tests scripts` / `ruff check sleap_roots_predict/
+      scripts/` / `codespell` all clean.
 - [x] 9.4 Expand **and correct** `build_report_entry`'s docstring (`parity.py`), and correct
       `write_parity_report`'s one-line summary (`parity.py:~1037`, "Persist a list of
       `build_report_entry` dicts..." — already slightly inaccurate today, since

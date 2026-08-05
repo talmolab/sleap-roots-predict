@@ -27,7 +27,7 @@ that already exist on `main`. Ticking `[x]` on those would be a false claim. Use
 Example:
 ```
 - [x] All tests pass — 105 passing (CPU subset)
-- [!] `uv run black --check sleap_roots_predict tests` fails on pre-existing issue (#12), not introduced here
+- [!] `uv run black --check sleap_roots_predict tests scripts` fails on pre-existing issue (#12), not introduced here
 - [ ] GPU tests (not run — no GPU available locally)
 ```
 
@@ -61,9 +61,9 @@ Example:
 
 ## Linting
 
-- [ ] Ruff passes (`uv run ruff check sleap_roots_predict/`)
+- [ ] Ruff passes (`uv run ruff check sleap_roots_predict/ scripts/`)
 - [ ] Codespell passes (`uv run codespell`)
-- [ ] Formatting passes (`uv run black --check sleap_roots_predict tests`)
+- [ ] Formatting passes (`uv run black --check sleap_roots_predict tests scripts`)
 
 ## Build / Image
 

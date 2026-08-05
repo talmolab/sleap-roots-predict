@@ -8,13 +8,13 @@ Run all quality checks, create or update the PR, and prepare for merge.
 
 1. **Format check.** Run `/fix-formatting` first if you know there are formatting issues; otherwise run the check directly:
    ```bash
-   uv run black --check sleap_roots_predict tests
+   uv run black --check sleap_roots_predict tests scripts
    ```
    If it fails, run `/fix-formatting` and re-check.
 
 2. **Lint.** (this repo has no type checker — ruff covers docstrings, codespell covers spelling):
    ```bash
-   uv run ruff check sleap_roots_predict/
+   uv run ruff check sleap_roots_predict/ scripts/
    uv run codespell
    ```
    Fix all errors before proceeding.
@@ -114,8 +114,8 @@ Run all quality checks, create or update the PR, and prepare for merge.
     No merge conflicts; all CI checks green; all review comments addressed; the **Phase 2 GPU
     subset passed locally** (CI does not cover GPU). Run one last combined check:
     ```bash
-    uv run black --check sleap_roots_predict tests && \
-      uv run ruff check sleap_roots_predict/ && \
+    uv run black --check sleap_roots_predict tests scripts && \
+      uv run ruff check sleap_roots_predict/ scripts/ && \
       uv run codespell && \
       uv run pytest -m "not gpu" tests/
     ```

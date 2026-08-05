@@ -14,13 +14,13 @@ plus a black format check.
 
 ```bash
 # Lint — ruff enforces google-style docstrings (select = ["D"])
-uv run ruff check sleap_roots_predict/
+uv run ruff check sleap_roots_predict/ scripts/
 
 # Spelling
 uv run codespell
 
 # Formatting check — reports violations without fixing (auto-fix with /fix-formatting)
-uv run black --check sleap_roots_predict tests
+uv run black --check sleap_roots_predict tests scripts
 ```
 
 Run all three before pushing; all must pass for CI to go green (they mirror the `lint`
@@ -54,7 +54,7 @@ auto-fix** — run `/fix-formatting` for that.
 
 ### Lint errors that can be auto-fixed
 
-Some ruff issues are auto-fixable: `uv run ruff check --fix sleap_roots_predict/`.
+Some ruff issues are auto-fixable: `uv run ruff check --fix sleap_roots_predict/ scripts/`.
 Missing docstrings must be written by hand.
 
 ## Common Patterns
@@ -79,9 +79,9 @@ google convention is configured under `[tool.ruff.lint.pydocstyle]`).
 /fix-formatting
 
 # 2. Run quality checks
-uv run ruff check sleap_roots_predict/
+uv run ruff check sleap_roots_predict/ scripts/
 uv run codespell
-uv run black --check sleap_roots_predict tests
+uv run black --check sleap_roots_predict tests scripts
 
 # 3. Fix any remaining errors, then commit
 ```
