@@ -12,7 +12,9 @@ explicit, logged gap when none resolve. Resolution SHALL be tracked at the **fra
 only per model: tiers (2) and (3) SHALL keep whichever labeled frames actually resolve and
 SHALL NOT require every frame in a model's ground truth to resolve for that model to count as
 resolved. A model whose ground truth cannot be resolved at all SHALL be recorded as an explicit
-gap in the harness's report and SHALL NOT be silently omitted or cause the harness to fail for
+gap in the harness's report, tagged `gap_stage="resolution"` (distinguishing it from an isolated
+evaluation failure — see the Reusable Multi-Model Harness Runner requirement's
+`gap_stage="evaluation"`), and SHALL NOT be silently omitted or cause the harness to fail for
 the other models.
 
 #### Scenario: Ground truth resolves via the labels registry
@@ -41,8 +43,8 @@ the other models.
 
 - **WHEN** none of the labels registry, bundled-labels path relinking, or basename search
   resolves even one frame of a `ModelCard`'s ground truth
-- **THEN** the harness records that model as a named gap in its report, continues resolving and
-  evaluating the remaining models, and does not raise
+- **THEN** the harness records that model as a named gap tagged `gap_stage="resolution"` in its
+  report, continues resolving and evaluating the remaining models, and does not raise
 
 ### Requirement: Basename Search Disambiguation
 
@@ -225,19 +227,23 @@ The system SHALL provide a runner that evaluates a sequence of `ModelCard`s by l
 single-card evaluation pipeline (`evaluate_model_card`), and SHALL persist the accumulated
 entries as one JSON report at a caller-supplied path, in input-card order, returning that path.
 
-A single card's evaluation failure SHALL be isolated: it SHALL be logged as a warning and
-recorded as a gap entry identifying the card (`registry_id`/`version`) and the failure (the
-exception type and message), and evaluation SHALL continue for the remaining cards. This
-isolated-failure gap entry SHALL be distinguishable from a ground-truth-resolution gap entry
-(per the Ground Truth Resolution Per Model requirement) — the two are different failure kinds
-and SHALL NOT be collapsed into an identical, unlabeled shape.
+A single card's evaluation failure (raised while converting, materializing, or evaluating that
+one card) SHALL be isolated: it SHALL be logged as a warning naming the card, and recorded as a
+gap entry identifying the card (`registry_id`/`version`), the failure (the exception type and
+message), and a `gap_stage` of `"evaluation"` — distinguishing it from a ground-truth-resolution
+gap entry (per the Ground Truth Resolution Per Model requirement, whose gap entries SHALL carry
+`gap_stage="evaluation"`'s counterpart, `gap_stage="resolution"`). The two gap kinds SHALL NOT be
+collapsed into an identical, unlabeled shape. Evaluation SHALL continue for the remaining cards.
 
-Errors that are not specific to one card (e.g. missing or invalid registry credentials, or an
-unreachable configured search root) SHALL NOT be isolated as per-card gaps — they SHALL
-propagate and abort the run before any report is written. The runner SHALL NOT overwrite an
-existing report already present at the target path when zero cards produced a non-gap entry,
-since an all-gap result is far more likely to indicate a systemic failure than a genuine
-across-the-board resolution gap.
+This per-card isolation is scoped to exactly the per-card work it wraps: it SHALL NOT be relied
+upon to distinguish a systemic failure (e.g. invalid registry credentials, an unreachable
+configured search root) from a genuine per-card resolution gap, since such failures may
+surface through the same call path as an ordinary per-card gap. The system's protection against
+a systemic failure silently overwriting a previously-persisted report is instead: the runner
+SHALL NOT overwrite an existing report already present at the target path when no card produced
+a non-gap entry — whether because every card produced a gap, or because the input sequence of
+cards was empty. This check SHALL NOT prevent writing a report when no report yet exists at the
+target path, regardless of how many cards produced a gap.
 
 #### Scenario: All cards produce an entry in the persisted report
 
@@ -247,22 +253,22 @@ across-the-board resolution gap.
 
 #### Scenario: A single card's evaluation failure is isolated and distinguishable
 
-- **WHEN** one card's materialization or evaluation raises an exception, while other cards
-  evaluate normally
-- **THEN** that card's entry in the persisted report is a gap entry naming the failure, marked
-  as an evaluation failure rather than a ground-truth-resolution gap, a warning is logged
-  naming the card, the exception does not propagate out of the runner, and every other card's
-  entry is still produced normally
+- **WHEN** one card's conversion, materialization, or evaluation raises an exception, while
+  other cards evaluate normally
+- **THEN** that card's entry in the persisted report is a gap entry naming the failure, tagged
+  `gap_stage="evaluation"`, a warning is logged naming the card, the exception does not
+  propagate out of the runner, and every other card's entry is still produced normally
 
-#### Scenario: A non-card-specific error propagates instead of becoming a gap
+#### Scenario: An all-gap or empty result does not overwrite an existing report
 
-- **WHEN** an error occurs that is not specific to one card (e.g. missing registry credentials,
-  or a configured search root that does not exist)
-- **THEN** the runner raises rather than recording the affected cards as gaps, and no report is
-  written
+- **WHEN** a run produces no non-gap entries — either because every card produced a gap entry,
+  or because the input sequence of cards was empty — and a report already exists at the target
+  path
+- **THEN** the runner raises, naming the target path, rather than overwriting that existing
+  report file
 
-#### Scenario: An all-gap result does not overwrite an existing report
+#### Scenario: An all-gap or empty result still writes a first report
 
-- **WHEN** every card in a run produces a gap entry (no card produced a full evaluation), and a
-  report already exists at the target path
-- **THEN** the runner does not overwrite that existing report file
+- **WHEN** a run produces no non-gap entries, and no report yet exists at the target path
+- **THEN** the runner writes the report (containing only gap entries, or being an empty list)
+  as normal, since there is no existing baseline to protect

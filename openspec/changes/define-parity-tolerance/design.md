@@ -96,29 +96,33 @@ explicitly does not apply here since no retraining is involved); gating on trait
 8. **A reusable `run_parity_harness()` + committed `scripts/run_parity_harness.py`** close the
    gap left by the original empirical run being produced by an uncommitted scratch script.
    `run_parity_harness()` loops `evaluate_model_card()` over a list of `ModelCard`s, isolating
-   *only* a per-card `materialize`/`evaluate_model_card` failure (`except Exception`, never
-   bare `except`) — matching `model_registry.py`'s `_collect_cards` precisely (its own
-   docstring says credential/traversal errors propagate outside its narrow `try`; a first
-   draft of this decision over-claimed a broader mirror than that). A caught failure becomes a
-   gap entry tagged `gap_stage="evaluation"`, distinguishable from `evaluate_model_card`'s own
-   pre-existing ground-truth-resolution gaps (now tagged `gap_stage="resolution"`). The runner
-   refuses to overwrite an existing report when every card produced a gap — an all-gap result
-   more likely means a systemic failure (bad credentials, an unmounted share) than genuine
-   across-the-board unresolvability, and overwriting the empirical baseline with that result at
-   exit 0 would recreate the exact staleness failure mode this slice targets. Each card is
-   materialized via `card.to_model_ref(...)` (mirroring `warm_worker.py`), not the
-   `ModelCard`/`ModelRef` duck-typing shortcut one existing test uses. The lab-specific
-   `prefix_map`'s *source* keys are a hardcoded script constant (two entries, already public in
-   Decision 2 above); the *target* share root is a `--share-root` CLI arg default (like
-   `SRP_PARITY_DATA_DIR`, applied consistently — a first draft hardcoded it instead).
-   Regeneration stays manual/on-demand, committed as its own standalone commit (real
-   credentials + a mapped network share CI can't reach). The results JSON's schema is
-   documented in `build_report_entry`'s (and `write_parity_report`'s) docstrings, correcting an
-   existing mislabeling of the report's delta fields as "the gated deltas" (they're unsigned
-   absolute differences; the real gate is relative and signed) that was already present in the
-   shipped code. See the revised 2026-08-05 design doc above for full rationale — it also
-   covers the `scripts/` CI lint-gate fix and the docs sweep this slice needed but initially
-   lacked.
+   a per-card `to_model_ref`/`materialize`/`evaluate_model_card` failure (`except Exception`,
+   never bare `except`) into a gap entry tagged `gap_stage="evaluation"`, distinguishable from
+   `evaluate_model_card`'s own pre-existing ground-truth-resolution gaps (now tagged
+   `gap_stage="resolution"`). **This isolation does not, and structurally cannot, distinguish a
+   systemic failure (bad credentials, an unmounted share) from a genuine per-card gap** — a
+   round-2 adversarial finding against round 1's "mirrors `_collect_cards`" framing: an expired
+   `WANDB_API_KEY` surfaces *inside* the wrapped `materialize` call, and an unmounted share never
+   reaches the runner at all (the script's `build_basename_index` fails silently, before the
+   runner is invoked). The **stated, sole protection** against that class of failure silently
+   overwriting the empirical baseline is a no-clobber guard: the runner refuses to overwrite an
+   existing report at `out_path` when no card produced a non-gap entry (covering both the
+   all-gap case and an empty `cards` list, fixed on round 2 to avoid vacuously blocking a
+   legitimate first run). A residual, accepted risk — a *partial* failure still overwrites a
+   fully-resolved baseline — is documented rather than silently uncaught. Each card converts via
+   `card.to_model_ref(version("sleap-nn"))`, mirroring the real existing conversion at
+   `model_selection.py:98` (round 1 mis-cited `warm_worker.py`, which never calls
+   `to_model_ref`). The lab-specific `prefix_map`'s *source* keys are a hardcoded script
+   constant (two entries, already public in Decision 2 above); the *target* share root is a
+   `--share-root` CLI arg default. Regeneration stays manual/on-demand, committed as its own
+   standalone commit. The results JSON's schema is documented in `build_report_entry`'s (the
+   canonical source) and `write_parity_report`'s/`run_parity_harness`'s (cross-referencing)
+   docstrings, correcting an existing mislabeling of the report's delta fields as "the gated
+   deltas" — already present in both the shipped `build_report_entry` docstring and the parent
+   2026-08-03 design doc's prose (task 9.4b tracks the latter fix explicitly, mirroring task
+   8.7's precedent). See the twice-revised 2026-08-05 design doc for full rationale — it also
+   covers the `scripts/` CI lint-gate **and trigger-path** fix and the docs sweep this slice
+   needed but initially lacked.
 
 ## Risks / Trade-offs
 

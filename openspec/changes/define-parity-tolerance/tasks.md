@@ -268,62 +268,114 @@ Root cause behind both round-3 staleness bugs: the results JSON was produced by 
 scratch script, so nobody could re-run the full 13-model harness without rebuilding it from
 scratch. Brainstormed and designed in
 `docs/superpowers/specs/2026-08-05-define-parity-tolerance-harness-runner-design.md` (approved,
-revised after a `/review-openspec` adversarial round caught a data-loss-risk design flaw and a
-mislabeled-schema doc bug before any code was written — see that doc's revision note).
+revised twice after two `/review-openspec` adversarial rounds — round 1 caught a data-loss-risk
+design flaw and a mislabeled-schema doc bug; round 2 found round 1's isolation fix was cosmetic
+(the two failure modes it named still bypass it) plus a wrong `to_model_ref` attribution and a
+missing `ci.yml` trigger-path fix. All caught and fixed against text before any code was
+written — see that doc's revision notes).
 
 - [ ] 9.1 **Test first, then implement** (one commit — matches this branch's established
-      granularity; e.g. `3cb64cb` bundled four test+fix pairs, and the isolation *scenario* is
-      already committed to the spec, so splitting the runner itself across two commits would
-      leave one commit where committed spec text describes behavior the code doesn't have
-      yet). Tests, all fixture-based/no-network (real `LocalCardSource`, not a hand-rolled
-      stub — its `materialize` already raises `KeyError` for a card it has no entry for):
+      granularity, e.g. `3cb64cb`; the bidirectional coupling between `run_parity_harness`'s
+      tests and the `gap_stage` addition to `evaluate_model_card` — see below — means there is
+      no green split point anyway). Tests, all fixture-based/no-network (real
+      `LocalCardSource`, not a hand-rolled stub, for the success/isolation cases — its
+      `materialize` already raises `KeyError` for a card it has no entry for; a tiny stub is
+      still needed for the `KeyboardInterrupt` test, since no real component raises it):
       - `test_run_parity_harness_writes_one_entry_per_card` — two resolvable fixture
-        `ModelCard`s through a real `LocalCardSource` produce a JSON file with one entry per
-        card, in input order, each with the full `build_report_entry` key set.
-      - `test_run_parity_harness_returns_out_path` — the return value equals `out_path`.
-      - `test_run_parity_harness_accepts_str_out_path` — a `str` `out_path` is coerced to
-        `Path` up front, not left to fail only after every card has been evaluated.
-      - `test_run_parity_harness_forwards_resolution_and_sampling_options` — `sample_n`/
-        `prefix_map`/`basename_index`/`labels_registry_lookup` observably reach
-        `evaluate_model_card` (via `ground_truth_source`/`n_frames_evaluated` in the output;
-        no mocks needed).
+        `ModelCard`s with **distinct `registry_id`s** (required: intermediate filenames and
+        `LocalCardSource` both key on `(registry_id, version)`), resolved via a per-card
+        `labels_registry_lookup` stub (tier 1 — no bundled `labels_gt.val.slp` needed), through
+        a real `LocalCardSource`, produce a JSON file with one entry per card, in input order,
+        each with the full `build_report_entry` key set.
+      - `test_run_parity_harness_returns_out_path_as_a_path` — using an **unresolvable** card
+        (no real inference cost), the return value equals `out_path` and `isinstance(result,
+        Path)` even when `out_path` was passed as a `str` (`str(tmp_path / "report.json")`,
+        never a literal backslash string) — the two behaviors merged into one cheap test.
+      - `test_run_parity_harness_forwards_sample_n` — a tier-1-resolvable card with more than
+        `sample_n` frames of ground truth; `n_frames_evaluated` in the output equals `sample_n`.
+      - `test_run_parity_harness_forwards_prefix_map_and_basename_index` — two cards, each
+        resolving through a *different* tier (one via `prefix_map`-based relinking of a copied
+        bundle + synthesized broken-path `labels_gt.val.slp`, per the task-2.2/2.5 recipe; one
+        via `basename_index`) with a per-card-discriminating `labels_registry_lookup`/lookup
+        callable (these three options are single, shared parameters across all cards, so
+        distinguishing tiers requires distinct fixtures, not distinct arguments); asserts
+        `ground_truth_source` differs between the two entries as expected. (Kept separate from
+        the `sample_n` test above so a future regression in one option doesn't hide behind a
+        passing assertion on another.)
       - `test_run_parity_harness_isolates_a_failing_card_and_warns` — a card absent from the
-        `LocalCardSource` (real `KeyError`) becomes a gap entry naming the exception, tagged
-        `gap_stage="evaluation"` (distinct from `evaluate_model_card`'s own
-        `gap_stage="resolution"` gaps — see the sub-bullet below), with exactly one WARNING
-        logged (`caplog`, mirroring `test_collect_cards_skips_malformed_and_warns`'s existing
-        convention) naming that card's `registry_id`.
+        `LocalCardSource` (real `KeyError`) becomes a gap entry tagged `gap_stage="evaluation"`
+        (distinct from `evaluate_model_card`'s own `gap_stage="resolution"` gaps — see the
+        sub-bullet below) with `gap_reason` set to `f"{type(e).__name__}: {e}"`; exactly one
+        WARNING is logged (`caplog.at_level(logging.WARNING, logger="sleap_roots_predict.
+        parity")`, mirroring `test_collect_cards_skips_malformed_and_warns`'s existing
+        convention) whose message contains that card's `registry_id` (not a bare count — this
+        file already logs a different warning on an unrelated path, so counting alone is
+        fragile).
       - `test_run_parity_harness_failing_card_does_not_block_others_and_preserves_order` —
         cards `[good, bad, good]` all produce entries, in order, both good ones unaffected.
-      - `test_run_parity_harness_does_not_swallow_keyboard_interrupt` — a stub source whose
-        `materialize` raises `KeyboardInterrupt` propagates it (guards `except Exception`, not
-        a bare `except`).
-      - `test_run_parity_harness_all_cards_failing_does_not_clobber_an_existing_report` — an
-        all-gap run does not overwrite a pre-existing report file at `out_path`.
-      - `test_run_parity_harness_with_no_cards_writes_empty_report` — an empty `cards` list
-        writes `[]` and returns `out_path` (pinned deliberately: no existing report to protect
-        here, since there is nothing to compare non-gap-ness against).
+      - `test_run_parity_harness_does_not_swallow_keyboard_interrupt` — a small stub source
+        whose `materialize` raises `KeyboardInterrupt` propagates it (guards `except
+        Exception`, not a bare `except`) **and** leaves no report file at `out_path` (the
+        valuable half of this test — a propagating interrupt must not leave a truncated write).
+      - `test_run_parity_harness_all_gap_first_run_still_writes_the_report` — every card gaps
+        (via unresolvable ground truth, not a raised exception — this exercises the guard's
+        "no report exists yet" branch, not the isolation path), **no** report exists yet at
+        `out_path`: the run writes the all-gap report normally (the guard must never block a
+        legitimate first run, including one where every model genuinely has no ground truth —
+        rare in practice but not this test's concern).
+      - `test_run_parity_harness_all_cards_failing_does_not_clobber_an_existing_report` — same
+        all-gap setup, but `out_path` already holds a real, pre-written sentinel JSON list
+        (`out_path.write_text(json.dumps(sentinel))`, not an empty/touched file — an empty file
+        would let a too-lenient implementation pass). The call raises (`RuntimeError`, `match=`
+        naming `out_path`), and `json.loads(out_path.read_text()) == sentinel` afterward
+        (content equality — never `mtime`, which can compare equal on a same-second rewrite).
+      - `test_run_parity_harness_with_no_cards_writes_empty_report` — an empty `cards` list, no
+        existing report at `out_path`: writes `[]` and returns `out_path` (the guard's
+        "no report exists yet" branch again, this time via an empty input rather than an
+        all-gap one).
+      - `test_run_parity_harness_with_no_cards_does_not_clobber_an_existing_report` — an empty
+        `cards` list, but `out_path` already holds a real sentinel report: raises and leaves
+        the sentinel content unchanged — an empty `cards` list is, for this guard's purpose,
+        indistinguishable from "every card gapped" (zero non-gap entries either way), so it
+        must be covered by the same condition, not treated as a special case that bypasses it.
 
       **Then implement:** `run_parity_harness(cards, source, workdir, out_path, *,
       labels_registry_lookup=None, prefix_map=None, basename_index=None, sample_n=None) ->
-      Path` in `parity.py`. Coerces `out_path` to `Path` immediately. Converts each card via
-      `card.to_model_ref(sleap_nn.__version__)` before calling `source.materialize(...)`
-      (mirrors `warm_worker.py`'s existing conversion, rather than the `ModelCard`/`ModelRef`
-      duck-typing shortcut one existing test uses). Wraps *only* the per-card
-      `materialize`+`evaluate_model_card` call in `except Exception` (never bare `except`) —
-      not `list_cards()` or any credential/setup step, which continue to propagate fail-loud,
-      matching `model_registry.py`'s `_collect_cards` precisely (its own docstring: the `try`
-      wraps only per-artifact construction). A caught exception becomes a gap entry with
-      `gap_stage="evaluation"` plus the exception type/message. Before writing, if every entry
-      is a gap and a report already exists at `out_path`, raises instead of overwriting. Uses
-      `TYPE_CHECKING` for the `ModelCardSource` annotation (no runtime `model_registry` import
-      into `parity.py`, preserving the decoupling task 8.3 established).
+      Path` in `parity.py`. Coerces `out_path` to `Path` immediately. Per card, *inside* the
+      per-card `except Exception` block described below, converts via
+      `card.to_model_ref(version("sleap-nn"))` (stdlib `importlib.metadata.version` — mirrors
+      the real existing conversion at `model_selection.py:98`, **not** `warm_worker.py`, which
+      never calls `to_model_ref`; using the same call `model_selection.py` already makes, rather
+      than `sleap_nn.__version__`, which would raise `NameError` today since `parity.py` never
+      binds the bare name `sleap_nn`) before calling `source.materialize(...)`, then
+      `evaluate_model_card(...)`. A caught exception becomes a gap entry with
+      `gap_stage="evaluation"` plus `gap_reason=f"{type(e).__name__}: {e}"`. Before writing:
+      if no card produced a non-gap entry (covers both "every card gapped" and "`cards` was
+      empty" with one condition — `if not any(is_full_entry(e) for e in entries)`) **and**
+      `out_path.exists()`, raises `RuntimeError` naming `out_path` and the entry count instead
+      of overwriting; otherwise writes normally (so the very first run, gap-heavy or not, is
+      never blocked). Uses `TYPE_CHECKING` for the `ModelCardSource` annotation, quoted
+      (`source: "ModelCardSource"`, since `parity.py` has no `from __future__ import
+      annotations`) — no runtime `model_registry` import into `parity.py`, preserving the
+      decoupling task 8.3 established. **Note the isolation's actual scope, so nobody later
+      assumes it does more than it does:** it isolates exceptions raised by the per-card
+      conversion/materialize/evaluate call only — it does **not**, and cannot, distinguish a
+      systemic failure (e.g. an expired `WANDB_API_KEY`, which surfaces *inside* the wrapped
+      `materialize` call) from a genuine per-card gap. The no-clobber guard above is the actual,
+      sole protection against that class of failure silently overwriting a good baseline; a
+      *partial* failure (most cards gap, one or two succeed) still isn't caught by it — accepted
+      and documented as a residual risk (design doc's Risks section), not silently handled.
 
       **Also touches `evaluate_model_card`'s existing gap branch** (`parity.py:~1101-1106`):
-      add `gap_stage="resolution"` to the dict it already returns, and update
-      `test_evaluate_model_card_returns_gap_entry_when_unresolvable` to assert the new field
-      (red without it, green after) — this is the discriminator the isolation tests above
-      depend on to prove the two gap kinds are distinguishable.
+      add `gap_stage="resolution"` to the dict it already returns, and update its own
+      `Returns:` docstring (`parity.py:~1088-1091`, which currently documents the gap entry as
+      exactly three keys and would otherwise go stale the moment this lands). Update
+      `test_evaluate_model_card_returns_gap_entry_when_unresolvable` to assert the new field —
+      that test currently asserts **exact dict equality**, so it is red without the field and
+      green after, confirmed by inspection; this is not optional, since leaving it unmodified
+      would make the existing test fail the moment `gap_stage` is added, and it's also the
+      discriminator the isolation tests above depend on to prove the two gap kinds are
+      distinguishable.
 - [ ] 9.2 Add `scripts/run_parity_harness.py` (the repo's first top-level `scripts/`
       directory): a committed, thin script hardcoding the two real prefix-map *source* keys
       (`D:/SLEAP`, `C:/Users/pbiobgh/Desktop/SLEAP` — already documented in `design.md`'s
@@ -342,45 +394,78 @@ mislabeled-schema doc bug before any code was written — see that doc's revisio
       `Z:` mapped share, this lab only, not portable, not shipped in the wheel/image, invoke
       via `uv run python scripts/run_parity_harness.py`. Not unit-tested beyond a `--help`
       smoke check (task 9.7) — thin, credential-requiring argument wiring, no other logic.
-- [ ] 9.3 **Chore, separate commit:** extend the `black`/`ruff` targets to include `scripts` in
-      `.github/workflows/ci.yml` and the three `.claude/commands/*.md` copies (`lint.md`,
-      `fix-formatting.md`, `pre-merge.md`) — verified empirically that bare `codespell`
-      already covers `scripts/` (no path arg) but `black --check`/`ruff check` currently do
-      not, so the new script would otherwise be permanently exempt from this repo's formatting
-      convention. Lands with or immediately after 9.2 (never referencing a not-yet-committed
-      path in CI config).
-- [ ] 9.4 Expand **and correct** `build_report_entry`'s docstring (`parity.py`): document
-      `ground_truth_source`'s three values, `n_frames_resolved`/`n_frames_total`/
-      `n_frames_evaluated`'s distinct meanings, each metrics dict's `settings` field (always
-      `"recomputed"` on the `sleap_nn` side; `"recomputed"` or `"stored"` on the reference
-      side — not two-valued on both sides as an earlier draft of this task's own design doc
-      said), the nullability of `classic_sleap_reference`, and a note that `weights_checksum`
-      is required to dedupe entries before summarizing (13 raw entries → 8 physically distinct
-      models). **Correct an existing inaccuracy already shipped in this docstring**
+      Must be `black`/`ruff` clean (`uv run black scripts && uv run ruff check scripts`) before
+      committing, even though CI doesn't check this yet (9.3 lands next) — ruff's
+      `select=["D"]`/google convention requires full module + function docstrings.
+      **Revert note:** this script imports `run_parity_harness`, so reverting 9.1 later
+      requires reverting this commit first (or together) — a one-way dependency, not
+      bidirectional.
+- [ ] 9.3 **Chore, separate commit, lands immediately after 9.2:** extend the `black`/`ruff`
+      targets to include `scripts` in `.github/workflows/ci.yml`, **and** add `scripts/**` to
+      `ci.yml`'s own `paths:` trigger filter (currently `sleap_roots_predict/**`, `tests/**`,
+      `.github/workflows/ci.yml`, `pyproject.toml` — omitting `scripts/**` means a future PR
+      touching only the script would never trigger CI at all, making this chore's own fix
+      inert for exactly the changes it exists to police). Also update the lint-target strings
+      in five `.claude/commands/*.md` files that hardcode them — `lint.md`, `fix-formatting.md`,
+      `pre-merge.md`, and two more: `ci-debug.md` (the command specifically used to reproduce a
+      broken CI run — leaving it stale defeats its own purpose) and `pr-description.md`.
+      Verified empirically that bare `codespell` already covers `scripts/` (no path arg) but
+      `black --check`/`ruff check` currently do not. `examples/` stays explicitly out of scope
+      for this chore (already outside every lint target, a pre-existing state this task doesn't
+      change). Verify locally (`black --check scripts`, `ruff check scripts`) that 9.2's script
+      is already clean — this is the commit that would go red if it weren't.
+- [ ] 9.4 Expand **and correct** `build_report_entry`'s docstring (`parity.py`), and correct
+      `write_parity_report`'s one-line summary (`parity.py:~1037`, "Persist a list of
+      `build_report_entry` dicts..." — already slightly inaccurate today, since
+      ground-truth-resolution gap entries were never `build_report_entry` output, and more so
+      once two `gap_stage`s exist): document `ground_truth_source`'s three values,
+      `n_frames_resolved`/`n_frames_total`/`n_frames_evaluated`'s distinct meanings, each
+      metrics dict's `settings` field (always `"recomputed"` on the `sleap_nn` side;
+      `"recomputed"` or `"stored"` on the reference side), the nullability of
+      `classic_sleap_reference`, and a note that `weights_checksum` is required to dedupe
+      entries before summarizing (13 raw entries → 8 physically distinct models). **Correct an
+      existing inaccuracy already shipped in `build_report_entry`'s docstring**
       (`parity.py:991`, "plus the two gated deltas"): `distance_p95_delta`/
       `visibility_recall_delta` are unsigned absolute differences, informational only — the
       real gate (`within_tolerance`) computes a relative distance delta and a signed,
       directional recall delta from the two full metrics dicts, neither of which the `*_delta`
-      fields can reproduce. Move the two gap-entry shapes (now distinguished by `gap_stage`)
-      onto `write_parity_report`'s and `run_parity_harness`'s own docstrings instead of
-      `build_report_entry`'s (which can't itself produce a gap entry). Add one sentence: this
-      docstring is the living schema description; treat any other prose description of it
-      (including the dated design docs) as a snapshot that can go stale. No signature change.
-- [ ] 9.5 Add `specs/prediction-parity/spec.md`'s "Reusable Multi-Model Harness Runner"
-      requirement, including the propagation and no-clobber scenarios added on revision
-      (already drafted, done alongside this task list and its revision — landed in `0abf2b4`
-      and the follow-up revision commit; no separate implementation commit needed for this
-      task).
-- [ ] 9.6 **Docs sweep**, mirroring task 7.1's precedent (missing from this section's first
-      draft): fold an addition into `CHANGELOG.md`'s existing `[Unreleased]` parity bullet
-      (not a new bullet — the harness hasn't shipped in a release yet) describing
-      `run_parity_harness`/the script; add the regeneration command
-      (`uv run python scripts/run_parity_harness.py`) and an explicit naming of
-      `SRP_PARITY_DATA_DIR` to README's Parity Harness section, plus a `scripts/` entry in
-      README's repo-tree diagram; add `run_parity_harness` + the regeneration script to
+      fields can reproduce. Document the two `gap_stage` values and their shapes on
+      `write_parity_report`'s and `run_parity_harness`'s own docstrings (cross-referencing
+      `build_report_entry` for the full-entry shape, rather than restating it) — designate
+      `build_report_entry`'s docstring as the one canonical schema source. Add one sentence:
+      read the docstrings, not prose (including the dated design docs), for the current shape.
+      No signature change.
+- [ ] 9.4b Correct the same "gated deltas" mislabel in the parent design doc's own prose
+      (`docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md:156-157`,
+      "...for both sides plus the gated deltas to..."), mirroring task 8.7's precedent of
+      tracking a stale-dated-doc fix as its own task rather than a passing mention. Small,
+      folds into the 9.4 commit (same underlying correction, same commit boundary as its
+      code-side counterpart).
+- [ ] 9.5 `specs/prediction-parity/spec.md`'s "Reusable Multi-Model Harness Runner" requirement
+      (already drafted and revised twice alongside this task list — landed in `0abf2b4`,
+      revised in the two follow-up review-response commits; no separate implementation commit
+      needed for this task). Marked `[x]` now — the box was left `[ ]` after the first revision
+      despite the task's own text already saying it was done, exactly the kind of stale
+      bookkeeping this slice is about not leaving behind.
+- [ ] 9.6 **Docs sweep, its own `docs:` commit** (per task 7.1's actual precedent — two
+      standalone commits, `dfb0624`/`1c9a67d` — never folded into 9.7's gate commit): fold an
+      addition into `CHANGELOG.md`'s existing `[Unreleased]` parity bullet (not a new bullet —
+      the harness hasn't shipped in a release yet) describing `run_parity_harness`/the script
+      and its isolation/no-clobber behavior; add the regeneration command
+      (`uv run python scripts/run_parity_harness.py`), an explicit naming of
+      `SRP_PARITY_DATA_DIR`, **and the `--share-root` flag** (Decision 2 made it overridable
+      specifically so a different machine could set it — omitting it from the regeneration doc
+      defeats that purpose) to README's Parity Harness section; insert a fourth block for
+      `scripts/` into README's "Project Structure" section (two separate package-scoped code
+      blocks today, not one repo-tree diagram — add a new block, don't try to extend an
+      existing one); add `run_parity_harness` + the regeneration script to
       `openspec/project.md`'s `parity.py` Architecture-Patterns bullet, and name
       `SRP_PARITY_DATA_DIR` in its parity Testing-Strategy bullet. State explicitly that
       `API.md` stays unchanged (no new public re-export), so it isn't re-litigated later.
-- [ ] 9.7 Full `/pre-merge` gate (format, lint, test, build — now including `scripts/` per
-      9.3), plus `uv run python scripts/run_parity_harness.py --help` exits 0 with no
-      traceback, plus `openspec validate --strict`; commit.
+- [ ] 9.7 Full `/pre-merge` gate (format, lint, test, build — now including `scripts/` per 9.3),
+      recording the new tests' exact count (`uv run pytest tests/test_parity.py -v -k
+      run_parity_harness`) and the total-suite delta, plus confirming
+      `test_evaluate_model_card_returns_gap_entry_when_unresolvable` now asserts
+      `gap_stage="resolution"`, plus `uv run python scripts/run_parity_harness.py --help` exits
+      0 with no traceback, plus `openspec validate --strict`; commit (`chore:`, `tasks.md` only,
+      matching `ce18fb7`/`26442ab`'s precedent).
