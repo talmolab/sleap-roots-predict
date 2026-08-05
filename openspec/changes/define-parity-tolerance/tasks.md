@@ -501,10 +501,23 @@ written — see that doc's revision notes).
       `tests/test_env_docs.py` (4 tests) still pass — `SRP_PARITY_DATA_DIR` correctly stayed
       out of the Configuration-section-scoped check. `codespell` clean on all three touched
       docs.
-- [ ] 9.7 Full `/pre-merge` gate (format, lint, test, build — now including `scripts/` per 9.3),
+- [x] 9.7 Full `/pre-merge` gate (format, lint, test, build — now including `scripts/` per 9.3),
       recording the new tests' exact count (`uv run pytest tests/test_parity.py -v -k
       run_parity_harness`) and the total-suite delta, plus confirming
       `test_evaluate_model_card_returns_gap_entry_when_unresolvable` now asserts
       `gap_stage="resolution"`, plus `uv run python scripts/run_parity_harness.py --help` exits
       0 with no traceback, plus `openspec validate --strict`; commit (`chore:`, `tasks.md` only,
       matching `ce18fb7`/`26442ab`'s precedent).
+
+      **Verified:** `black --check sleap_roots_predict tests scripts` / `ruff check
+      sleap_roots_predict/ scripts/` / `codespell` all clean; `pytest tests/test_parity.py -k
+      run_parity_harness` → 11 passed, 39 deselected; full CPU suite
+      (`-m "not gpu and not acceptance and not wandb and not parity"`) → 286 passed, 7
+      deselected (unchanged from before this slice — purely additive); `pytest -m gpu` → 3
+      skipped (no CUDA/MPS on this machine, clean N/A per task 7.2's precedent); `uv build` →
+      wheel + sdist built successfully, `scripts/` correctly absent from the wheel contents
+      (confirms the design's packaging claim); a direct call confirmed
+      `evaluate_model_card`'s gap entry carries `gap_stage="resolution"`;
+      `uv run python scripts/run_parity_harness.py --help` exits 0, no traceback;
+      `openspec validate define-parity-tolerance --strict` → valid. All of section 9's
+      subtasks now checked.
