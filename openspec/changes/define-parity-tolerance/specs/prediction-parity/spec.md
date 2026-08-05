@@ -221,21 +221,48 @@ sleap-nn scoring higher than the reference SHALL NOT fail regardless of magnitud
 
 ### Requirement: Reusable Multi-Model Harness Runner
 
-The system SHALL provide a function that evaluates a list of `ModelCard`s (looping the
-single-card evaluation pipeline) and persists the accumulated results as one report, so
-regenerating the full report is a committed, reusable operation rather than a one-off script. A
-single card's evaluation failure SHALL NOT abort the run: it SHALL be isolated as a gap entry
-(logged with a warning) and evaluation SHALL continue for the remaining cards.
+The system SHALL provide a runner that evaluates a sequence of `ModelCard`s by looping the
+single-card evaluation pipeline (`evaluate_model_card`), and SHALL persist the accumulated
+entries as one JSON report at a caller-supplied path, in input-card order, returning that path.
+
+A single card's evaluation failure SHALL be isolated: it SHALL be logged as a warning and
+recorded as a gap entry identifying the card (`registry_id`/`version`) and the failure (the
+exception type and message), and evaluation SHALL continue for the remaining cards. This
+isolated-failure gap entry SHALL be distinguishable from a ground-truth-resolution gap entry
+(per the Ground Truth Resolution Per Model requirement) — the two are different failure kinds
+and SHALL NOT be collapsed into an identical, unlabeled shape.
+
+Errors that are not specific to one card (e.g. missing or invalid registry credentials, or an
+unreachable configured search root) SHALL NOT be isolated as per-card gaps — they SHALL
+propagate and abort the run before any report is written. The runner SHALL NOT overwrite an
+existing report already present at the target path when zero cards produced a non-gap entry,
+since an all-gap result is far more likely to indicate a systemic failure than a genuine
+across-the-board resolution gap.
 
 #### Scenario: All cards produce an entry in the persisted report
 
 - **WHEN** the runner evaluates a list of `ModelCard`s, each resolvable
-- **THEN** the persisted report contains one entry per card, in the same shape
-  `build_report_entry` produces for a single card
+- **THEN** the persisted report contains one entry per card, in input order, in the same shape
+  `build_report_entry` produces for a single card, and the runner returns the report's path
 
-#### Scenario: A single card's evaluation failure is isolated
+#### Scenario: A single card's evaluation failure is isolated and distinguishable
 
-- **WHEN** one card's materialization or evaluation raises an exception
-- **THEN** that card's entry in the persisted report is a gap entry naming the failure, the
-  exception does not propagate out of the runner, and every other card's entry is still
-  produced normally
+- **WHEN** one card's materialization or evaluation raises an exception, while other cards
+  evaluate normally
+- **THEN** that card's entry in the persisted report is a gap entry naming the failure, marked
+  as an evaluation failure rather than a ground-truth-resolution gap, a warning is logged
+  naming the card, the exception does not propagate out of the runner, and every other card's
+  entry is still produced normally
+
+#### Scenario: A non-card-specific error propagates instead of becoming a gap
+
+- **WHEN** an error occurs that is not specific to one card (e.g. missing registry credentials,
+  or a configured search root that does not exist)
+- **THEN** the runner raises rather than recording the affected cards as gaps, and no report is
+  written
+
+#### Scenario: An all-gap result does not overwrite an existing report
+
+- **WHEN** every card in a run produces a gap entry (no card produced a full evaluation), and a
+  report already exists at the target path
+- **THEN** the runner does not overwrite that existing report file

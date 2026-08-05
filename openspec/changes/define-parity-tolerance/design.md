@@ -96,14 +96,29 @@ explicitly does not apply here since no retraining is involved); gating on trait
 8. **A reusable `run_parity_harness()` + committed `scripts/run_parity_harness.py`** close the
    gap left by the original empirical run being produced by an uncommitted scratch script.
    `run_parity_harness()` loops `evaluate_model_card()` over a list of `ModelCard`s, isolating
-   one card's failure (materialize/inference/metrics) the same way `model_registry.py`'s
-   `_collect_cards` already isolates one non-conforming artifact — a gap entry, not an aborted
-   run. The lab-specific `prefix_map` is a hardcoded constant in the script (two entries,
-   already public in Decision 2 above — not worth a new config-file mechanism); the
-   basename-search root keeps using the existing `SRP_PARITY_DATA_DIR` env var. Regeneration
-   stays manual/on-demand (real credentials + a mapped network share CI can't reach). The
-   results JSON's schema is documented in `build_report_entry`'s docstring, not a separate doc.
-   See the 2026-08-05 design doc above for full rationale.
+   *only* a per-card `materialize`/`evaluate_model_card` failure (`except Exception`, never
+   bare `except`) — matching `model_registry.py`'s `_collect_cards` precisely (its own
+   docstring says credential/traversal errors propagate outside its narrow `try`; a first
+   draft of this decision over-claimed a broader mirror than that). A caught failure becomes a
+   gap entry tagged `gap_stage="evaluation"`, distinguishable from `evaluate_model_card`'s own
+   pre-existing ground-truth-resolution gaps (now tagged `gap_stage="resolution"`). The runner
+   refuses to overwrite an existing report when every card produced a gap — an all-gap result
+   more likely means a systemic failure (bad credentials, an unmounted share) than genuine
+   across-the-board unresolvability, and overwriting the empirical baseline with that result at
+   exit 0 would recreate the exact staleness failure mode this slice targets. Each card is
+   materialized via `card.to_model_ref(...)` (mirroring `warm_worker.py`), not the
+   `ModelCard`/`ModelRef` duck-typing shortcut one existing test uses. The lab-specific
+   `prefix_map`'s *source* keys are a hardcoded script constant (two entries, already public in
+   Decision 2 above); the *target* share root is a `--share-root` CLI arg default (like
+   `SRP_PARITY_DATA_DIR`, applied consistently — a first draft hardcoded it instead).
+   Regeneration stays manual/on-demand, committed as its own standalone commit (real
+   credentials + a mapped network share CI can't reach). The results JSON's schema is
+   documented in `build_report_entry`'s (and `write_parity_report`'s) docstrings, correcting an
+   existing mislabeling of the report's delta fields as "the gated deltas" (they're unsigned
+   absolute differences; the real gate is relative and signed) that was already present in the
+   shipped code. See the revised 2026-08-05 design doc above for full rationale — it also
+   covers the `scripts/` CI lint-gate fix and the docs sweep this slice needed but initially
+   lacked.
 
 ## Risks / Trade-offs
 
