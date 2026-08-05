@@ -261,3 +261,40 @@ tolerance — wasn't functional as committed. Fixing the findings the user asked
       explicit pointer to the results JSON as the living source of truth for current coverage,
       so a future reader (or harness re-run) doesn't have to re-derive this and a hardcoded
       percentage doesn't go stale silently again.
+
+## 9. Reusable harness runner + results-schema docs
+
+Root cause behind both round-3 staleness bugs: the results JSON was produced by an uncommitted
+scratch script, so nobody could re-run the full 13-model harness without rebuilding it from
+scratch. Brainstormed and designed in
+`docs/superpowers/specs/2026-08-05-define-parity-tolerance-harness-runner-design.md` (approved).
+
+- [ ] 9.1 **Test first:** a test that a list of resolvable fixture `ModelCard`s, run through
+      `run_parity_harness()` against a fake `ModelCardSource`, produces a persisted report (via
+      the existing `write_parity_report`) with one entry per card. **Then implement:**
+      `run_parity_harness(cards, source, workdir, out_path, *, labels_registry_lookup=None,
+      prefix_map=None, basename_index=None, sample_n=None) -> Path` in `parity.py`, looping
+      `source.materialize(card)` + `evaluate_model_card(...)` per card.
+- [ ] 9.2 **Test first:** a test that one card's `materialize`/`evaluate_model_card` call raising
+      an exception is isolated — that card's entry becomes a gap entry (`registry_id`/
+      `version`/`gap_reason`), a warning is logged, and every other card's entry is still
+      produced normally (no propagated exception). **Then implement:** wrap each per-card
+      iteration in `run_parity_harness()` in a `try`/`except`, matching the isolation pattern
+      already used in `model_registry.py`'s `_collect_cards`.
+- [ ] 9.3 Add `scripts/run_parity_harness.py`: a committed, thin script hardcoding the real
+      `prefix_map` (the two entries already documented in `design.md`'s Decision 2), reading
+      `WANDB_API_KEY`/`SRP_PARITY_DATA_DIR` from the environment (no new env vars), calling
+      `WandbRegistrySource().list_cards()` + `build_basename_index(...)`, and calling
+      `run_parity_harness(..., sample_n=100)` with `out_path` defaulted to the existing
+      `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json` path
+      (overridable via a CLI arg). Not unit-tested (thin, credential-requiring argument wiring
+      only, no logic).
+- [ ] 9.4 Expand `build_report_entry`'s docstring (`parity.py`) to document every field in its
+      output dict: `ground_truth_source`'s three values, `n_frames_resolved`/`n_frames_total`/
+      `n_frames_evaluated`'s distinct meanings, each metrics dict's `settings` field, the
+      nullability of `classic_sleap_reference`/`distance_p95_delta`/`visibility_recall_delta`,
+      and the gap-entry shape. No signature change.
+- [ ] 9.5 Add `specs/prediction-parity/spec.md`'s "Reusable Multi-Model Harness Runner"
+      requirement (already drafted, done alongside this task list).
+- [ ] 9.6 Full `/pre-merge` gate (format, lint, test, build) + `openspec validate --strict`;
+      commit.

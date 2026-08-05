@@ -5,6 +5,11 @@ change are recorded in
 `docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md` (approved). This file
 summarizes the decisions relevant to implementation; see that doc for the "why" behind each one.
 
+A follow-up slice on the same branch/PR — a committed, reusable way to regenerate the results
+JSON, plus documenting its schema — is recorded in
+`docs/superpowers/specs/2026-08-05-define-parity-tolerance-harness-runner-design.md` (approved,
+see Decision 8 below).
+
 ## Goals / Non-Goals
 
 **Goals:** decide + measure a keypoint-distance/detection-recall tolerance between sleap-nn and
@@ -87,6 +92,18 @@ explicitly does not apply here since no retraining is involved); gating on trait
    and the current `model-management` spec: per-artifact isolation
    (`ValidationError` → logged warning → skip, continue) is already implemented and already
    spec'd, predating #32. Close it with a comment, not a fix.
+
+8. **A reusable `run_parity_harness()` + committed `scripts/run_parity_harness.py`** close the
+   gap left by the original empirical run being produced by an uncommitted scratch script.
+   `run_parity_harness()` loops `evaluate_model_card()` over a list of `ModelCard`s, isolating
+   one card's failure (materialize/inference/metrics) the same way `model_registry.py`'s
+   `_collect_cards` already isolates one non-conforming artifact — a gap entry, not an aborted
+   run. The lab-specific `prefix_map` is a hardcoded constant in the script (two entries,
+   already public in Decision 2 above — not worth a new config-file mechanism); the
+   basename-search root keeps using the existing `SRP_PARITY_DATA_DIR` env var. Regeneration
+   stays manual/on-demand (real credentials + a mapped network share CI can't reach). The
+   results JSON's schema is documented in `build_report_entry`'s docstring, not a separate doc.
+   See the 2026-08-05 design doc above for full rationale.
 
 ## Risks / Trade-offs
 

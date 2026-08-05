@@ -218,3 +218,24 @@ sleap-nn scoring higher than the reference SHALL NOT fail regardless of magnitud
 - **WHEN** a resolved model has no classic-SLEAP reference available
 - **THEN** the harness reports that model's sleap-nn metrics informationally and does not assert
   it against the tolerance
+
+### Requirement: Reusable Multi-Model Harness Runner
+
+The system SHALL provide a function that evaluates a list of `ModelCard`s (looping the
+single-card evaluation pipeline) and persists the accumulated results as one report, so
+regenerating the full report is a committed, reusable operation rather than a one-off script. A
+single card's evaluation failure SHALL NOT abort the run: it SHALL be isolated as a gap entry
+(logged with a warning) and evaluation SHALL continue for the remaining cards.
+
+#### Scenario: All cards produce an entry in the persisted report
+
+- **WHEN** the runner evaluates a list of `ModelCard`s, each resolvable
+- **THEN** the persisted report contains one entry per card, in the same shape
+  `build_report_entry` produces for a single card
+
+#### Scenario: A single card's evaluation failure is isolated
+
+- **WHEN** one card's materialization or evaluation raises an exception
+- **THEN** that card's entry in the persisted report is a gap entry naming the failure, the
+  exception does not propagate out of the runner, and every other card's entry is still
+  produced normally
