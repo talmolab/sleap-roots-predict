@@ -23,6 +23,7 @@ from sleap_roots_predict.parity import (
     build_label_card,
     build_report_entry,
     compute_metrics,
+    evaluate_model_card,
     reference_metrics,
     relink_ground_truth,
     relink_ground_truth_by_basename_search,
@@ -710,6 +711,46 @@ def test_within_tolerance_true_when_sleap_nn_recall_is_much_higher():
     )
 
 
+def test_within_tolerance_uses_decided_defaults_when_not_overridden():
+    # 17% relative distance delta and -0.08 recall delta pass the decided
+    # defaults (25% / -0.10) without the caller having to know the numbers.
+    a = _metrics(distance_p95=117.0, visibility_recall=0.90, settings="recomputed")
+    b = _metrics(distance_p95=100.0, visibility_recall=0.98, settings="stored")
+
+    assert within_tolerance(a, b)
+
+
+def test_within_tolerance_defaults_fail_outside_decided_bounds():
+    # 30% relative distance delta exceeds the decided 25% default.
+    a = _metrics(distance_p95=130.0, visibility_recall=0.98, settings="recomputed")
+    b = _metrics(distance_p95=100.0, visibility_recall=0.98, settings="stored")
+
+    assert not within_tolerance(a, b)
+
+
+def test_within_tolerance_zero_reference_and_zero_sleap_nn_passes():
+    # A reference distance_p95 of exactly 0.0 is a real, reachable value (see
+    # test_reference_metrics_recomputes_when_labels_pr_present) — sleap-nn
+    # matching it exactly is a perfect match, not a division-by-zero crash.
+    a = _metrics(distance_p95=0.0, visibility_recall=0.98, settings="recomputed")
+    b = _metrics(distance_p95=0.0, visibility_recall=0.98, settings="stored")
+
+    assert within_tolerance(
+        a, b, distance_relative_tolerance=0.25, recall_tolerance=0.05
+    )
+
+
+def test_within_tolerance_zero_reference_nonzero_sleap_nn_fails():
+    # A zero reference with a nonzero sleap-nn distance is an infinite
+    # relative deviation — it must fail cleanly, not raise ZeroDivisionError.
+    a = _metrics(distance_p95=5.0, visibility_recall=0.98, settings="recomputed")
+    b = _metrics(distance_p95=0.0, visibility_recall=0.98, settings="stored")
+
+    assert not within_tolerance(
+        a, b, distance_relative_tolerance=0.25, recall_tolerance=0.05
+    )
+
+
 def test_parity_metrics_to_dict_is_json_safe():
     import json
 
@@ -760,6 +801,63 @@ def test_write_parity_report_round_trips_via_json(tmp_path):
     assert reloaded == entries
 
 
+# --- evaluate_model_card -------------------------------------------------------
+
+
+def test_evaluate_model_card_returns_report_entry(tmp_path, video, native_model_dir):
+    # A stubbed labels_registry_lookup sidesteps needing a real bundled
+    # labels_gt.val.slp — this exercises the same tier-1-success path as
+    # test_resolve_ground_truth_prefers_labels_registry, then runs real
+    # (non-mocked) sleap-nn inference against the vendored native model, the
+    # same way test_run_sleap_nn_predictions_aligns_to_ground_truth_frames
+    # does — end to end through evaluate_model_card.
+    card = _card()
+    skeleton = sio.Skeleton(nodes=["A", "B"])
+    gt = _make_labels(
+        video, skeleton, [[[1, 1], [2, 2]], [[3, 3], [4, 4]]], sio.Instance
+    )
+    gt_path = tmp_path / "gt.slp"
+    sio.save_slp(gt, gt_path.as_posix())
+
+    entry = evaluate_model_card(
+        card,
+        native_model_dir,
+        tmp_path,
+        labels_registry_lookup=lambda c: gt_path,
+    )
+
+    assert entry["registry_id"] == card.registry_id
+    assert entry["n_frames_evaluated"] == 2
+    assert entry["ground_truth_source"] == "labels_registry"
+    # The arbitrary GT points above aren't near this real model's actual
+    # predictions on these real images, so OKS matching legitimately finds
+    # zero pairs (distance_p95 is NaN) - exact numeric correctness of
+    # compute_metrics itself is covered by
+    # test_compute_metrics_gives_real_per_node_distance_and_excludes_oks.
+    # This test verifies evaluate_model_card's wiring: tier-1 resolution,
+    # frame counting, and a real (non-mocked) sleap-nn inference call that
+    # completes and produces a well-shaped entry.
+    assert "distance_p95" in entry["sleap_nn"]
+    assert isinstance(entry["sleap_nn"]["distance_p95"], float)
+    # No labels_pr.val.slp/metrics.val.npz in this bundle_dir -> no reference.
+    assert entry["classic_sleap_reference"] is None
+
+
+def test_evaluate_model_card_returns_gap_entry_when_unresolvable(
+    tmp_path, native_model_dir
+):
+    card = _card(registry_id="reg/unresolvable")
+
+    entry = evaluate_model_card(card, native_model_dir, tmp_path)
+
+    assert entry == {
+        "registry_id": card.registry_id,
+        "version": card.version,
+        "gap_reason": entry["gap_reason"],
+    }
+    assert entry["gap_reason"]
+
+
 # --- parity marker (real-data, network-gated) --------------------------------
 
 PARITY_DATA_DIR = os.environ.get("SRP_PARITY_DATA_DIR")
@@ -772,10 +870,50 @@ WANDB_API_KEY = os.environ.get("WANDB_API_KEY")
     reason="Set SRP_PARITY_DATA_DIR and WANDB_API_KEY to run the parity harness",
 )
 def test_parity_harness_reports_all_production_models(tmp_path):
-    """End-to-end: resolve GT + compute metrics for every live production model.
+    """Standing regression check: the decided tolerance still holds live.
 
-    Implemented incrementally in a follow-up task once the labels-registry
-    lookup and per-species path-relinking prefixes are wired up against the
-    live registry (see tasks.md tasks 5.2/6).
+    Not a full re-run of all 13 production models (that's an expensive,
+    environment-specific manual harness — see
+    ``docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json``
+    for that empirical baseline, not something to bake into a portable
+    test). This exercises the real end-to-end path — live registry ->
+    resolve_ground_truth -> real sleap-nn inference -> within_tolerance —
+    against one live production ``ModelCard``, using ``SRP_PARITY_DATA_DIR``
+    as the basename-search root, so a future sleap-nn/sleap-roots-contracts
+    upgrade that breaks the decided gate is actually caught by something
+    runnable, not just documented.
     """
-    pytest.skip("Full multi-model harness wiring is tracked as a follow-up task.")
+    from sleap_roots_predict.model_registry import WandbRegistrySource
+
+    source = WandbRegistrySource()
+    cards = source.list_cards()
+    assert cards, "no production ModelCards found in the live registry"
+    card = cards[0]
+
+    basename_index = build_basename_index(PARITY_DATA_DIR)
+    bundle_dir = source.materialize(card)
+
+    entry = evaluate_model_card(
+        card, bundle_dir, tmp_path, basename_index=basename_index, sample_n=20
+    )
+
+    assert "gap_reason" not in entry, (
+        f"ground truth unresolvable for {card.registry_id}: "
+        f"{entry.get('gap_reason')}"
+    )
+    assert entry["n_frames_evaluated"] > 0
+
+    if entry["classic_sleap_reference"] is None:
+        pytest.skip(
+            f"{card.registry_id} has no classic-SLEAP reference available "
+            "(no labels_pr.val.slp and no readable metrics.val.npz) - "
+            "reported informationally only, per spec."
+        )
+
+    sleap_nn_metrics = ParityMetrics(**entry["sleap_nn"])
+    reference_metrics_ = ParityMetrics(**entry["classic_sleap_reference"])
+    assert within_tolerance(sleap_nn_metrics, reference_metrics_), (
+        f"{card.registry_id} exceeded the decided tolerance: "
+        f"sleap_nn={entry['sleap_nn']}, "
+        f"reference={entry['classic_sleap_reference']}"
+    )

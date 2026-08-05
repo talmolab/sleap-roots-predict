@@ -158,7 +158,13 @@
       fixed-pixel `distance_tolerance_px` to a relative `distance_relative_tolerance` (measured
       max 17.0% across all 8 distinct models; gate set at 25% for headroom), and made
       `recall_tolerance` directional (only fails when sleap-nn scores lower; measured max
-      -0.053, gate set at -0.10). No fixed-pixel exception needed for any model — see 6.1.
+      -0.085, gate set at -0.10). No fixed-pixel exception needed for any model — see 6.1.
+      (Corrected 2026-08-04, task 8.5: this previously said "-0.053" —
+      `rice-cylinder-crown-age6-10`'s own figure, cited above for the outlier investigation —
+      not the actual worst value across all 8 distinct models, which is -0.085
+      (arabidopsis/canola/pennycress-primary-age2-14 shared group; see design.md §6's table).
+      Both pass the -0.10 gate, so the decision is unaffected — caught by an adversarial
+      `/review-pr` that verified this claim against the raw results JSON.)
 
 ## 7. Docs, cleanup, closing
 
@@ -191,3 +197,57 @@
       drafted, shown, and approved before posting.
 - [x] 7.6 Pushed the `define-parity-tolerance` branch and opened
       [sleap-roots-predict#33](https://github.com/talmolab/sleap-roots-predict/pull/33).
+
+## 8. Post-review fixes (adversarial `/review-pr`, 5-lens)
+
+A 5-lens adversarial review of PR #33 (Mode B, not posted to GitHub) found the harness's
+resolution/matching/metrics logic sound, but the change's actual deliverable — an *enforced*
+tolerance — wasn't functional as committed. Fixing the findings the user asked for, TDD-first.
+
+- [x] 8.1 **Test first:** `test_within_tolerance_uses_decided_defaults_when_not_overridden` +
+      `test_within_tolerance_defaults_fail_outside_decided_bounds` — calling
+      `within_tolerance(a, b)` with no tolerance kwargs uses the decided constants.
+      **Fix:** added `DECIDED_DISTANCE_RELATIVE_TOLERANCE = 0.25` / `DECIDED_RECALL_TOLERANCE
+      = 0.10` module-level constants to `parity.py` (the numbers previously existed only in
+      prose docs — nothing in code linked them to "the decided gate"), defaulted
+      `within_tolerance`'s two kwargs to them. Existing tests that pass explicit tolerance
+      values keep working unchanged.
+- [x] 8.2 **Test first:** `test_within_tolerance_zero_reference_and_zero_sleap_nn_passes` +
+      `test_within_tolerance_zero_reference_nonzero_sleap_nn_fails` — a `classic_sleap.
+      distance_p95 == 0.0` reference must not raise `ZeroDivisionError` (reachable today:
+      `test_reference_metrics_recomputes_when_labels_pr_present` already constructs exactly
+      this case). Zero reference + zero sleap-nn distance is a perfect match → passes; zero
+      reference + any nonzero sleap-nn distance is an infinite relative deviation → fails
+      cleanly (no crash). **Fix:** guarded the division in `within_tolerance`.
+- [x] 8.3 **Test first:** `test_evaluate_model_card_returns_report_entry` +
+      `test_evaluate_model_card_returns_gap_entry_when_unresolvable` (fixture-based, real
+      vendored sleap-nn model, no network) — a small, reusable orchestration function wrapping
+      the existing resolve_ground_truth → sample_ground_truth → run_sleap_nn_predictions →
+      compute_metrics → reference_metrics → build_report_entry pipeline for **one**
+      `ModelCard`, extracted from the uncommitted scratch harness script that produced the
+      checked-in results JSON (per the review: "the empirical results... came entirely from an
+      uncommitted scratch script," "predict#8... can reuse `parity.py`... rather than
+      duplicating instance-matching code"). **Fix:** added `evaluate_model_card(card,
+      bundle_dir, workdir, *, labels_registry_lookup=None, prefix_map=None,
+      basename_index=None, sample_n=None) -> dict` to `parity.py` — takes an already-
+      materialized `bundle_dir` (not a `ModelCardSource`), matching `resolve_ground_truth`'s
+      existing convention and keeping `parity.py` decoupled from `model_registry.py`.
+- [x] 8.4 Rewrote `test_parity_harness_reports_all_production_models` to actually call
+      `evaluate_model_card` against one real production `ModelCard` (via `WandbRegistrySource`
+      + a basename search rooted at `SRP_PARITY_DATA_DIR`, which the skip reason had always
+      named but no code ever read) and assert `within_tolerance` on the result when a
+      reference is available — replacing the unconditional `pytest.skip()` that made this
+      test a no-op regardless of env vars (confirmed: tasks.md's prior claim that "the
+      standing parity-marked test still exercises the reusable functions against fixtures"
+      was false). Verified it still skips cleanly, at collection time, without
+      `SRP_PARITY_DATA_DIR`/`WANDB_API_KEY` set (`pytest -m parity` with both unset → 1
+      skipped).
+- [x] 8.5 Fixed the doc-accuracy bug the review caught: tasks.md 6.2 stated the "measured max"
+      `visibility_recall` delta was `-0.053` — that's `rice-cylinder-crown-age6-10`'s own
+      figure (cited there for the outlier investigation); the actual worst value across all 8
+      distinct models is `-0.085` (the arabidopsis/canola/pennycress-primary shared group, per
+      design.md §6's own table — which already had the correct number, confirmed; only 6.2's
+      "measured max" prose was wrong). Both pass the `-0.10` gate, so the decision is
+      unaffected, but the stated basis was wrong. Corrected 6.2 above.
+- [x] 8.6 Full test suite (275 passed, 7 deselected) + `black`/`ruff`/`codespell` clean;
+      `openspec validate --strict` passing; checkmarks updated; committed.

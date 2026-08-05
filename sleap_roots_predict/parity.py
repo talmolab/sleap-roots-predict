@@ -918,12 +918,24 @@ def build_label_card(
     )
 
 
+#: The empirically-decided ``distance_p95`` relative-delta tolerance, measured
+#: across all 13 production models at n=100 (worst case 17.0%) — resolves
+#: sleap-roots-pipeline#15. See
+#: ``docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md``.
+DECIDED_DISTANCE_RELATIVE_TOLERANCE = 0.25
+
+#: The empirically-decided ``visibility_recall`` tolerance (sleap-nn scoring
+#: lower than the reference by more than this fails; scoring higher never
+#: fails), measured worst case -0.085 across all 13 production models.
+DECIDED_RECALL_TOLERANCE = 0.10
+
+
 def within_tolerance(
     sleap_nn: ParityMetrics,
     classic_sleap: ParityMetrics,
     *,
-    distance_relative_tolerance: float,
-    recall_tolerance: float,
+    distance_relative_tolerance: float = DECIDED_DISTANCE_RELATIVE_TOLERANCE,
+    recall_tolerance: float = DECIDED_RECALL_TOLERANCE,
 ) -> bool:
     """Check whether sleap-nn's metrics are within tolerance of classic-SLEAP's.
 
@@ -939,17 +951,27 @@ def within_tolerance(
         sleap_nn: This harness's own computed metrics.
         classic_sleap: The reference metrics (recomputed or stored).
         distance_relative_tolerance: Maximum allowed
-            ``|Δ distance_p95| / classic_sleap.distance_p95``.
+            ``|Δ distance_p95| / classic_sleap.distance_p95``. Defaults to
+            the decided tolerance.
         recall_tolerance: How much lower sleap-nn's ``visibility_recall`` may
             be than classic-SLEAP's; sleap-nn scoring *higher* never fails.
+            Defaults to the decided tolerance.
 
     Returns:
         ``True`` when both deltas are within their tolerances.
     """
-    distance_relative_delta = (
-        abs(sleap_nn.distance_p95 - classic_sleap.distance_p95)
-        / classic_sleap.distance_p95
-    )
+    if classic_sleap.distance_p95 == 0.0:
+        # A reference distance_p95 of exactly 0.0 is reachable (a perfect
+        # classic-SLEAP prediction) — the relative delta is undefined, not
+        # infinite-by-convention-only: 0/0 is a perfect match, and any
+        # nonzero sleap-nn distance against a perfect reference is an
+        # unbounded relative deviation, not a crash.
+        distance_relative_delta = 0.0 if sleap_nn.distance_p95 == 0.0 else float("inf")
+    else:
+        distance_relative_delta = (
+            abs(sleap_nn.distance_p95 - classic_sleap.distance_p95)
+            / classic_sleap.distance_p95
+        )
     recall_delta = sleap_nn.visibility_recall - classic_sleap.visibility_recall
     return (
         distance_relative_delta <= distance_relative_tolerance
@@ -1027,3 +1049,73 @@ def write_parity_report(entries: list, out_path: Path) -> Path:
     with open(out_path, "w") as f:
         json.dump(entries, f, indent=2)
     return out_path
+
+
+def evaluate_model_card(
+    card: ModelCard,
+    bundle_dir: Path,
+    workdir: Path,
+    *,
+    labels_registry_lookup: Optional[Callable[[ModelCard], Optional[Path]]] = None,
+    prefix_map: Optional[dict] = None,
+    basename_index: Optional[dict] = None,
+    sample_n: Optional[int] = None,
+) -> dict:
+    """Resolve ground truth, run sleap-nn, and build one model's report entry.
+
+    The single-card body of a multi-model parity run: ground-truth resolution
+    (:func:`resolve_ground_truth`) → optional sampling
+    (:func:`sample_ground_truth`) → sleap-nn inference
+    (:func:`run_sleap_nn_predictions`) → metrics (:func:`compute_metrics`,
+    :func:`reference_metrics`) → a JSON-serializable entry
+    (:func:`build_report_entry`). Extracted so this composition is reusable
+    (e.g. a future ``peak_threshold`` sweep) and independently testable,
+    rather than living only in a one-off script.
+
+    Args:
+        card: The production ``ModelCard`` to evaluate.
+        bundle_dir: The card's materialized model artifact directory (already
+            fetched by the caller — this function does not touch the
+            network).
+        workdir: Scratch directory for intermediate files.
+        labels_registry_lookup: See :func:`resolve_ground_truth`.
+        prefix_map: See :func:`resolve_ground_truth`.
+        basename_index: See :func:`resolve_ground_truth`.
+        sample_n: Optional cap on frames evaluated (see
+            :func:`sample_ground_truth`); unset evaluates every resolved
+            frame.
+
+    Returns:
+        A gap entry (``registry_id``/``version``/``gap_reason``) if ground
+        truth couldn't be resolved at all, else a full
+        :func:`build_report_entry` dict.
+    """
+    resolved = resolve_ground_truth(
+        card,
+        bundle_dir,
+        workdir,
+        labels_registry_lookup=labels_registry_lookup,
+        prefix_map=prefix_map,
+        basename_index=basename_index,
+    )
+    if isinstance(resolved, GapRecord):
+        return {
+            "registry_id": resolved.registry_id,
+            "version": resolved.version,
+            "gap_reason": resolved.reason,
+        }
+
+    if sample_n is not None:
+        resolved = sample_ground_truth(resolved, n=sample_n, workdir=workdir)
+    n_frames_evaluated = len(sio.load_slp(resolved.ground_truth_path.as_posix()))
+
+    label = f"{card.registry_id.split('/')[-1]}_{card.version}".replace(":", "_")
+    pred_path = workdir / f"{label}.sleap_nn_pred.slp"
+    run_sleap_nn_predictions(resolved.ground_truth_path, bundle_dir, pred_path)
+    sleap_nn_metrics = compute_metrics(resolved.ground_truth_path, pred_path)
+
+    ref_metrics = reference_metrics(resolved)
+
+    return build_report_entry(
+        resolved, n_frames_evaluated, sleap_nn_metrics, ref_metrics
+    )
