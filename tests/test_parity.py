@@ -7,14 +7,19 @@ network access. The real multi-model harness run is gated behind
 the bottom of this file, mirroring the ``acceptance``/``wandb`` precedent.
 """
 
+import json
+import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 import sleap_io as sio
+from PIL import Image
 
+from sleap_roots_predict.model_registry import LocalCardSource
 from sleap_roots_predict.parity import (
     GapRecord,
     ParityMetrics,
@@ -28,6 +33,7 @@ from sleap_roots_predict.parity import (
     relink_ground_truth,
     relink_ground_truth_by_basename_search,
     resolve_ground_truth,
+    run_parity_harness,
     run_sleap_nn_predictions,
     sample_ground_truth,
     within_tolerance,
@@ -854,8 +860,253 @@ def test_evaluate_model_card_returns_gap_entry_when_unresolvable(
         "registry_id": card.registry_id,
         "version": card.version,
         "gap_reason": entry["gap_reason"],
+        "gap_stage": "resolution",
     }
     assert entry["gap_reason"]
+
+
+# --- run_parity_harness --------------------------------------------------------
+
+
+def test_run_parity_harness_writes_one_entry_per_card(
+    tmp_path, video, native_model_dir
+):
+    card_a = _card(registry_id="reg/a")
+    card_b = _card(registry_id="reg/b")
+    skeleton = sio.Skeleton(nodes=["A", "B"])
+    gt = _make_labels(
+        video, skeleton, [[[1, 1], [2, 2]], [[3, 3], [4, 4]]], sio.Instance
+    )
+    gt_path = tmp_path / "gt.slp"
+    sio.save_slp(gt, gt_path.as_posix())
+
+    source = LocalCardSource([(card_a, native_model_dir), (card_b, native_model_dir)])
+    out_path = tmp_path / "report.json"
+
+    result = run_parity_harness(
+        [card_a, card_b],
+        source,
+        tmp_path,
+        out_path,
+        labels_registry_lookup=lambda c: gt_path,
+    )
+
+    assert result == out_path
+    entries = json.loads(out_path.read_text())
+    assert [e["registry_id"] for e in entries] == [
+        card_a.registry_id,
+        card_b.registry_id,
+    ]
+    for entry in entries:
+        assert entry["n_frames_evaluated"] == 2
+        assert entry["ground_truth_source"] == "labels_registry"
+        assert "distance_p95" in entry["sleap_nn"]
+
+
+def test_run_parity_harness_returns_out_path_as_a_path(tmp_path, native_model_dir):
+    # Unresolvable card: no real inference cost, just resolution-gap wiring.
+    card = _card(registry_id="reg/unresolvable")
+    source = LocalCardSource([(card, native_model_dir)])
+    out_path_str = str(tmp_path / "report.json")
+
+    result = run_parity_harness([card], source, tmp_path, out_path_str)
+
+    assert result == Path(out_path_str)
+    assert isinstance(result, Path)
+
+
+def test_run_parity_harness_forwards_sample_n(tmp_path, video, native_model_dir):
+    card = _card()
+    skeleton = sio.Skeleton(nodes=["A", "B"])
+    points = [[[1, 1], [2, 2]]] * 8  # `video` has 8 frames (centered_pair).
+    gt = _make_labels(video, skeleton, points, sio.Instance)
+    gt_path = tmp_path / "gt.slp"
+    sio.save_slp(gt, gt_path.as_posix())
+
+    source = LocalCardSource([(card, native_model_dir)])
+    out_path = tmp_path / "report.json"
+
+    run_parity_harness(
+        [card],
+        source,
+        tmp_path,
+        out_path,
+        labels_registry_lookup=lambda c: gt_path,
+        sample_n=2,
+    )
+
+    entries = json.loads(out_path.read_text())
+    assert entries[0]["n_frames_evaluated"] == 2
+
+
+def test_run_parity_harness_forwards_prefix_map_and_basename_index(
+    tmp_path, image_files, skeleton, native_model_dir
+):
+    card_relinked = _card(registry_id="reg/relinked")
+    card_basename = _card(registry_id="reg/via-basename")
+
+    # Card A resolves via prefix-map relinking (tier 2) -- reuses the same
+    # working recipe as test_resolve_ground_truth_falls_back_to_relinked_bundle.
+    bundle_relinked = tmp_path / "bundle_relinked"
+    shutil.copytree(native_model_dir, bundle_relinked)
+    broken_relinked = _broken_single_file_video()  # matches frame_000.png
+    labels_relinked = _make_labels(
+        broken_relinked, skeleton, [[[1, 1], [2, 2]]], sio.Instance
+    )
+    sio.save_slp(labels_relinked, (bundle_relinked / "labels_gt.val.slp").as_posix())
+
+    # Card B's broken path doesn't match the shared prefix_map at all, so it
+    # only resolves via basename search (tier 3).
+    bundle_basename = tmp_path / "bundle_basename"
+    shutil.copytree(native_model_dir, bundle_basename)
+    broken_basename = sio.Video(
+        filename="E:/NoSuchDrive/only_findable_by_basename.h5", open_backend=False
+    )
+    labels_basename = _make_labels(
+        broken_basename, skeleton, [[[3, 3], [4, 4]]], sio.Instance
+    )
+    sio.save_slp(labels_basename, (bundle_basename / "labels_gt.val.slp").as_posix())
+
+    frame = np.array(Image.open(image_files[0]))[None, :, :, None]
+    search_dir = tmp_path / "search_root"
+    search_dir.mkdir()
+    save_array_as_h5(frame, search_dir / "only_findable_by_basename.h5")
+    basename_index = build_basename_index(search_dir)
+
+    source = LocalCardSource(
+        [(card_relinked, bundle_relinked), (card_basename, bundle_basename)]
+    )
+    out_path = tmp_path / "report.json"
+
+    run_parity_harness(
+        [card_relinked, card_basename],
+        source,
+        tmp_path,
+        out_path,
+        prefix_map={"D:/SLEAP/fake_project": str(image_files[0].parent)},
+        basename_index=basename_index,
+    )
+
+    entries = json.loads(out_path.read_text())
+    by_id = {e["registry_id"]: e for e in entries}
+    assert by_id[card_relinked.registry_id]["ground_truth_source"] == "relinked_bundle"
+    assert by_id[card_basename.registry_id]["ground_truth_source"] == "basename_search"
+
+
+def test_run_parity_harness_isolates_a_failing_card_and_warns(tmp_path, caplog):
+    missing_card = _card(registry_id="reg/missing")
+    source = LocalCardSource([])  # missing_card is not registered -> KeyError.
+    out_path = tmp_path / "report.json"
+
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.parity"):
+        run_parity_harness([missing_card], source, tmp_path, out_path)
+
+    entries = json.loads(out_path.read_text())
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["registry_id"] == missing_card.registry_id
+    assert entry["gap_stage"] == "evaluation"
+    assert "KeyError" in entry["gap_reason"]
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert missing_card.registry_id in caplog.text
+
+
+def test_run_parity_harness_failing_card_does_not_block_others_and_preserves_order(
+    tmp_path, native_model_dir
+):
+    # The two "surviving" cards are cheap resolution gaps (no
+    # labels_registry_lookup/prefix_map/basename_index) rather than full
+    # successes -- this test is about run_parity_harness's own loop/ordering,
+    # not evaluate_model_card's resolution paths (covered elsewhere), so it
+    # avoids paying for two real inferences.
+    card_1 = _card(registry_id="reg/card-1")
+    missing_card = _card(registry_id="reg/missing")
+    card_2 = _card(registry_id="reg/card-2")
+    source = LocalCardSource([(card_1, native_model_dir), (card_2, native_model_dir)])
+    out_path = tmp_path / "report.json"
+
+    run_parity_harness([card_1, missing_card, card_2], source, tmp_path, out_path)
+
+    entries = json.loads(out_path.read_text())
+    assert [e["registry_id"] for e in entries] == [
+        card_1.registry_id,
+        missing_card.registry_id,
+        card_2.registry_id,
+    ]
+    assert entries[0]["gap_stage"] == "resolution"
+    assert entries[1]["gap_stage"] == "evaluation"
+    assert entries[2]["gap_stage"] == "resolution"
+
+
+def test_run_parity_harness_does_not_swallow_keyboard_interrupt(tmp_path):
+    class _RaisingSource:
+        def materialize(self, ref):
+            raise KeyboardInterrupt()
+
+    card = _card()
+    out_path = tmp_path / "report.json"
+
+    with pytest.raises(KeyboardInterrupt):
+        run_parity_harness([card], _RaisingSource(), tmp_path, out_path)
+
+    assert not out_path.exists()
+
+
+def test_run_parity_harness_all_gap_first_run_still_writes_the_report(
+    tmp_path, native_model_dir
+):
+    card = _card(registry_id="reg/unresolvable")
+    source = LocalCardSource([(card, native_model_dir)])
+    out_path = tmp_path / "report.json"
+    assert not out_path.exists()
+
+    result = run_parity_harness([card], source, tmp_path, out_path)
+
+    assert result == out_path
+    entries = json.loads(out_path.read_text())
+    assert len(entries) == 1
+    assert entries[0]["gap_stage"] == "resolution"
+
+
+def test_run_parity_harness_all_cards_failing_does_not_clobber_an_existing_report(
+    tmp_path, native_model_dir
+):
+    card = _card(registry_id="reg/unresolvable")
+    source = LocalCardSource([(card, native_model_dir)])
+    out_path = tmp_path / "report.json"
+    sentinel = [{"registry_id": "reg/previous", "value": 1}]
+    out_path.write_text(json.dumps(sentinel))
+
+    with pytest.raises(RuntimeError) as exc_info:
+        run_parity_harness([card], source, tmp_path, out_path)
+
+    assert str(out_path) in str(exc_info.value)
+    assert json.loads(out_path.read_text()) == sentinel
+
+
+def test_run_parity_harness_with_no_cards_writes_empty_report(tmp_path):
+    source = LocalCardSource([])
+    out_path = tmp_path / "report.json"
+
+    result = run_parity_harness([], source, tmp_path, out_path)
+
+    assert result == out_path
+    assert json.loads(out_path.read_text()) == []
+
+
+def test_run_parity_harness_with_no_cards_does_not_clobber_an_existing_report(tmp_path):
+    source = LocalCardSource([])
+    out_path = tmp_path / "report.json"
+    sentinel = [{"registry_id": "reg/previous", "value": 1}]
+    out_path.write_text(json.dumps(sentinel))
+
+    with pytest.raises(RuntimeError) as exc_info:
+        run_parity_harness([], source, tmp_path, out_path)
+
+    assert str(out_path) in str(exc_info.value)
+    assert json.loads(out_path.read_text()) == sentinel
 
 
 # --- parity marker (real-data, network-gated) --------------------------------

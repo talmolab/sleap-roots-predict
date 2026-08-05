@@ -27,15 +27,23 @@ import sys
 import types
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from importlib.metadata import version
 from pathlib import Path
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional, Sequence, Union
 
 import numpy as np
 import sleap_io as sio
 from sleap_nn.evaluation import load_metrics, run_evaluation
 from sleap_roots_contracts import LabelCard, ModelCard
 
+if TYPE_CHECKING:
+    from sleap_roots_predict.model_registry import ModelCardSource
+
 logger = logging.getLogger(__name__)
+
+#: Resolved once at import (mirrors model_selection.py's own rationale) so
+#: run_parity_harness performs no repeated importlib.metadata lookup per card.
+_RUNTIME_SLEAP_NN_VERSION = version("sleap-nn")
 
 #: Instance-matching method for all parity metric computation. OKS is used for
 #: *matching* (deciding which GT/predicted instances correspond), at the
@@ -1086,9 +1094,12 @@ def evaluate_model_card(
             frame.
 
     Returns:
-        A gap entry (``registry_id``/``version``/``gap_reason``) if ground
-        truth couldn't be resolved at all, else a full
-        :func:`build_report_entry` dict.
+        A gap entry (``registry_id``/``version``/``gap_reason``/
+        ``gap_stage="resolution"``) if ground truth couldn't be resolved at
+        all, else a full :func:`build_report_entry` dict. ``gap_stage``
+        distinguishes this resolution gap from :func:`run_parity_harness`'s
+        own ``gap_stage="evaluation"`` gaps (an isolated per-card failure
+        elsewhere in the pipeline) — the two are different failure kinds.
     """
     resolved = resolve_ground_truth(
         card,
@@ -1103,6 +1114,7 @@ def evaluate_model_card(
             "registry_id": resolved.registry_id,
             "version": resolved.version,
             "gap_reason": resolved.reason,
+            "gap_stage": "resolution",
         }
 
     if sample_n is not None:
@@ -1119,3 +1131,94 @@ def evaluate_model_card(
     return build_report_entry(
         resolved, n_frames_evaluated, sleap_nn_metrics, ref_metrics
     )
+
+
+def _is_full_entry(entry: dict) -> bool:
+    """A ``build_report_entry`` entry has no ``gap_reason``; a gap entry does."""
+    return "gap_reason" not in entry
+
+
+def run_parity_harness(
+    cards: Sequence[ModelCard],
+    source: "ModelCardSource",
+    workdir: Path,
+    out_path: Union[str, Path],
+    *,
+    labels_registry_lookup: Optional[Callable[[ModelCard], Optional[Path]]] = None,
+    prefix_map: Optional[dict] = None,
+    basename_index: Optional[dict] = None,
+    sample_n: Optional[int] = None,
+) -> Path:
+    """Evaluate every card in ``cards``, isolating per-card failures, and persist the report.
+
+    The multi-model body of a full harness run: materializes and evaluates
+    each card via :func:`evaluate_model_card`, then persists the accumulated
+    entries via :func:`write_parity_report`. A failure while converting,
+    materializing, or evaluating one card is isolated as a gap entry tagged
+    ``gap_stage="evaluation"`` (distinct from :func:`evaluate_model_card`'s
+    own ``gap_stage="resolution"`` gaps) rather than aborting the run.
+
+    This isolation is scoped to exactly the per-card work it wraps — it does
+    **not**, and cannot, distinguish a systemic failure (e.g. invalid
+    registry credentials, which surface *inside* the wrapped ``materialize``
+    call) from a genuine per-card gap. The actual, sole protection against a
+    systemic failure silently overwriting a previously-persisted report is:
+    if no card produced a non-gap entry (whether because every card gapped,
+    or because ``cards`` was empty) and a report already exists at
+    ``out_path``, this function raises instead of overwriting it. This never
+    blocks the first run at a given ``out_path``, regardless of how many
+    cards gapped.
+
+    Args:
+        cards: The production ``ModelCard``s to evaluate.
+        source: A ``ModelCardSource`` used to materialize each card into a
+            local model directory (this function performs no network access
+            itself — ``source.materialize`` does).
+        workdir: Scratch directory for intermediate files, shared across
+            every card (safe: every intermediate filename is namespaced by
+            ``registry_id``/``version`` — see :func:`evaluate_model_card`).
+        out_path: Where to persist the report. Coerced to ``Path``.
+        labels_registry_lookup: See :func:`resolve_ground_truth`.
+        prefix_map: See :func:`resolve_ground_truth`.
+        basename_index: See :func:`resolve_ground_truth`.
+        sample_n: See :func:`evaluate_model_card`.
+
+    Returns:
+        ``out_path`` (as a ``Path``).
+
+    Raises:
+        RuntimeError: If no card produced a non-gap entry and a report
+            already exists at ``out_path``.
+    """
+    out_path = Path(out_path)
+    entries = []
+    for card in cards:
+        try:
+            ref = card.to_model_ref(_RUNTIME_SLEAP_NN_VERSION)
+            bundle_dir = source.materialize(ref)
+            entry = evaluate_model_card(
+                card,
+                bundle_dir,
+                workdir,
+                labels_registry_lookup=labels_registry_lookup,
+                prefix_map=prefix_map,
+                basename_index=basename_index,
+                sample_n=sample_n,
+            )
+        except Exception as e:
+            logger.warning("Skipping %s: %s", card.registry_id, e)
+            entry = {
+                "registry_id": card.registry_id,
+                "version": card.version,
+                "gap_reason": f"{type(e).__name__}: {e}",
+                "gap_stage": "evaluation",
+            }
+        entries.append(entry)
+
+    if not any(_is_full_entry(e) for e in entries) and out_path.exists():
+        raise RuntimeError(
+            f"Refusing to overwrite existing report at {out_path}: "
+            f"{len(entries)} card(s) evaluated, none produced a full entry."
+        )
+
+    return write_parity_report(entries, out_path)

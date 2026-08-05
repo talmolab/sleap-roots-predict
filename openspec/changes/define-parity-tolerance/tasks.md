@@ -274,7 +274,7 @@ design flaw and a mislabeled-schema doc bug; round 2 found round 1's isolation f
 missing `ci.yml` trigger-path fix. All caught and fixed against text before any code was
 written — see that doc's revision notes).
 
-- [ ] 9.1 **Test first, then implement** (one commit — matches this branch's established
+- [x] 9.1 **Test first, then implement** (one commit — matches this branch's established
       granularity, e.g. `3cb64cb`; the bidirectional coupling between `run_parity_harness`'s
       tests and the `gap_stage` addition to `evaluate_model_card` — see below — means there is
       no green split point anyway). Tests, all fixture-based/no-network (real
@@ -376,6 +376,13 @@ written — see that doc's revision notes).
       would make the existing test fail the moment `gap_stage` is added, and it's also the
       discriminator the isolation tests above depend on to prove the two gap kinds are
       distinguishable.
+
+      **Implemented and verified:** all 11 named tests plus the modified gap test pass
+      (`pytest tests/test_parity.py -k "run_parity_harness or gap_entry_when_unresolvable"` →
+      12 passed); full `tests/test_parity.py` → 49 passed, 1 deselected (no regressions); full
+      CPU suite → 286 passed, 7 deselected. `black`/`ruff`/`codespell` clean. One correction
+      during implementation: `_is_full_entry`'s no-clobber check is `not any(...) and
+      out_path.exists()`, exactly as planned — no design deviation needed.
 - [ ] 9.2 Add `scripts/run_parity_harness.py` (the repo's first top-level `scripts/`
       directory): a committed, thin script hardcoding the two real prefix-map *source* keys
       (`D:/SLEAP`, `C:/Users/pbiobgh/Desktop/SLEAP` — already documented in `design.md`'s
