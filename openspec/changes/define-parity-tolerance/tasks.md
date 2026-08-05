@@ -383,7 +383,7 @@ written — see that doc's revision notes).
       CPU suite → 286 passed, 7 deselected. `black`/`ruff`/`codespell` clean. One correction
       during implementation: `_is_full_entry`'s no-clobber check is `not any(...) and
       out_path.exists()`, exactly as planned — no design deviation needed.
-- [ ] 9.2 Add `scripts/run_parity_harness.py` (the repo's first top-level `scripts/`
+- [x] 9.2 Add `scripts/run_parity_harness.py` (the repo's first top-level `scripts/`
       directory): a committed, thin script hardcoding the two real prefix-map *source* keys
       (`D:/SLEAP`, `C:/Users/pbiobgh/Desktop/SLEAP` — already documented in `design.md`'s
       Decision 2, and immutable facts baked into the training-time `.slp` files), exposing
@@ -407,6 +407,14 @@ written — see that doc's revision notes).
       **Revert note:** this script imports `run_parity_harness`, so reverting 9.1 later
       requires reverting this commit first (or together) — a one-way dependency, not
       bidirectional.
+
+      **Implemented and verified:** `black scripts`/`ruff check scripts`/`codespell scripts`
+      all clean; `uv run python scripts/run_parity_harness.py --help` exits 0; running with
+      `SRP_PARITY_DATA_DIR` unset logs a clean error and exits 1 (no traceback). Added a
+      `--workdir` CLI arg (not in the original design text, decided during implementation): a
+      non-auto-deleted temp directory by default, so a gapped model's intermediates stay
+      inspectable after a long real run — matches the harness's existing convention of never
+      silently discarding evidence.
 - [ ] 9.3 **Chore, separate commit, lands immediately after 9.2:** extend the `black`/`ruff`
       targets to include `scripts` in `.github/workflows/ci.yml`, **and** add `scripts/**` to
       `ci.yml`'s own `paths:` trigger filter (currently `sleap_roots_predict/**`, `tests/**`,
