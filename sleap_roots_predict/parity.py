@@ -995,10 +995,68 @@ def build_report_entry(
 ) -> dict:
     """Build one model's JSON-serializable entry for a persisted parity report.
 
-    Every field ``run_evaluation`` produces is included (via
-    :meth:`ParityMetrics.to_dict`) for both sides, plus the two gated deltas,
-    so a saved report is a complete, inspectable record — not just the two
-    numbers the tolerance decision reads.
+    This is the **canonical schema source** for a full (non-gap) report
+    entry — read this docstring, not prose in the dated design docs, for the
+    current field list; those docs are snapshots that can and have gone
+    stale (see tasks 8.5/8.7/9.4b). ``write_parity_report``'s and
+    ``run_parity_harness``'s docstrings document the *gap*-entry shapes,
+    which this function cannot itself produce, and cross-reference here for
+    the full-entry shape.
+
+    Fields:
+        ``registry_id``/``version``/``species``/``mode``/``root_type``/
+            ``age_min``/``age_max``: the evaluated ``ModelCard``'s own
+            identity/selection fields, carried through unchanged.
+        ``weights_checksum``: identifies the *physical* trained weights.
+            Several ``registry_id``s can share one checksum (e.g. a primary
+            and lateral alias pointing at the same export) — **dedupe by
+            this field before summarizing** (e.g. "measured max delta across
+            N models"), or a shared-weights group gets double-counted. This
+            is exactly how task 8.5's "measured max" bug happened: 13 raw
+            entries in the committed JSON collapse to 8 physically distinct
+            models by this field.
+        ``ground_truth_source``: which resolution tier produced this
+            model's ground truth — ``"labels_registry"``, ``"relinked_bundle"``,
+            or ``"basename_search"`` (see the Ground Truth Resolution Per
+            Model spec requirement's three tiers, in that priority order).
+        ``n_frames_resolved``/``n_frames_total``: ground-truth resolution
+            coverage — how many of the model's labeled frames actually
+            resolved to a loadable video, out of how many exist in the
+            bundle. Frame-level, not a per-model binary (a model can be
+            partially resolved).
+        ``n_frames_evaluated``: how many of the *resolved* frames the
+            metrics below were actually computed over — may be less than
+            ``n_frames_resolved`` when :func:`sample_ground_truth` capped
+            the run (e.g. ``sample_n=100`` against 139 resolved frames
+            yields ``n_frames_evaluated == 100``).
+        ``sleap_nn``/``classic_sleap_reference``: the full
+            :meth:`ParityMetrics.to_dict` shape for each side.
+            ``classic_sleap_reference`` is ``None`` when no reference is
+            available (no ``labels_pr.val.slp`` and no readable
+            ``metrics.val.npz`` — see :func:`reference_metrics`). Each
+            side's own ``settings`` field is **not** symmetric: ``sleap_nn``
+            is always ``"recomputed"`` by construction; only
+            ``classic_sleap_reference`` can be ``"stored"`` (read from the
+            bundle's ``metrics.val.npz`` via the legacy-unpickle shim,
+            rather than freshly computed alongside ``sleap_nn``'s number).
+        ``distance_p95_delta``/``visibility_recall_delta``: **unsigned,
+            raw-unit differences** (``abs(sleap_nn.X - reference.X)``),
+            informational only — **these are NOT the values
+            :func:`within_tolerance` gates on**, despite an earlier version
+            of this docstring calling them "the gated deltas" (a real bug,
+            shipped, found and corrected by adversarial review; the same
+            wrong phrase in the parent design doc's prose is corrected by
+            task 9.4b). The real gate recomputes its own values from the two
+            full metrics dicts: a **relative** distance delta
+            (``|sleap_nn.distance_p95 - reference.distance_p95| /
+            reference.distance_p95``) and a **signed**, directional recall
+            delta (``sleap_nn.visibility_recall -
+            reference.visibility_recall``, where sleap-nn scoring *higher*
+            never fails). Neither is reproducible from these two fields
+            alone — e.g. a ``visibility_recall_delta`` of ``0.053`` could be
+            either a `+0.053` or a `-0.053` signed delta; you must
+            recompute from the two full metrics dicts to know which. Both
+            are ``None`` when ``classic_sleap_reference`` is ``None``.
 
     Args:
         resolved: The model's :class:`ResolvedGroundTruth`.
@@ -1042,10 +1100,30 @@ def build_report_entry(
 
 
 def write_parity_report(entries: list, out_path: Path) -> Path:
-    """Persist a list of :func:`build_report_entry` dicts as an indented JSON file.
+    """Persist a list of parity report entries as an indented JSON file.
+
+    Each entry is either a full :func:`build_report_entry` dict (see that
+    function's docstring for the canonical field-by-field schema), or a gap
+    entry — a model this run couldn't fully evaluate. A gap entry has only
+    ``registry_id``/``version``/``gap_reason``/``gap_stage``, no metrics
+    fields at all. ``gap_stage`` is one of:
+
+    - ``"resolution"``: ground truth couldn't be resolved for this model at
+      all (see :func:`evaluate_model_card`'s gap branch, and the Ground
+      Truth Resolution Per Model spec requirement's fourth tier) —
+      expected, benign, and reported for every one of the 13 production
+      models that has never happened in this project's history.
+    - ``"evaluation"``: this model's conversion, materialization, or
+      evaluation raised an exception, isolated by :func:`run_parity_harness`
+      per-card rather than aborting the run — may indicate a real bug or a
+      transient outage, not necessarily a benign gap. The two ``gap_stage``
+      values are deliberately distinguishable in the persisted JSON rather
+      than collapsed into an identical shape, so a reader (or a future
+      harness re-run) can tell which happened without re-deriving it from
+      context.
 
     Args:
-        entries: Per-model report entries.
+        entries: Per-model report entries (full or gap-shaped, mixed).
         out_path: Where to write the report.
 
     Returns:

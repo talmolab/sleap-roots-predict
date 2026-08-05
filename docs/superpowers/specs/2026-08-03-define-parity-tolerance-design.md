@@ -154,7 +154,10 @@ type spread instead of requiring manual curation of "representative" scans.
 
 Ran the harness against all 13 production `ModelCard`s at `n=100` sampled frames per model
 (full frame count when fewer were resolved), persisting every `run_evaluation` field for both
-sides plus the gated deltas to
+sides plus the informational, unsigned `distance_p95_delta`/`visibility_recall_delta` fields
+(not the gated values — the gate recomputes a relative distance delta and a signed recall
+delta from the full metrics dicts; corrected 2026-08-05, task 9.4b, per `build_report_entry`'s
+docstring, which is the living schema source) to
 `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`. Deduplicating by
 `weights_checksum` (§ "shared model registry duplication" — several `registry_id`s point at the
 same physical weights, so they always produce identical numbers) leaves **8 distinct models**.

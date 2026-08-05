@@ -421,7 +421,7 @@ written — see that doc's revision notes).
       for this chore (already outside every lint target, a pre-existing state this task doesn't
       change). Verify locally (`black --check scripts`, `ruff check scripts`) that 9.2's script
       is already clean — this is the commit that would go red if it weren't.
-- [ ] 9.4 Expand **and correct** `build_report_entry`'s docstring (`parity.py`), and correct
+- [x] 9.4 Expand **and correct** `build_report_entry`'s docstring (`parity.py`), and correct
       `write_parity_report`'s one-line summary (`parity.py:~1037`, "Persist a list of
       `build_report_entry` dicts..." — already slightly inaccurate today, since
       ground-truth-resolution gap entries were never `build_report_entry` output, and more so
@@ -441,14 +441,21 @@ written — see that doc's revision notes).
       `build_report_entry` for the full-entry shape, rather than restating it) — designate
       `build_report_entry`'s docstring as the one canonical schema source. Add one sentence:
       read the docstrings, not prose (including the dated design docs), for the current shape.
-      No signature change.
-- [ ] 9.4b Correct the same "gated deltas" mislabel in the parent design doc's own prose
+      No signature change. **Implemented:** `build_report_entry`'s docstring now has a
+      `Fields:` section documenting every key (identity fields, `weights_checksum` dedup note,
+      `ground_truth_source`'s three values, the three frame counts, `settings`' asymmetry, and
+      the corrected `*_delta` semantics); `write_parity_report`'s docstring documents both
+      `gap_stage` values and corrects its summary line; `run_parity_harness`'s own docstring
+      (written alongside 9.1) already covered the isolation/no-clobber behavior. No test
+      change needed (docs-only); full suite re-run to confirm no regression (286 passed).
+- [x] 9.4b Correct the same "gated deltas" mislabel in the parent design doc's own prose
       (`docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md:156-157`,
       "...for both sides plus the gated deltas to..."), mirroring task 8.7's precedent of
       tracking a stale-dated-doc fix as its own task rather than a passing mention. Small,
       folds into the 9.4 commit (same underlying correction, same commit boundary as its
-      code-side counterpart).
-- [ ] 9.5 `specs/prediction-parity/spec.md`'s "Reusable Multi-Model Harness Runner" requirement
+      code-side counterpart). **Implemented:** corrected to name the informational
+      unsigned deltas and point at `build_report_entry`'s docstring as the living source.
+- [x] 9.5 `specs/prediction-parity/spec.md`'s "Reusable Multi-Model Harness Runner" requirement
       (already drafted and revised twice alongside this task list — landed in `0abf2b4`,
       revised in the two follow-up review-response commits; no separate implementation commit
       needed for this task). Marked `[x]` now — the box was left `[ ]` after the first revision
