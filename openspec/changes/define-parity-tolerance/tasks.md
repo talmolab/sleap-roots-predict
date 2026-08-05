@@ -251,3 +251,13 @@ tolerance — wasn't functional as committed. Fixing the findings the user asked
       unaffected, but the stated basis was wrong. Corrected 6.2 above.
 - [x] 8.6 Full test suite (275 passed, 7 deselected) + `black`/`ruff`/`codespell` clean;
       `openspec validate --strict` passing; checkmarks updated; committed.
+- [x] 8.7 Fixed a second stale-percentage bug (user-caught, 2026-08-05): §2's basename-search
+      coverage claim ("`rice-cylinder-crown-age6-10` 54%, `rice-cylinder-primary-age2-5` 9%")
+      in both `docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md` and
+      `openspec/changes/define-parity-tolerance/design.md` was an early, pre-final-tuning
+      measurement — the actual final harness run resolved **both to 100%** (confirmed directly
+      against the results JSON's `n_frames_resolved`/`n_frames_total`). Reframed both passages
+      as historical ("an early measurement found... later resolved to 100%") and added an
+      explicit pointer to the results JSON as the living source of truth for current coverage,
+      so a future reader (or harness re-run) doesn't have to re-derive this and a hardcoded
+      percentage doesn't go stale silently again.

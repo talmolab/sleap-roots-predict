@@ -79,10 +79,18 @@ file paths (e.g. `D:/SLEAP/SLEAP_arabidopsis/...`, `C:/Users/pbiobgh/...`,
    encoded there — resolved soybean-lateral and soybean-primary to **100%**); (c) a day/age hint
    in the path falling inside the `ModelCard`'s `[age_min, age_max]` (resolved
    `rice-cylinder-crown-age2-5` to **100%**); (d) shared normalized path segments as a last
-   resort. A tie at any step returns no match rather than guessing. Measured coverage on the
-   live registry: `rice-cylinder-crown-age2-5` 100%, `rice-cylinder-crown-age6-10` 54%,
-   `rice-cylinder-primary-age2-5` 9%, both soybean models 100%. This tier also keeps only
-   resolved frames, so a low percentage is a smaller real ground truth, not a failure.
+   resort. A tie at any step returns no match rather than guessing. This tier keeps only
+   resolved frames, so a low percentage is a smaller real ground truth, not a failure — an
+   early measurement, before the disambiguation order above was finalized, found
+   `rice-cylinder-crown-age6-10` at only 54% and `rice-cylinder-primary-age2-5` at only 9%;
+   both later resolved to **100%** once disambiguation was tuned (soybean-lateral/primary and
+   `rice-cylinder-crown-age2-5` were already 100% from the start). **For current, live
+   coverage per model, read the checked-in results JSON's `n_frames_resolved`/
+   `n_frames_total` fields
+   (`docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`) — that file is
+   the source of truth and gets regenerated whenever the harness re-runs; a percentage
+   hardcoded into this prose will go stale the next time coverage changes, as this sentence
+   itself already did once.**
 4. **Documented gap.** Not every one of the 13 production `ModelCard`s, and not every frame
    within a model, is expected to resolve. The harness reports what it could and couldn't verify
    — no silent coverage claims. `ResolvedGroundTruth.n_frames_resolved`/`.n_frames_total` make

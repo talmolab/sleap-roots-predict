@@ -40,10 +40,15 @@ explicitly does not apply here since no retraining is involved); gating on trait
       day/age hint inside the card's age range → shared path-segment overlap → an explicit
       non-match on a genuine tie, never a guess). Necessary because the same short plant/scan ID
       *genuinely recurs* across different day/timepoint folders in a longitudinal study
-      (confirmed via file-content-hash comparison — not an accidental duplicate). Measured:
-      soybean-lateral/primary 100%, `rice-crown-age2-5` 100%, `rice-crown-age6-10` 54%,
-      `rice-primary-age2-5` 9% — a low percentage yields a smaller real ground truth, not a
-      failure.
+      (confirmed via file-content-hash comparison — not an accidental duplicate). A low
+      percentage yields a smaller real ground truth, not a failure — an early measurement,
+      before disambiguation was finalized, found `rice-crown-age6-10` at only 54% and
+      `rice-primary-age2-5` at only 9%; both, along with soybean-lateral/primary and
+      `rice-crown-age2-5`, later resolved to **100%**. For current coverage per model, read
+      the results JSON's `n_frames_resolved`/`n_frames_total` (see
+      `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`) rather than a
+      hardcoded percentage here — it's regenerated on every harness run and won't go stale the
+      way this sentence already did once.
    d. Otherwise: an explicit, logged gap. Never silently drop a model from the report.
       `ResolvedGroundTruth.n_frames_resolved`/`.n_frames_total` report partial coverage from (b)
       or (c) transparently — resolution is frame-level, not a per-model binary.
