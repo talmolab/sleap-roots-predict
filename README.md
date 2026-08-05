@@ -233,12 +233,19 @@ required local step in the pre-merge gate — run it on a CUDA/MPS machine:
 
 `sleap_roots_predict.parity` measures sleap-nn's prediction accuracy against classic-SLEAP
 (the same already-trained weights) on real, human-labeled ground truth, gated behind a
-`parity` marker (`WANDB_API_KEY` + a network-share root; deselected by default/in CI, like
+`parity` marker (`WANDB_API_KEY` + `SRP_PARITY_DATA_DIR`, a basename-search root for ground
+truth whose video paths were reorganized; deselected by default/in CI, like
 `gpu`/`acceptance`/`wandb` — run with `uv run pytest -m parity -s`). The decided tolerance and
 the full measured results across all 13 production models are in
 [`docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`](docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json)
 (design writeup:
 [`2026-08-03-define-parity-tolerance-design.md`](docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md)).
+
+Regenerate that report (needs `WANDB_API_KEY` and `SRP_PARITY_DATA_DIR`; lab-only — Windows +
+a `Z:` mapped network share): `uv run python scripts/run_parity_harness.py`. It re-runs all
+13 production models and overwrites the JSON above in place; pass `--share-root` if your
+mapped-share letter/path differs from the lab default, and `--out` to write elsewhere. Commit
+the regenerated JSON as its own standalone commit.
 
 ### Build and Publish
 On release or manual trigger:
@@ -281,6 +288,9 @@ tests/
 ├── test_public_api.py                  # Public-surface import test
 ├── test_video_utils.py                 # Video utilities tests
 └── conftest.py                         # Shared test fixtures
+
+scripts/
+└── run_parity_harness.py           # Regenerate the parity results JSON (lab-only, credentialed)
 
 .github/workflows/
 ├── ci.yml                      # Continuous integration

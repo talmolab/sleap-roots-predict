@@ -56,13 +56,21 @@ All notable changes to this project are documented here. The format is based on
   for the root-keypoint domain), and asserts a documented, empirically-derived tolerance:
   `distance_p95` within **25% relative delta** of the classic-SLEAP reference, and
   `visibility_recall` no more than **0.10 lower** (sleap-nn scoring higher never fails).
-  Measured against all 13 production `ModelCard`s (8 physically distinct weight sets) at
-  `n=100` sampled frames each — every model passes with headroom; see
+  Measured against all 13 production `ModelCard`s (8 physically distinct weight sets) at up
+  to `n=100` sampled frames each (the full resolved count where fewer resolved) — every model
+  passes with headroom; see
   `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json` for the full
   per-model report. New `parity` pytest marker (gated on `WANDB_API_KEY` + a network-share
   root, deselected by default/in CI, mirroring `gpu`/`acceptance`/`wandb`). Resolves
   sleap-roots-pipeline#15. Bumped `sleap-roots-contracts` `0.1.0a5` → `0.1.0a6` for
-  `LabelCard` (used to shape the checked-in ground-truth manifest).
+  `LabelCard` (used to shape the checked-in ground-truth manifest). Regenerating that report
+  is a committed, reusable operation: `run_parity_harness()` loops the per-card evaluation
+  over a list of `ModelCard`s, isolating one card's failure as a gap entry
+  (`gap_stage="evaluation"`, distinct from a ground-truth-resolution gap's
+  `gap_stage="resolution"`) instead of aborting the run, and refuses to overwrite an existing
+  report when every card gapped. Driven by the committed `scripts/run_parity_harness.py`
+  (`uv run python scripts/run_parity_harness.py`; lab-only — Windows + a `Z:` mapped network
+  share, real registry credentials — manual/on-demand, no CI wiring).
 
 ### Changed
 

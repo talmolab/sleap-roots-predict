@@ -477,7 +477,7 @@ written — see that doc's revision notes).
       needed for this task). Marked `[x]` now — the box was left `[ ]` after the first revision
       despite the task's own text already saying it was done, exactly the kind of stale
       bookkeeping this slice is about not leaving behind.
-- [ ] 9.6 **Docs sweep, its own `docs:` commit** (per task 7.1's actual precedent — two
+- [x] 9.6 **Docs sweep, its own `docs:` commit** (per task 7.1's actual precedent — two
       standalone commits, `dfb0624`/`1c9a67d` — never folded into 9.7's gate commit): fold an
       addition into `CHANGELOG.md`'s existing `[Unreleased]` parity bullet (not a new bullet —
       the harness hasn't shipped in a release yet) describing `run_parity_harness`/the script
@@ -492,6 +492,15 @@ written — see that doc's revision notes).
       `openspec/project.md`'s `parity.py` Architecture-Patterns bullet, and name
       `SRP_PARITY_DATA_DIR` in its parity Testing-Strategy bullet. State explicitly that
       `API.md` stays unchanged (no new public re-export), so it isn't re-litigated later.
+
+      **Implemented and verified:** all five edits made; also fixed a small pre-existing
+      accuracy nit while touching `CHANGELOG.md`'s bullet ("at `n=100` sampled frames each" →
+      "at up to `n=100`... (the full resolved count where fewer resolved)", matching the
+      parent design doc's own correct phrasing — 12 of 13 models evaluated fewer than 100
+      frames). Confirmed `API.md` has zero "parity" occurrences (no edit needed).
+      `tests/test_env_docs.py` (4 tests) still pass — `SRP_PARITY_DATA_DIR` correctly stayed
+      out of the Configuration-section-scoped check. `codespell` clean on all three touched
+      docs.
 - [ ] 9.7 Full `/pre-merge` gate (format, lint, test, build — now including `scripts/` per 9.3),
       recording the new tests' exact count (`uv run pytest tests/test_parity.py -v -k
       run_parity_harness`) and the total-suite delta, plus confirming

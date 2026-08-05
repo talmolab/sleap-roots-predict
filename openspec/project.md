@@ -58,9 +58,13 @@ importable library.
   - `batch.py` — the warm-batch container runner (`run_batch`, `discover_scans`)
   - `parity.py` — the A3-predict parity harness: ground-truth resolution (labels registry,
     path relinking, basename search), a `run_evaluation` wrapper (OKS-matched
-    `distance_metrics`/`visibility_metrics`, never OKS scores), and `within_tolerance`
-    (resolves sleap-roots-pipeline#15). Measured results across all 13 production models:
-    `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`
+    `distance_metrics`/`visibility_metrics`, never OKS scores), `within_tolerance`, and
+    `run_parity_harness` (loops the per-card evaluation over many `ModelCard`s, isolating one
+    card's failure as a gap entry instead of aborting the run — resolves
+    sleap-roots-pipeline#15). Measured results across all 13 production models:
+    `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`, regenerable via
+    the committed `scripts/run_parity_harness.py` (lab-only, credentialed; manual/on-demand,
+    no CI wiring)
   - `__main__.py` — the `python -m sleap_roots_predict <in> <out>` CLI entrypoint
   - `video_utils.py` — image I/O utilities (natural sort, greyscale, load/save, video build)
   - `plates_timelapse_experiment.py` — timelapse experiment orchestration
@@ -92,8 +96,9 @@ a copy-and-fill template. (Env vars are model-scoped — `SRP_WANDB_MODEL_REGIST
   `SRP_CYLINDER_DIR` (image frames) and `SRP_MODEL_DIRS` (os-pathsep-joined model
   dirs; extract legacy `.zip` models first), then `uv run pytest -m acceptance -s`.
 - **Parity test** (`@pytest.mark.parity`): real-data/registry-gated, CI-skipped. Gates the
-  A3-predict parity harness (`sleap_roots_predict.parity`) on `WANDB_API_KEY` plus a
-  network-share root for ground-truth path relinking; skips cleanly without them.
+  A3-predict parity harness (`sleap_roots_predict.parity`) on `WANDB_API_KEY` plus
+  `SRP_PARITY_DATA_DIR` (a basename-search root for ground-truth path relinking); skips
+  cleanly without them.
 - Coverage via `pytest --cov=sleap_roots_predict`.
 
 ### Git Workflow
