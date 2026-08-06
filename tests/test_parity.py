@@ -807,6 +807,22 @@ def test_write_parity_report_round_trips_via_json(tmp_path):
     assert reloaded == entries
 
 
+def test_write_parity_report_is_atomic_on_a_failed_write(tmp_path):
+    # json.dump writes chunks as it goes; a non-serializable entry partway
+    # through a list previously corrupted an existing good file in place
+    # (open(out_path, "w") truncates immediately). Write-then-rename instead.
+    out_path = tmp_path / "report.json"
+    sentinel = [{"registry_id": "reg/previous", "value": 1}]
+    out_path.write_text(json.dumps(sentinel))
+
+    bad_entries = [{"registry_id": "reg/a", "value": 1}, {"bad": {1, 2, 3}}]
+
+    with pytest.raises(TypeError):
+        write_parity_report(bad_entries, out_path)
+
+    assert json.loads(out_path.read_text()) == sentinel
+
+
 # --- evaluate_model_card -------------------------------------------------------
 
 
@@ -1084,6 +1100,84 @@ def test_run_parity_harness_all_cards_failing_does_not_clobber_an_existing_repor
 
     assert str(out_path) in str(exc_info.value)
     assert json.loads(out_path.read_text()) == sentinel
+
+
+def test_run_parity_harness_full_entry_overwrites_an_existing_report(
+    tmp_path, video, native_model_dir
+):
+    # The guard's main production path (a good run replacing a good baseline)
+    # had zero coverage -- every existing test either produced no full entry
+    # or wrote to a fresh out_path. Proven unpinned by mutation testing: a
+    # guard of bare `if out_path.exists(): raise` still passed the full suite.
+    card = _card()
+    skeleton = sio.Skeleton(nodes=["A", "B"])
+    gt = _make_labels(video, skeleton, [[[1, 1], [2, 2]]], sio.Instance)
+    gt_path = tmp_path / "gt.slp"
+    sio.save_slp(gt, gt_path.as_posix())
+
+    source = LocalCardSource([(card, native_model_dir)])
+    out_path = tmp_path / "report.json"
+    sentinel = [{"registry_id": "reg/previous", "value": 1}]
+    out_path.write_text(json.dumps(sentinel))
+
+    run_parity_harness(
+        [card], source, tmp_path, out_path, labels_registry_lookup=lambda c: gt_path
+    )
+
+    entries = json.loads(out_path.read_text())
+    assert entries != sentinel
+    assert entries[0]["registry_id"] == card.registry_id
+    assert "gap_reason" not in entries[0]
+
+
+def test_run_parity_harness_accepts_str_workdir(tmp_path, video, native_model_dir):
+    # A str workdir previously hit `str / str` at evaluate_model_card's own
+    # `pred_path = workdir / f"..."` line for any RESOLVED card (an
+    # unresolvable card never reaches that line, so it wouldn't have caught
+    # this) -- coerced up front now, like out_path already is.
+    card = _card()
+    skeleton = sio.Skeleton(nodes=["A", "B"])
+    gt = _make_labels(video, skeleton, [[[1, 1], [2, 2]]], sio.Instance)
+    gt_path = tmp_path / "gt.slp"
+    sio.save_slp(gt, gt_path.as_posix())
+
+    source = LocalCardSource([(card, native_model_dir)])
+    out_path = tmp_path / "report.json"
+
+    run_parity_harness(
+        [card],
+        source,
+        str(tmp_path),
+        out_path,
+        labels_registry_lookup=lambda c: gt_path,
+    )
+
+    entries = json.loads(out_path.read_text())
+    assert "gap_reason" not in entries[0]
+    assert entries[0]["ground_truth_source"] == "labels_registry"
+
+
+def test_run_parity_harness_handles_a_malformed_card_without_crashing(
+    tmp_path, native_model_dir
+):
+    # run_parity_harness is a public function; a card missing the expected
+    # attributes must still become an isolated gap entry, not crash the
+    # exception handler itself and discard every already-computed entry.
+    good_card = _card(registry_id="reg/good")
+    source = LocalCardSource([(good_card, native_model_dir)])
+    out_path = tmp_path / "report.json"
+
+    class _NotACard:
+        pass
+
+    entries_path = run_parity_harness(
+        [good_card, _NotACard()], source, tmp_path, out_path
+    )
+
+    entries = json.loads(entries_path.read_text())
+    assert len(entries) == 2
+    assert entries[0]["registry_id"] == good_card.registry_id
+    assert entries[1]["gap_stage"] == "evaluation"
 
 
 def test_run_parity_harness_with_no_cards_writes_empty_report(tmp_path):

@@ -58,10 +58,10 @@ uv sync --extra dev --extra macos         # For macOS
 uv run pytest
 
 # Format code
-uv run black sleap_roots_predict tests
+uv run black sleap_roots_predict tests scripts
 
 # Lint code
-uv run ruff check sleap_roots_predict/
+uv run ruff check sleap_roots_predict/ scripts/
 
 # Check spelling
 uv run codespell

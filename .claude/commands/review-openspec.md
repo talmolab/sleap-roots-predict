@@ -108,7 +108,7 @@ actual files it needs — do not rely on summaries.
 > 5. CI feasibility — runs on ubuntu/windows/mac without GPU and without network
 > 6. Scenario-to-test mapping — delta spec scenarios map 1:1 to tests
 > 7. Verification section runs tests (`uv run pytest -m "not gpu" tests/`), lint
->    (`uv run ruff check sleap_roots_predict/` + `uv run codespell`), and build
+>    (`uv run ruff check sleap_roots_predict/ scripts/` + `uv run codespell`), and build
 >    (`uv build` / `docker build`)
 >
 > Report: missing tests; TDD ordering violations; scenarios without tests; verification gaps; suggested test tasks.

@@ -998,10 +998,9 @@ def build_report_entry(
     This is the **canonical schema source** for a full (non-gap) report
     entry — read this docstring, not prose in the dated design docs, for the
     current field list; those docs are snapshots that can and have gone
-    stale (see tasks 8.5/8.7/9.4b). ``write_parity_report``'s and
-    ``run_parity_harness``'s docstrings document the *gap*-entry shapes,
-    which this function cannot itself produce, and cross-reference here for
-    the full-entry shape.
+    stale before. ``write_parity_report``'s and ``run_parity_harness``'s
+    docstrings document the *gap*-entry shapes, which this function cannot
+    itself produce, and cross-reference here for the full-entry shape.
 
     Fields:
         ``registry_id``/``version``/``species``/``mode``/``root_type``/
@@ -1011,10 +1010,9 @@ def build_report_entry(
             Several ``registry_id``s can share one checksum (e.g. a primary
             and lateral alias pointing at the same export) — **dedupe by
             this field before summarizing** (e.g. "measured max delta across
-            N models"), or a shared-weights group gets double-counted. This
-            is exactly how task 8.5's "measured max" bug happened: 13 raw
-            entries in the committed JSON collapse to 8 physically distinct
-            models by this field.
+            N models"), or a shared-weights group gets double-counted — 13
+            raw entries in the committed JSON collapse to 8 physically
+            distinct models by this field.
         ``ground_truth_source``: which resolution tier produced this
             model's ground truth — ``"labels_registry"``, ``"relinked_bundle"``,
             or ``"basename_search"`` (see the Ground Truth Resolution Per
@@ -1042,12 +1040,9 @@ def build_report_entry(
         ``distance_p95_delta``/``visibility_recall_delta``: **unsigned,
             raw-unit differences** (``abs(sleap_nn.X - reference.X)``),
             informational only — **these are NOT the values
-            :func:`within_tolerance` gates on**, despite an earlier version
-            of this docstring calling them "the gated deltas" (a real bug,
-            shipped, found and corrected by adversarial review; the same
-            wrong phrase in the parent design doc's prose is corrected by
-            task 9.4b). The real gate recomputes its own values from the two
-            full metrics dicts: a **relative** distance delta
+            :func:`within_tolerance` gates on**. The real gate recomputes
+            its own values from the two full metrics dicts: a **relative**
+            distance delta
             (``|sleap_nn.distance_p95 - reference.distance_p95| /
             reference.distance_p95``) and a **signed**, directional recall
             delta (``sleap_nn.visibility_recall -
@@ -1111,8 +1106,8 @@ def write_parity_report(entries: list, out_path: Path) -> Path:
     - ``"resolution"``: ground truth couldn't be resolved for this model at
       all (see :func:`evaluate_model_card`'s gap branch, and the Ground
       Truth Resolution Per Model spec requirement's fourth tier) —
-      expected, benign, and reported for every one of the 13 production
-      models that has never happened in this project's history.
+      expected and benign; in practice it has never happened for any of the
+      13 production models (the committed results JSON has zero gaps).
     - ``"evaluation"``: this model's conversion, materialization, or
       evaluation raised an exception, isolated by :func:`run_parity_harness`
       per-card rather than aborting the run — may indicate a real bug or a
@@ -1132,8 +1127,14 @@ def write_parity_report(entries: list, out_path: Path) -> Path:
     import json
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(entries, f, indent=2)
+    tmp_path = out_path.with_name(out_path.name + ".tmp")
+    try:
+        with open(tmp_path, "w") as f:
+            json.dump(entries, f, indent=2)
+        os.replace(tmp_path, out_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
     return out_path
 
 
@@ -1212,8 +1213,13 @@ def evaluate_model_card(
 
 
 def _is_full_entry(entry: dict) -> bool:
-    """A ``build_report_entry`` entry has no ``gap_reason``; a gap entry does."""
-    return "gap_reason" not in entry
+    """Return whether ``entry`` is a full (non-gap) report entry.
+
+    Checks the explicit ``gap_stage`` discriminator rather than inferring
+    gap-ness from the absence of ``gap_reason`` — a ``build_report_entry``
+    entry never has either key.
+    """
+    return "gap_stage" not in entry
 
 
 def run_parity_harness(
@@ -1237,15 +1243,28 @@ def run_parity_harness(
     own ``gap_stage="resolution"`` gaps) rather than aborting the run.
 
     This isolation is scoped to exactly the per-card work it wraps — it does
-    **not**, and cannot, distinguish a systemic failure (e.g. invalid
-    registry credentials, which surface *inside* the wrapped ``materialize``
-    call) from a genuine per-card gap. The actual, sole protection against a
-    systemic failure silently overwriting a previously-persisted report is:
-    if no card produced a non-gap entry (whether because every card gapped,
-    or because ``cards`` was empty) and a report already exists at
-    ``out_path``, this function raises instead of overwriting it. This never
-    blocks the first run at a given ``out_path``, regardless of how many
-    cards gapped.
+    **not**, and cannot, reliably distinguish a systemic failure (e.g.
+    invalid registry credentials, which surface *inside* the wrapped
+    ``materialize`` call) from a genuine per-card gap. The no-clobber guard
+    below is the primary protection against a systemic failure silently
+    overwriting a previously-persisted report, but it only catches the
+    *all*-gap case: if no card produced a non-gap entry (whether because
+    every card gapped, or because ``cards`` was empty) and a report already
+    exists at ``out_path``, this function raises instead of overwriting it.
+    A *partial* systemic failure (most cards gap, one or two still succeed)
+    is not caught by this guard — an accepted residual risk for this
+    function's scope (see the harness-runner design doc's Risks section).
+    The guard never blocks the first run at a given ``out_path``, regardless
+    of how many cards gapped.
+
+    Every intermediate filename `evaluate_model_card` itself writes into
+    ``workdir`` is namespaced by ``registry_id``/``version`` *except* its
+    sleap-nn prediction file, which uses only the last path segment of
+    ``registry_id`` — two cards from different registry namespaces sharing
+    that last segment and version can collide there. Harmless numerically
+    (each card's file is written and read back before the next card starts),
+    but it can leave the wrong model's intermediates on disk for later
+    inspection after a long run.
 
     Args:
         cards: The production ``ModelCard``s to evaluate.
@@ -1253,8 +1272,7 @@ def run_parity_harness(
             local model directory (this function performs no network access
             itself — ``source.materialize`` does).
         workdir: Scratch directory for intermediate files, shared across
-            every card (safe: every intermediate filename is namespaced by
-            ``registry_id``/``version`` — see :func:`evaluate_model_card`).
+            every card. Coerced to ``Path``.
         out_path: Where to persist the report. Coerced to ``Path``.
         labels_registry_lookup: See :func:`resolve_ground_truth`.
         prefix_map: See :func:`resolve_ground_truth`.
@@ -1269,8 +1287,10 @@ def run_parity_harness(
             already exists at ``out_path``.
     """
     out_path = Path(out_path)
+    workdir = Path(workdir)
     entries = []
     for card in cards:
+        registry_id = getattr(card, "registry_id", None) or repr(card)
         try:
             ref = card.to_model_ref(_RUNTIME_SLEAP_NN_VERSION)
             bundle_dir = source.materialize(ref)
@@ -1284,19 +1304,24 @@ def run_parity_harness(
                 sample_n=sample_n,
             )
         except Exception as e:
-            logger.warning("Skipping %s: %s", card.registry_id, e)
+            logger.warning(
+                "Recording an evaluation gap for %s: %s", registry_id, e, exc_info=True
+            )
+            reason = f"{type(e).__name__}: {e}"
             entry = {
-                "registry_id": card.registry_id,
-                "version": card.version,
-                "gap_reason": f"{type(e).__name__}: {e}",
+                "registry_id": registry_id,
+                "version": getattr(card, "version", None) or "unknown",
+                "gap_reason": reason[:500],
                 "gap_stage": "evaluation",
             }
         entries.append(entry)
 
     if not any(_is_full_entry(e) for e in entries) and out_path.exists():
+        first_gap = entries[0].get("gap_reason", "?") if entries else "no cards"
         raise RuntimeError(
             f"Refusing to overwrite existing report at {out_path}: "
-            f"{len(entries)} card(s) evaluated, none produced a full entry."
+            f"{len(entries)} card(s) evaluated, none produced a full entry "
+            f"(first gap: {first_gap})."
         )
 
     return write_parity_report(entries, out_path)

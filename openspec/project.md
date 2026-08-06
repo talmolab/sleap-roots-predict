@@ -36,7 +36,7 @@ importable library.
 ## Project Conventions
 
 ### Code Style
-- **black**, line length 88 (`uv run black sleap_roots_predict tests`)
+- **black**, line length 88 (`uv run black sleap_roots_predict tests scripts`)
 - **ruff** lints docstrings only (`select = ["D"]`, google convention); public functions
   require google-style docstrings
 - **codespell** must pass (config in `pyproject.toml`)

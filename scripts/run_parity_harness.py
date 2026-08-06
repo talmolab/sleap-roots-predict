@@ -77,7 +77,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         argv: Optional argument vector (defaults to ``sys.argv[1:]``).
 
     Returns:
-        ``0`` on success.
+        ``0`` on success, ``1`` if a required environment variable is
+        missing or invalid.
     """
     parser = argparse.ArgumentParser(
         prog="run_parity_harness",
@@ -124,6 +125,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     logger = logging.getLogger(__name__)
 
+    if not os.environ.get("WANDB_API_KEY"):
+        logger.error(
+            "WANDB_API_KEY is not set; it authenticates access to the "
+            "wandb model registry (see README.md's Parity Harness section)."
+        )
+        return 1
     search_root = os.environ.get("SRP_PARITY_DATA_DIR")
     if not search_root:
         logger.error(
@@ -139,9 +146,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     workdir = (
         Path(args.workdir)
         if args.workdir
-        else Path(tempfile.gettempdir()) / ("sleap-roots-predict-parity-harness")
+        else Path(tempfile.gettempdir()) / "sleap-roots-predict-parity-harness"
     )
     workdir.mkdir(parents=True, exist_ok=True)
+    logger.info("Using workdir %s", workdir)
 
     prefix_map = {source: args.share_root for source in PREFIX_MAP_SOURCES}
 
