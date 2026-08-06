@@ -64,10 +64,10 @@ uv run pytest tests/test_video_utils.py -v
 
 ```bash
 # Format check
-uv run black --check sleap_roots_predict tests
+uv run black --check sleap_roots_predict tests scripts
 
 # Lint (docstrings + spelling)
-uv run ruff check sleap_roots_predict/
+uv run ruff check sleap_roots_predict/ scripts/
 uv run codespell
 
 # Full suite (CPU)

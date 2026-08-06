@@ -58,10 +58,10 @@ uv sync --extra dev --extra macos         # For macOS
 uv run pytest
 
 # Format code
-uv run black sleap_roots_predict tests
+uv run black sleap_roots_predict tests scripts
 
 # Lint code
-uv run ruff check sleap_roots_predict/
+uv run ruff check sleap_roots_predict/ scripts/
 
 # Check spelling
 uv run codespell
@@ -229,6 +229,31 @@ CI does **not** run CUDA GPU tests (there is no GPU runner). The `gpu`-marked su
 required local step in the pre-merge gate — run it on a CUDA/MPS machine:
 `uv sync --extra dev --extra windows_cuda && uv run pytest -m gpu`.
 
+### Parity Harness
+
+`sleap_roots_predict.parity` measures sleap-nn's prediction accuracy against classic-SLEAP
+(the same already-trained weights) on real, human-labeled ground truth, gated behind a
+`parity` marker (`WANDB_API_KEY` + `SRP_PARITY_DATA_DIR`, a basename-search root for ground
+truth whose video paths were reorganized; deselected by default/in CI, like
+`gpu`/`acceptance`/`wandb` — run with `uv run pytest -m parity -s`). The decided tolerance and
+the full measured results across all 13 production models are in
+[`docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`](docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json)
+(design writeup:
+[`2026-08-03-define-parity-tolerance-design.md`](docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md)).
+
+Regenerate that report (needs `WANDB_API_KEY` and `SRP_PARITY_DATA_DIR`; lab-only — Windows +
+a `Z:` mapped network share): `uv run python scripts/run_parity_harness.py`. It re-runs all
+13 production models and overwrites the JSON above in place; pass `--share-root` if your
+mapped-share letter/path differs from the lab default, and `--out` to write elsewhere. Commit
+the regenerated JSON as its own standalone commit.
+
+Set `SRP_PARITY_DATA_DIR=Z:/users/eberrigan/SLEAP` (same tree as `--share-root`'s default —
+`build_basename_index` walks it recursively, and it contains both the `SLEAP_Rice` and
+`SLEAP_Soy` subtrees the basename-search tier needs). This value is inferred from the
+original investigation record (`openspec/changes/define-parity-tolerance/tasks.md`, task 2.4)
+rather than independently re-confirmed against the live share — verify it still resolves
+before a real run, and update this line if the layout has moved.
+
 ### Build and Publish
 On release or manual trigger:
 - **PyPI Publishing**: Automated wheel building and publishing using uv
@@ -251,6 +276,7 @@ sleap_roots_predict/
 ├── warm_worker.py                  # WarmModelWorker: resident predictors across scans
 ├── output_contract.py              # Per-scan output artifacts (.slp + predictions.json)
 ├── batch.py                        # Warm-batch container runner (run_batch, discover_scans)
+├── parity.py                       # A3-predict parity harness (ground truth + metrics)
 ├── __main__.py                     # `python -m sleap_roots_predict <in> <out>` CLI
 ├── video_utils.py                  # Core image processing utilities
 ├── plates_timelapse_experiment.py  # Timelapse experiment processing
@@ -264,10 +290,14 @@ tests/
 ├── test_warm_worker.py                 # Warm worker tests (real CPU inference)
 ├── test_output_contract.py             # Output-contract writer/batch tests (real CPU inference)
 ├── test_batch.py                       # Batch runner / CLI tests (real CPU inference)
+├── test_parity.py                      # Parity harness tests (offline + gated `parity` marker)
 ├── test_predict_container_packaging.py # Console-script + docker-workflow guards
 ├── test_public_api.py                  # Public-surface import test
 ├── test_video_utils.py                 # Video utilities tests
 └── conftest.py                         # Shared test fixtures
+
+scripts/
+└── run_parity_harness.py           # Regenerate the parity results JSON (lab-only, credentialed)
 
 .github/workflows/
 ├── ci.yml                      # Continuous integration

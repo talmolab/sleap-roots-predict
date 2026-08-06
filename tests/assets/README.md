@@ -26,5 +26,16 @@ UNet bottom-up).
 
 These models are trained on the fly-pair dataset, not roots; they exist only to
 prove the sleap-nn 0.3.0 inference API path end-to-end on CPU. Real root-model
-validation is the acceptance test (`tests/test_acceptance.py`) and the deferred
-parity slice.
+validation is the acceptance test (`tests/test_acceptance.py`) and the parity
+harness (`tests/test_parity.py`, `sleap_roots_predict/parity.py`).
+
+## Legacy metrics fixture
+
+- `legacy_metrics/rice_cylinder_primary_age2-5.metrics.val.npz` — a real
+  `metrics.val.npz` from the live production `rice-cylinder-primary-age2-5`
+  model artifact (classic SLEAP's own training-time eval). Pickled by the
+  legacy `sleap` package; used to test
+  `parity._legacy_sleap_unpickle_shim`/`parity.reference_metrics`'s stored-file
+  branch against real data rather than only a synthetic stand-in. Chosen as
+  the smallest of the 13 production models' stored files (7.6 KB) and
+  confirmed to carry no embedded file paths.

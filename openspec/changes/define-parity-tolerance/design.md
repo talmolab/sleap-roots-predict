@@ -1,0 +1,160 @@
+## Context
+
+Full design rationale, alternatives considered, and the cross-repo investigation behind this
+change are recorded in
+`docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md` (approved). This file
+summarizes the decisions relevant to implementation; see that doc for the "why" behind each one.
+
+A follow-up slice on the same branch/PR — a committed, reusable way to regenerate the results
+JSON, plus documenting its schema — is recorded in
+`docs/superpowers/specs/2026-08-05-define-parity-tolerance-harness-runner-design.md` (approved,
+see Decision 8 below).
+
+## Goals / Non-Goals
+
+**Goals:** decide + measure a keypoint-distance/detection-recall tolerance between sleap-nn and
+classic-SLEAP inference on the *same already-trained weights*, against real ground truth, for
+as many of the 13 live production `ModelCard`s as ground truth can be resolved for; ship a
+reusable metrics module other work (predict#8) can build on; leave an explicit, non-silent
+record of any model this couldn't cover.
+
+**Non-Goals:** retraining or model-quality comparison (a different, already-addressed axis —
+see `sleap-roots-training`'s roadmap "establish-then-reproduce-or-beat" philosophy, which
+explicitly does not apply here since no retraining is involved); gating on trait-summary delta
+(informational only, if computed at all); publishing anything to the shared
+`wandb-registry-sleap-roots-labels` registry; performing `sleap-roots-training`#10/#11/#26.
+
+## Decisions
+
+1. **Ground truth = `labels_gt.val.slp`** bundled in each production model's wandb artifact (a
+   real human-labeled validation split), not the legacy pipeline's own field-experiment
+   predictions (an earlier, corrected framing mistake — predictions are not ground truth).
+
+2. **Ground-truth image resolution, in priority order** (`resolve_ground_truth`):
+   a. A matching collection in `wandb-registry-sleap-roots-labels` (8 named collections;
+      several already carry `images_embedded: True` — fully portable).
+   b. The model bundle's own `labels_gt.val.slp` + `relink_ground_truth` (prefix-map
+      substitution, keeping only frames whose video actually resolves afterward). Two confirmed
+      prefixes resolve **8/13 models fully**: `D:/SLEAP` → `Z:/users/eberrigan/SLEAP`
+      (arabidopsis/arabidopsis-multiplant/pennycress/canola primary) and
+      `C:/Users/pbiobgh/Desktop/SLEAP` → the same tree (the same 4 species' lateral models).
+   c. `relink_ground_truth_by_basename_search` for the remaining 5 (rice ×3, soybean ×2), whose
+      video paths were *reorganized*, not just moved under a new root — indexes every `.h5`
+      under a search root by basename, then disambiguates same-basename candidates via
+      `_pick_best_candidate` (single-candidate shortcut → exact parent-folder-name match →
+      day/age hint inside the card's age range → shared path-segment overlap → an explicit
+      non-match on a genuine tie, never a guess). Necessary because the same short plant/scan ID
+      *genuinely recurs* across different day/timepoint folders in a longitudinal study
+      (confirmed via file-content-hash comparison — not an accidental duplicate). A low
+      percentage yields a smaller real ground truth, not a failure — an early measurement,
+      before disambiguation was finalized, found `rice-crown-age6-10` at only 54% and
+      `rice-primary-age2-5` at only 9%; both, along with soybean-lateral/primary and
+      `rice-crown-age2-5`, later resolved to **100%**. For current coverage per model, read
+      the results JSON's `n_frames_resolved`/`n_frames_total` (see
+      `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`) rather than a
+      hardcoded percentage here — it's regenerated on every harness run and won't go stale the
+      way this sentence already did once.
+   d. Otherwise: an explicit, logged gap. Never silently drop a model from the report.
+      `ResolvedGroundTruth.n_frames_resolved`/`.n_frames_total` report partial coverage from (b)
+      or (c) transparently — resolution is frame-level, not a per-model binary.
+
+3. **Metric engine: `sleap_nn.evaluation.run_evaluation`, `match_method="oks"` at
+   `match_threshold=0.0`.** No custom keypoint-matching code. OKS-based *matching* is used (the
+   library default) since `distance_metrics`/`visibility_metrics` are computed on whatever pairing
+   results and are unaffected by OKS's scale; the maximally permissive `match_threshold=0.0`
+   decouples "which instances correspond" from "how good is the match." What's deliberately
+   avoided is reading OKS-derived *score* fields (`mOKS`, VOC `oks_voc.mAP`/`mAR`) —
+   `sleap-roots-training`#17 found those collapse near-zero on the root-keypoint domain
+   regardless of model quality (likely uncalibrated sigma constants inherited from human/animal
+   pose). Gate on `distance_metrics.p95` (or `.avg`) and `visibility_metrics.recall` instead.
+   `match_method="centroid"` was tried first and rejected: confirmed empirically to produce a
+   nonzero distance even for two identical instances on a real multi-node skeleton — it's
+   designed for single-node/centroid-only predictions, not this use case.
+
+4. **Classic-SLEAP's own number:** recompute via `run_evaluation(labels_gt.val.slp,
+   labels_pr.val.slp)` with the *same* settings used for sleap-nn, when `labels_pr.val.slp` is
+   present in the bundle (most, not all, model exports have it). Fall back to the bundle's
+   stored `metrics.val.npz` (via `sleap_nn.evaluation.load_metrics()`) otherwise.
+
+5. **Tolerance is measured, not guessed.** Implementation order: build the harness → run it
+   across all resolvable models → record the observed distance/recall deltas → set the
+   tolerance as a documented margin above that baseline → encode it as an assertion.
+
+6. **`LabelCard`-shaped local manifest**, not a live registry query. `LabelCard`
+   (`sleap-roots-contracts` `0.1.0a6`, confirmed on PyPI) is the right *shape* for this
+   metadata, but the shared `wandb-registry-sleap-roots-labels` registry isn't backfilled onto
+   it yet (`sleap-roots-training`#10 open, #11 not started, no fixed ETA — see the design doc's
+   §8 for the full blocker chain). This change's manifest lives in this repo, typed as
+   `LabelCard` records, with unrecoverable fields `None` (per #11's own stated policy) so a
+   future migration to a live query is a lookup-swap, not a reshape.
+
+7. **predict#32 needs no code change.** Verified directly against `model_registry.py:195-230`
+   and the current `model-management` spec: per-artifact isolation
+   (`ValidationError` → logged warning → skip, continue) is already implemented and already
+   spec'd, predating #32. Close it with a comment, not a fix.
+
+8. **A reusable `run_parity_harness()` + committed `scripts/run_parity_harness.py`** close the
+   gap left by the original empirical run being produced by an uncommitted scratch script.
+   `run_parity_harness()` loops `evaluate_model_card()` over a list of `ModelCard`s, isolating
+   a per-card `to_model_ref`/`materialize`/`evaluate_model_card` failure (`except Exception`,
+   never bare `except`) into a gap entry tagged `gap_stage="evaluation"`, distinguishable from
+   `evaluate_model_card`'s own pre-existing ground-truth-resolution gaps (now tagged
+   `gap_stage="resolution"`). **This isolation does not, and structurally cannot, distinguish a
+   systemic failure (bad credentials, an unmounted share) from a genuine per-card gap** — a
+   round-2 adversarial finding against round 1's "mirrors `_collect_cards`" framing: an expired
+   `WANDB_API_KEY` surfaces *inside* the wrapped `materialize` call, and an unmounted share never
+   reaches the runner at all (the script's `build_basename_index` fails silently, before the
+   runner is invoked). The **stated, sole protection** against that class of failure silently
+   overwriting the empirical baseline is a no-clobber guard: the runner refuses to overwrite an
+   existing report at `out_path` when no card produced a non-gap entry (covering both the
+   all-gap case and an empty `cards` list, fixed on round 2 to avoid vacuously blocking a
+   legitimate first run). A residual, accepted risk — a *partial* failure still overwrites a
+   fully-resolved baseline — is documented rather than silently uncaught. Each card converts via
+   `card.to_model_ref(version("sleap-nn"))`, mirroring the real existing conversion at
+   `model_selection.py:98` (round 1 mis-cited `warm_worker.py`, which never calls
+   `to_model_ref`). The lab-specific `prefix_map`'s *source* keys are a hardcoded script
+   constant (two entries, already public in Decision 2 above); the *target* share root is a
+   `--share-root` CLI arg default. Regeneration stays manual/on-demand, committed as its own
+   standalone commit. The results JSON's schema is documented in `build_report_entry`'s (the
+   canonical source) and `write_parity_report`'s/`run_parity_harness`'s (cross-referencing)
+   docstrings, correcting an existing mislabeling of the report's delta fields as "the gated
+   deltas" — already present in both the shipped `build_report_entry` docstring and the parent
+   2026-08-03 design doc's prose (task 9.4b tracks the latter fix explicitly, mirroring task
+   8.7's precedent). See the twice-revised 2026-08-05 design doc for full rationale — it also
+   covers the `scripts/` CI lint-gate **and trigger-path** fix and the docs sweep this slice
+   needed but initially lacked.
+
+## Risks / Trade-offs
+
+- **Coverage may be partial.** Not all 13 models' ground-truth images are known to resolve yet
+  (rice/soybean paths in particular). Accepted trade-off: document gaps explicitly rather than
+  block the whole gate on 100% coverage; the manifest structure supports adding resolved models
+  later without redesign.
+- **`labels_pr.val.slp` isn't in every bundle; `metrics.val.npz` is pickled by the legacy
+  `sleap` package.** `load_metrics()` raises `ModuleNotFoundError: No module named 'sleap'` on a
+  real stored file with only `sleap_nn` installed — this repo does not and should not depend on
+  that (TensorFlow-based) package. Resolved via `parity._legacy_sleap_unpickle_shim`: a minimal,
+  temporary stand-in registering bare `numpy.ndarray` subclasses under fake `sleap`/
+  `sleap.instance` modules (the pickle references exactly one custom class,
+  `sleap.instance.PointArray`, confirmed by disassembling a real file's opcodes), removed
+  immediately after reading. Verified against all 13 live production models' real stored files —
+  full stored-reference coverage, not a rare fallback. `reference_metrics()` still returns `None`
+  (logs a warning) for the residual case where neither `labels_pr.val.slp` nor a readable
+  `metrics.val.npz` exists, rather than crashing — a model in that state gets a sleap-nn-only
+  report entry with no classic-SLEAP comparison, flagged explicitly.
+- **One tolerance number across heterogeneous models/species** may not fit every model equally
+  well. Accepted for v1 (matches the issue's ask for *a* decided tolerance); revisit
+  per-model/per-species tolerances as a follow-up if the empirical spread is large.
+
+## Migration Plan
+
+Additive only — no existing behavior changes. The contracts pin bump is a version-only change
+with no import-shape impact on existing code (confirmed via the existing `model_registry.py`
+test suite, which already covers the one behavior the retype could affect).
+
+## Open Questions
+
+- Exact final tolerance values — filled in from the empirical run during implementation, then
+  recorded in this change's task list and in the sleap-roots-pipeline#15 closing comment.
+- Whether `Z:\users\eberrigan\SLEAP\SLEAP_Rice` / `SLEAP_Soy` fully resolve the remaining
+  broken path prefixes — checked during implementation, not assumed here.

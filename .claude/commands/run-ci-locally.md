@@ -31,10 +31,10 @@ Run in order, stopping on the first failure:
 ```bash
 # --- lint job ---
 # 1. Format check
-uv run black --check sleap_roots_predict tests
+uv run black --check sleap_roots_predict tests scripts
 
 # 2. Lint (docstrings)
-uv run ruff check sleap_roots_predict/
+uv run ruff check sleap_roots_predict/ scripts/
 
 # 3. Spelling
 uv run codespell
@@ -61,8 +61,8 @@ On failure (hard stop), print the failing step's output and the fix.
 
 | Step | Fix |
 |------|-----|
-| Format check | Run `/fix-formatting` (or `uv run black sleap_roots_predict tests`) |
-| Ruff | Run `uv run ruff check sleap_roots_predict/`; auto-fix with `--fix`, write missing docstrings by hand |
+| Format check | Run `/fix-formatting` (or `uv run black sleap_roots_predict tests scripts`) |
+| Ruff | Run `uv run ruff check sleap_roots_predict/ scripts/`; auto-fix with `--fix`, write missing docstrings by hand |
 | Codespell | Fix the flagged spelling, or extend `[tool.codespell] skip` if a false positive |
 | Tests | Read pytest output and fix; use `/tdd` for a structured loop |
 

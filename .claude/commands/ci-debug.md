@@ -44,8 +44,8 @@ Run `/run-ci-locally`, which mirrors the lint + tests jobs. Or run the specific 
 
 | Job / step | Local repro |
 |------------|-------------|
-| Format check | `uv run black --check sleap_roots_predict tests` |
-| Ruff | `uv run ruff check sleap_roots_predict/` |
+| Format check | `uv run black --check sleap_roots_predict tests scripts` |
+| Ruff | `uv run ruff check sleap_roots_predict/ scripts/` |
 | Codespell | `uv run codespell` |
 | Tests | `uv run pytest -m "not gpu" tests/` |
 | Docker build | `docker build -t sleap-roots-predict .` |
@@ -55,7 +55,7 @@ Run `/run-ci-locally`, which mirrors the lint + tests jobs. Or run the specific 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | Format check failed | black violations | Run `/fix-formatting` |
-| Ruff failed | missing/bad docstrings | Run `uv run ruff check sleap_roots_predict/`; write docstrings |
+| Ruff failed | missing/bad docstrings | Run `uv run ruff check sleap_roots_predict/ scripts/`; write docstrings |
 | Codespell failed | misspelling | Fix it, or extend `[tool.codespell] skip` for a false positive |
 | Tests failed | unit/integration failures | Run `uv run pytest -m "not gpu" tests/`; use `/tdd` |
 | GPU test failed | device-only path | Reproduce on a CUDA/MPS machine; consider `@pytest.mark.gpu` if it shouldn't run on CPU |

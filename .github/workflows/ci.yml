@@ -6,6 +6,7 @@ on:
     paths:
       - "sleap_roots_predict/**"
       - "tests/**"
+      - "scripts/**"
       - ".github/workflows/ci.yml"
       - "pyproject.toml"
 
@@ -33,10 +34,10 @@ jobs:
         run: uv sync --extra dev --extra cpu
 
       - name: Run Black
-        run: uv run black --check sleap_roots_predict tests
+        run: uv run black --check sleap_roots_predict tests scripts
 
       - name: Run Ruff
-        run: uv run ruff check sleap_roots_predict/
+        run: uv run ruff check sleap_roots_predict/ scripts/
 
       - name: Run codespell
         run: uv run codespell

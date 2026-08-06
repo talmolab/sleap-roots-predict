@@ -10,7 +10,7 @@ run `/lint` separately for docstring/spelling issues.
 ## Command
 
 ```bash
-uv run black sleap_roots_predict tests
+uv run black sleap_roots_predict tests scripts
 ```
 
 ## What Gets Fixed
@@ -58,10 +58,10 @@ git commit -m "style: apply black"
 
 ```bash
 # Fix locally
-uv run black sleap_roots_predict tests
+uv run black sleap_roots_predict tests scripts
 
 # Verify the check now passes
-uv run black --check sleap_roots_predict tests
+uv run black --check sleap_roots_predict tests scripts
 
 # Commit and push
 git add -u
@@ -81,7 +81,7 @@ uv run black sleap_roots_predict/predict.py
 |---|---|---|
 | `/fix-formatting` | Auto-fix style (black) | Yes |
 | `/lint` | Check docstrings + spelling + format | No |
-| `uv run black --check sleap_roots_predict tests` | Verify formatting without fixing | No |
+| `uv run black --check sleap_roots_predict tests scripts` | Verify formatting without fixing | No |
 
 **Recommended order:** `/fix-formatting` → `/lint` → commit.
 
