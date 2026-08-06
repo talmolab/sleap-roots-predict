@@ -247,6 +247,13 @@ a `Z:` mapped network share): `uv run python scripts/run_parity_harness.py`. It 
 mapped-share letter/path differs from the lab default, and `--out` to write elsewhere. Commit
 the regenerated JSON as its own standalone commit.
 
+Set `SRP_PARITY_DATA_DIR=Z:/users/eberrigan/SLEAP` (same tree as `--share-root`'s default —
+`build_basename_index` walks it recursively, and it contains both the `SLEAP_Rice` and
+`SLEAP_Soy` subtrees the basename-search tier needs). This value is inferred from the
+original investigation record (`openspec/changes/define-parity-tolerance/tasks.md`, task 2.4)
+rather than independently re-confirmed against the live share — verify it still resolves
+before a real run, and update this line if the layout has moved.
+
 ### Build and Publish
 On release or manual trigger:
 - **PyPI Publishing**: Automated wheel building and publishing using uv
