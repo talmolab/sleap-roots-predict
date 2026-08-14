@@ -103,9 +103,13 @@ against its own previously-derived key, never against a traits-computed one). Th
 SHALL require no storage beyond what the runner already writes: `images_checksum` and `params`
 (to recompute `param_hash`) come from the already-copied `{scan_key}.scan_metadata.json` sidecar
 in `out_scan_dir`, and the resolved models, `predict_code_sha`, and `predict_output_params` come
-from the already-written `{scan_key}.predictions.json` there. When either prior file is missing
-or unreadable (a first run, or a crash left a partial write), no previous key exists, and the
-scan SHALL be (re)predicted rather than skipped.
+from the already-written `{scan_key}.predictions.json` there. When either prior file is missing,
+unreadable, or present but corrupt/fails to parse (e.g. invalid JSON or schema-invalid content),
+no previous key exists, and the scan SHALL be (re)predicted rather than skipped or recorded as a
+failure. A scan already recorded as failed for another reason (an invalid sidecar, a scan_key/stem
+mismatch, or a manifest scan_key with no matching sidecar) SHALL NOT reach model resolution or key
+computation at all — that isolation check SHALL run first, unchanged from before this
+idempotency-key comparison existed.
 
 #### Scenario: An unchanged scan is skipped on re-run
 
@@ -133,3 +137,24 @@ scan SHALL be (re)predicted rather than skipped.
 - **WHEN** `out_scan_dir` for a scan has no prior `{scan_key}.scan_metadata.json` or
   `{scan_key}.predictions.json` (nothing written yet)
 - **THEN** the scan is predicted (no previous key exists to compare against)
+
+#### Scenario: A changed resolved model causes a re-predict rather than a skip
+
+- **WHEN** a scan already has completed outputs, but the currently-resolved `ModelRef` for some
+  root type (`registry_id`/`version`/`weights_checksum`) differs from the one recorded in its
+  existing `{scan_key}.predictions.json`
+- **THEN** the scan is re-predicted (status `ok`), not skipped
+
+#### Scenario: Corrupt previous artifacts cause a re-predict, not a recorded failure
+
+- **WHEN** a scan's existing `{scan_key}.predictions.json` is present but fails to parse or
+  validate (e.g. hand-corrupted, or written by an incompatible schema)
+- **THEN** no previous key is derived, the scan is (re)predicted (status `ok`, overwriting the
+  corrupt state), and it is NOT recorded as a batch failure
+
+#### Scenario: A scan already recorded as failed never reaches model resolution
+
+- **WHEN** a scan has `.error` set (an invalid sidecar, a scan_key/stem mismatch, or a manifest
+  scan_key with no matching sidecar)
+- **THEN** the scan is recorded as failed without `resolve()` or any identity-key computation
+  ever running for it

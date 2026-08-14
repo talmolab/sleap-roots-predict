@@ -37,20 +37,31 @@ using data predict already has on disk, no new storage or contracts change requi
   key needs **no new storage anywhere**: every input is already recoverable from the
   already-copied sidecar (`images_checksum`, and `params` to recompute `param_hash`) and the
   already-written `{scan_key}.predictions.json` (`artifacts[].model`, `predict_code_sha`,
-  `predict_output_params`) sitting in `out_scan_dir` from the prior run. Missing or unreadable
-  prior artifacts (first run, or a crash mid-write) yield no previous key, which is treated as
-  "changed" — the scan is (re)predicted rather than silently skipped on ambiguous state.
+  `predict_output_params`) sitting in `out_scan_dir` from the prior run. Missing, unreadable, or
+  corrupt/unparseable prior artifacts (first run, a crash mid-write, or a hand-corrupted leftover)
+  yield no previous key, which is treated as "changed" — the scan is (re)predicted rather than
+  silently skipped on ambiguous state or recorded as a batch failure. The existing `scan.error`
+  check (invalid sidecar, stem mismatch, or a manifest scan_key with no sidecar) still runs first,
+  before `resolve()` is ever called, and the resolve-plus-key-comparison logic lives inside the
+  existing per-scan `try/except`, preserving today's "one bad scan doesn't abort the batch"
+  guarantee for failure modes that can now surface earlier (an ambiguous model match, a corrupt
+  leftover manifest).
+- **Accepted trade-off**: `resolve()` (and its one-time model-registry `list_cards()` fetch) now
+  runs once per `run_batch()` invocation even when every scan is already done and will be
+  skipped — previously a fully-resumed batch touched the registry zero times. This is inherent to
+  comparing model identity correctly (there's no way to know if models changed without listing
+  them), not a design flaw; see the design doc for the full reasoning.
 
 ## Impact
 
 - Affected specs: `predict-container` (MODIFIED: scan discovery; RENAMED + MODIFIED:
   skip-if-exists resume → skip-if-done resume, idempotency-key verified)
 - Affected code: `pyproject.toml`, `uv.lock`, `sleap_roots_predict/batch.py`,
-  `tests/test_batch.py`
+  `tests/test_batch.py`, `CHANGELOG.md`, `README.md`, `API.md`, `openspec/project.md`
 - No behavior change for any caller that never stages a `run_manifest.json` (the entire existing
   test suite and any standalone/local usage) — scoping and the stricter skip-if-done comparison
   only activate what a manifest and a changed identity actually require; an unchanged re-run
-  still skips exactly as before.
+  still skips exactly as before, aside from the accepted `resolve()`-cost trade-off noted above.
 - Out of scope (tracked separately): `sleap-roots`/traits consuming the manifest (separate
   repo/handoff); write-back's identical unscoped-glob bug (bloom #678, fixed in `bloomcli`); any
   change to `sleap-roots-contracts` (not needed — see design doc).

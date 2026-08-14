@@ -28,11 +28,11 @@ it, per the design doc's data-flow section.
       today (every sidecar found, none excluded) — a regression guard, not new behavior; existing
       fixtures/tests should need no changes to keep passing.
 - [ ] 2.3 Test: a manifest `scan_key` with no matching sidecar anywhere under the input directory
-      becomes a `ScanInput` with `.error` set (reuses the existing error → `ScanResult(status=
-      "failed")` path — verify via `run_batch`, not just `discover_scans`, since that's where the
-      status actually surfaces). Implement: after building the scoped+discovered set, compute
-      `manifest.scan_keys - {discovered scan_keys}` and append a synthetic errored `ScanInput` per
-      missing key.
+      becomes a `ScanInput` with `.error` set and `params=None` (reuses the existing error →
+      `ScanResult(status="failed")` path — verify via `run_batch`, not just `discover_scans`,
+      since that's where the status actually surfaces). Implement: after building the
+      scoped+discovered set, compute `manifest.scan_keys - {discovered scan_keys}` and append a
+      synthetic errored `ScanInput` per missing key.
 - [ ] 2.4 Test: a malformed `run_manifest.json` (invalid JSON, or valid JSON failing `RunManifest`
       validation, e.g. empty `scan_keys`) raises from `discover_scans` before any scan is
       returned/processed.
@@ -41,17 +41,30 @@ it, per the design doc's data-flow section.
 
 ## 3. Idempotency-key skip-if-done (TDD)
 
+**Land 3.1–3.9 as a single commit.** Tests 3.3–3.7 assert key-based skip/re-predict behavior that
+doesn't exist until 3.8's loop restructuring lands — committing them separately would leave an
+intermediate commit red, unlike group 2 (whose tests are independently satisfiable one at a time).
+
 - [ ] 3.1 Add `images_checksum: str = ""` to `ScanInput`, populated in `_load_scan` from
-      `meta.get("images_checksum", "")` (no test needed standalone — covered by 3.3's fixtures
-      already carrying `images_checksum`, and by the identity-key tests below).
-- [ ] 3.2 Write a small helper (private to `batch.py`) that derives the identity key from
-      arbitrary `(images_checksum, params_dict, model_refs, predict_code_sha,
-      predict_output_params)` via `compute_idempotency_key(..., traits_code_sha="")`, and a
-      second helper `_previous_identity_key(out_scan_dir, scan_key)` that reads back
-      `{scan_key}.scan_metadata.json` + `{scan_key}.predictions.json` from `out_scan_dir` (via the
-      first helper) and returns `None` if either file is missing/unreadable. Unit-test both
-      helpers directly first (pure functions / simple file reads — fastest feedback), before
-      wiring them into `run_batch`.
+      `meta.get("images_checksum", "")`.
+- [ ] 3.2 Write two small helpers, private to `batch.py`:
+      - `_identity_key(*, scan_key, images_checksum, params_dict, model_refs, predict_code_sha,
+        predict_output_params)` — converts `model_refs` (a `dict[RootType, ModelRef]` or
+        iterable of `ModelRef`) to the `list[tuple[registry_id, version, weights_checksum]]` shape
+        `compute_idempotency_key` expects, recomputes `param_hash` via `compute_param_hash
+        (params_dict)`, and calls `compute_idempotency_key(..., traits_code_sha="")`.
+      - `_previous_identity_key(out_scan_dir, scan_key)` — reads back
+        `{scan_key}.scan_metadata.json` + `{scan_key}.predictions.json` from `out_scan_dir` and
+        calls `_identity_key` with their contents. **Must internally catch `OSError`,
+        `json.JSONDecodeError`, and `pydantic.ValidationError`** (missing file, unreadable file,
+        or present-but-corrupt/schema-invalid content) and return `None` in every one of those
+        cases — this is a deliberate design choice (see design doc's ordering section), not
+        reliance on the outer per-scan `try/except` added in 3.8, because a corrupt *previous*
+        artifact must be treated as "changed → re-predict," not as a scan failure.
+      Unit-test both helpers directly first (pure function / simple file reads — fastest
+      feedback), including a case where `_previous_identity_key` is pointed at a directory with a
+      hand-corrupted `{scan_key}.predictions.json` (valid JSON, invalid schema) and confirmed to
+      return `None` rather than raising.
 - [ ] 3.3 Test: `test_rerun_skips_completed_scan` (existing) still passes essentially unchanged —
       an unchanged re-run (same sidecar, same models, same `predict_code_sha`) skips via key
       match, not just `Path.exists()`. Update its assertions/setup only as needed to reflect that
@@ -65,14 +78,33 @@ it, per the design doc's data-flow section.
       `run_batch` calls → re-predicted, not skipped.
 - [ ] 3.7 Test (new): a scan with no prior `out_scan_dir` contents at all (first run) always
       predicts — `_previous_identity_key` returns `None`, never raises.
-- [ ] 3.8 Implement the `run_batch` loop restructuring: move `refs = worker.resolve(scan.params)`
-      up before the skip decision (ahead of `_predict_one`); compute `current_key` and
-      `previous_key` via 3.2's helpers; skip iff both exist and are equal; otherwise call
-      `_predict_one` (passing `refs` through so it isn't re-resolved) and let it write outputs as
-      today. Remove the old `manifest_path.exists()` check entirely.
-- [ ] 3.9 Run `pytest tests/test_batch.py` in full and confirm green, including every pre-existing
-      test (e.g. `test_resume_mixed_skip_and_predict`, `test_run_batch_writes_outputs_and_copies_
-      sidecar`) with no regressions.
+- [ ] 3.7a Test (new): re-run against a `source` whose card for the same scan resolves to a
+      different `registry_id`/`version`/`weights_checksum` than the previous run → re-predicted,
+      not skipped (identity-key inputs include model refs; no other test exercises this input).
+- [ ] 3.7b Test (new): re-run where the existing `{scan_key}.predictions.json` is present but
+      hand-corrupted (valid JSON, fails `PredictionManifest` validation) → the scan is
+      re-predicted (`status="ok"`), and — critically — is NOT recorded as `failed`; assert on
+      `BatchResult.scans` directly, not just that a new manifest was written.
+- [ ] 3.7c Test (new): a manifest `scan_key` with no sidecar (2.3's synthetic error `ScanInput`,
+      `params=None`) is recorded `failed` via `run_batch` without raising — regression guard
+      confirming the `scan.error` check still runs before `resolve()` (a naive "move resolve() up"
+      implementation would call `resolve(None)` and raise `AttributeError` inside `choose_models`
+      instead of isolating this as a per-scan failure).
+- [ ] 3.8 Implement the `run_batch` loop restructuring, in this exact order per scan:
+      1. Check `scan.error is not None` first, unchanged from today — record `failed` and
+         `continue` before anything else runs.
+      2. Wrap everything else in the existing per-scan `try/except Exception` (widened to cover
+         more than just `_predict_one`): `refs = worker.resolve(scan.params)`, then
+         `current_key = _identity_key(...)`, then `previous_key =
+         _previous_identity_key(out_scan_dir, scan.scan_key)`, then compare.
+      3. `previous_key is not None and previous_key == current_key` → record `skipped`,
+         `continue`. Otherwise → call `_predict_one` (passing `refs` through so it isn't
+         re-resolved) and let it write outputs as today.
+      Remove the old `manifest_path.exists()` check entirely.
+- [ ] 3.9 Run `pytest tests/test_batch.py` in full and confirm green, with special attention to
+      the tests most at risk from this restructuring: `test_zero_resolved_models_is_failed`,
+      `test_one_failing_scan_does_not_abort_batch`, `test_sidecar_copy_failure_leaves_no_manifest`,
+      and `test_resume_mixed_skip_and_predict` — all must stay green with no behavior change.
 
 ## 4. OpenSpec validation gate
 
@@ -81,16 +113,31 @@ it, per the design doc's data-flow section.
 ## 5. Docs
 
 - [ ] 5.1 Update `CHANGELOG.md`'s `[Unreleased]` "Predict container CLI" bullet in place: replace
-      "skips-if-done (existence-based resume)" with a sentence describing manifest-scoped
-      discovery (`RunManifest`, `sleap-roots-contracts==0.1.0a7`) and idempotency-key-verified
-      skip-if-done (recomputed from already-written artifacts, no new storage).
+      "skips-if-done (existence-based resume)" with: "and per scan, when a `run_manifest.json`
+      (`RunManifest`, `sleap-roots-contracts==0.1.0a7`) is staged in `input_dir`, scopes discovery
+      to exactly its `scan_keys` (an out-of-scope sidecar is silently excluded); skip-if-done now
+      compares a recomputed idempotency key (`compute_idempotency_key`) against the prior run's
+      own artifacts, skipping only on an exact match and otherwise (re)predicting — no new
+      storage." Note the accepted trade-off (resolve() now runs once per batch even on a full
+      resume) in a short follow-up sentence.
 - [ ] 5.2 Update `API.md`'s `run_batch` prose ("skips if the manifest already exists (resume)")
       to describe the idempotency-key comparison and manifest-scoped discovery, matching the
-      CHANGELOG wording.
-- [ ] 5.3 Update `openspec/project.md`'s External Dependencies `sleap-roots-contracts` version
-      literal (`==0.1.0a6` → `==0.1.0a7`) and, if useful, note `RunManifest`/
-      `compute_idempotency_key` alongside the existing enumerated type list.
+      CHANGELOG wording from 5.1.
+- [ ] 5.3 Update `README.md`'s "Running the predict container" section (~line 211, "It skips a
+      scan whose manifest already exists (resume)...") with the same replacement wording as 5.1,
+      and add a sentence noting `run_manifest.json`-scoped discovery when the operator's pipeline
+      stages one.
+- [ ] 5.4 Update `openspec/project.md`: the External Dependencies `sleap-roots-contracts` version
+      literal (`==0.1.0a6` → `==0.1.0a7`), and the Roadmap note at the top of the file to credit
+      this change with closing the `sleap-roots-predict` row of `sleap-roots-pipeline#37`,
+      parallel to the existing `#15` credit for the parity harness.
+- [ ] 5.5 Grep sweep: search `README.md`, `API.md`, `CHANGELOG.md`, `openspec/project.md` for
+      `skip|manifest|exists|resume` and confirm no stale existence-based-resume phrasing survives
+      anywhere (mirrors the precedent PR's closing sweep task).
 
 ## 6. Pre-merge gate
 
-- [ ] 6.1 Full `/pre-merge` gate (format, lint, test, build) before opening the PR.
+- [ ] 6.1 Full `/pre-merge` gate (format, lint, test, build) before opening the PR. Confirm the
+      pytest invocation matches `ci.yml`'s exact marker expression (`-m "not gpu and not
+      acceptance and not wandb"`), not `/pre-merge`'s own default `-m "not gpu"` (which would pull
+      in flaky wandb-registry tests).
