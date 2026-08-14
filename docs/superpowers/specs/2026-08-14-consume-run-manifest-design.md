@@ -27,8 +27,9 @@ sidecars — a discoverable file, not a CLI arg, confirmed against this repo's a
 
 - `sleap-roots`/traits consuming the manifest (separate repo/handoff).
 - write-back's identical unscoped-glob bug (bloom #678, fixed in bloomcli).
-- Any change to `sleap-roots-contracts` (a schema addition to `PredictionManifest` would be the
-  "cleaner" long-term home for the stored key, but is a separate repo's PR).
+- Any change to `sleap-roots-contracts`. Not needed: every input the idempotency key requires is
+  already recoverable from artifacts predict already writes (see below) — no schema addition
+  earns its keep here.
 
 ## Confirmed decisions (from clarifying questions)
 
@@ -68,26 +69,36 @@ input_dir/
 `run_batch`'s per-scan loop, restructured:
 1. `refs = worker.resolve(scan.params)` — moved up from `_predict_one`; cheap (matches against
    the already-listed `ModelCard`s, no network/download), safe to call before the skip decision.
-2. `current_key = compute_idempotency_key(scan_key=scan.scan_key, images_checksum=scan.images_checksum, models=[(r.registry_id, r.version, r.weights_checksum) for r in refs.values()], param_hash=scan.params.param_hash, predict_code_sha=resolved_code_sha, traits_code_sha="", predict_output_params=worker.output_params())`
-3. Compare against the stored key (read from a new predict-owned marker file, see below). Equal →
-   `skipped`. Different or absent → predict, write outputs, then write the new key.
+2. `current_key = _identity_key(scan_key, images_checksum=scan.images_checksum, refs, param_hash=scan.params.param_hash, predict_code_sha=resolved_code_sha, output_params=worker.output_params())` —
+   a thin wrapper around `compute_idempotency_key` (see below).
+3. `previous_key = _stored_identity_key(out_scan_dir, scan.scan_key)` — `None` if nothing usable
+   is on disk yet (see below).
+4. `previous_key == current_key` → `skipped`. Otherwise (differs, or `None`) → predict, write
+   outputs as today.
 
-## Stored key: a predict-owned marker file, not a `PredictionManifest` field
+## No new storage — recompute both sides from artifacts predict already writes
 
-`PredictionManifest` (from `sleap-roots-contracts`) is a frozen pydantic model with no
-`idempotency_key`/`images_checksum` field, and extending it is a separate repo's contracts
-change — out of scope here. Instead, `write_prediction_outputs`'s existing artifacts get one
-sibling file, written **last** (after `{scan_key}.predictions.json`, mirroring the existing
-"sidecar-before-manifest" commit-marker ordering — the newest-written file is always the resume
-marker so a crash mid-write is safe to re-run):
+`PredictionManifest` (from `sleap-roots-contracts`) has no `idempotency_key`/`param_hash` field,
+and extending it would be a separate repo's contracts PR. It doesn't need to be: everything
+`compute_idempotency_key` needs for the *previous* run is already sitting in `out_scan_dir` from
+that run, because `write_prediction_outputs` writes the manifest and `run_batch` copies the
+sidecar verbatim:
 
-```
-<output_dir>/{scan_key}/{scan_key}.idempotency_key.json    # {"idempotency_key": "<sha256 hex>"}
-```
+| Input | Recovered from |
+|---|---|
+| `scan_key` | the scan itself (identical either way) |
+| `images_checksum` | `out_scan_dir/{scan_key}.scan_metadata.json`'s `images_checksum` (the previously-copied sidecar, byte-identical to what was actually used) |
+| `param_hash` | recomputed via `compute_param_hash` over that same old sidecar's `params` — pure function, so this reproduces the exact value used at write time |
+| `models` | `out_scan_dir/{scan_key}.predictions.json`'s `artifacts[].model` (the `ModelRef`s actually used) |
+| `predict_code_sha` / `predict_output_params` | the same manifest's `predict_code_sha` / `predict_output_params` fields |
 
-This is purely predict's own internal resume bookkeeping — not part of any cross-repo contract,
-so its shape can change freely later (e.g. if `sleap-roots-contracts` eventually grows a real
-field for it).
+So `_stored_identity_key(out_scan_dir, scan_key)` just reads those two existing files (returning
+`None` if either is missing/unreadable — e.g. a first run, or a crash left a partial write — which
+naturally falls through to "re-run," matching the existing "prefer re-run over serving stale/
+incomplete data" philosophy already baked into the sidecar-before-manifest ordering) and calls the
+same `compute_idempotency_key` used for the current side. No new file, no contracts change, and
+the exact same trick is available to traits later (it reads the identical two files plus its own
+`traits_code_sha`).
 
 ## Error handling summary
 
@@ -96,6 +107,9 @@ field for it).
 - Manifest scan_key with no sidecar → `ScanResult(status="failed")`, batch continues.
 - Zero models resolved → unchanged, still `failed` (check happens right after the moved-up
   `resolve()` call).
+- No previous manifest/sidecar on disk yet, or either is unreadable → `previous_key = None` →
+  treated as changed → predict runs (first run, or a prior crash mid-write; never silently
+  skips on ambiguous state).
 - Everything else (missing input_dir, duplicate scan_key, unreadable sidecar, missing params) →
   unchanged.
 
@@ -118,6 +132,8 @@ cleaner split out):
 7. `run_batch` re-run with a different `SRP_PREDICT_CODE_SHA` re-predicts.
 8. `pyproject.toml` bumped to `sleap-roots-contracts==0.1.0a7`; full existing suite still green
    (regression gate for the version bump itself).
+9. A first run (nothing in `out_scan_dir` yet) always predicts — `_stored_identity_key` returns
+   `None`.
 
 ## Open note (non-blocking)
 
