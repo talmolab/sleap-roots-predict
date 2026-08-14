@@ -66,15 +66,56 @@ input_dir/
 `ScanInput` gains one field: `images_checksum: str = ""`, read from the sidecar's existing
 `images_checksum` key (already present in every sidecar fixture today, just previously ignored).
 
-`run_batch`'s per-scan loop, restructured:
-1. `refs = worker.resolve(scan.params)` — moved up from `_predict_one`; cheap (matches against
-   the already-listed `ModelCard`s, no network/download), safe to call before the skip decision.
-2. `current_key = _identity_key(scan_key, images_checksum=scan.images_checksum, refs, param_hash=scan.params.param_hash, predict_code_sha=resolved_code_sha, output_params=worker.output_params())` —
-   a thin wrapper around `compute_idempotency_key` (see below).
-3. `previous_key = _stored_identity_key(out_scan_dir, scan.scan_key)` — `None` if nothing usable
-   is on disk yet (see below).
-4. `previous_key == current_key` → `skipped`. Otherwise (differs, or `None`) → predict, write
-   outputs as today.
+`run_batch`'s per-scan loop, restructured — **ordering matters, and is more subtle than "move
+resolve() up" alone suggests** (a critical review round caught this: three independent reviewers
+converged on the same bug in an earlier draft that called `resolve()` unconditionally, ahead of
+both the existing `scan.error` check and the existing per-scan `try/except`):
+
+1. **`scan.error` check stays first**, exactly where it is today, before anything else runs. A
+   scan with `.error` set (invalid sidecar, stem/scan_key mismatch, or the new manifest-scan_key-
+   with-no-sidecar case) is recorded `failed` immediately and never reaches `resolve()` — this
+   matters concretely because that last case's synthetic `ScanInput` has `params=None`, and
+   `resolve(None)` would otherwise raise `AttributeError` inside `choose_models`.
+2. **Everything else moves inside the existing per-scan `try/except Exception`** — not just
+   `_predict_one` as before, but `refs = worker.resolve(scan.params)`, both key computations, and
+   the skip decision too. This preserves the existing "one bad scan doesn't abort the batch"
+   guarantee (`test_zero_resolved_models_is_failed`, `test_one_failing_scan_does_not_abort_batch`)
+   for failure modes that can now occur earlier than before: an ambiguous-match `ValueError` from
+   `choose_models`, or — without the next point — a `pydantic.ValidationError` from a corrupt
+   leftover `.predictions.json`.
+3. Inside that block: `refs = worker.resolve(scan.params)` (cheap — matches against the
+   already-listed `ModelCard`s; see the accepted trade-off below on what "cheap" actually means
+   now), then `current_key = _identity_key(scan_key, images_checksum=scan.images_checksum, refs,
+   param_hash=scan.params.param_hash, predict_code_sha=resolved_code_sha,
+   output_params=worker.output_params())` (a thin wrapper around `compute_idempotency_key`, see
+   below), then `previous_key = _previous_identity_key(out_scan_dir, scan.scan_key)`.
+4. **`_previous_identity_key` catches its own file/parse errors internally** — `OSError`,
+   `json.JSONDecodeError`, and `pydantic.ValidationError` (a corrupt-but-present old
+   `.predictions.json`, distinct from missing-entirely) — and returns `None` rather than letting
+   them propagate. This is a deliberate distinction from point 2's outer `try/except`: a scan
+   whose *previous* artifacts are corrupt should be treated as "changed" and re-predicted
+   (overwriting the corrupt state), not recorded as `failed` — those are two different outcomes,
+   and only an internal catch inside `_previous_identity_key` produces the right one.
+5. `previous_key == current_key` → `skipped`. Otherwise (differs, or either is `None`) → predict,
+   write outputs as today.
+
+### Accepted trade-off: resolve() now runs once per batch even on a full resume
+
+Today, `resolve()` only runs for scans that aren't skipped, so a fully-resumed batch (every scan
+already done) calls it **zero times** — no model-registry network access at all. After this
+change, `resolve()` must run for every scan to get the current model refs to compare against the
+previous run's, so the one-time `list_cards()` catalog fetch (a real network call, for the
+production `WandbRegistrySource`) now happens **once per `run_batch()` invocation regardless of
+whether anything ends up (re)predicted**. Concretely: a wandb outage would turn a should-be-
+trivial "everything's already done" resume into a hard failure, where today it silently succeeds.
+
+This is accepted as-is (confirmed with the user during review) rather than special-cased away,
+because there's no way to know whether models changed without listing them — special-casing
+"only call `resolve()` if some other identity input changed" would restore the old free resume
+but silently miss a model-registry change as a reason to re-predict, undermining the exact
+guarantee including model refs in the identity key is meant to provide. It's a real, inherent cost
+of the correctness this feature buys, not a bug — worth stating plainly rather than leaving
+implicit, which is the only reason it's called out here.
 
 ## No new storage — recompute both sides from artifacts predict already writes
 
@@ -89,27 +130,31 @@ sidecar verbatim:
 | `scan_key` | the scan itself (identical either way) |
 | `images_checksum` | `out_scan_dir/{scan_key}.scan_metadata.json`'s `images_checksum` (the previously-copied sidecar, byte-identical to what was actually used) |
 | `param_hash` | recomputed via `compute_param_hash` over that same old sidecar's `params` — pure function, so this reproduces the exact value used at write time |
-| `models` | `out_scan_dir/{scan_key}.predictions.json`'s `artifacts[].model` (the `ModelRef`s actually used) |
+| `models` | `out_scan_dir/{scan_key}.predictions.json`'s `artifacts[].model` (the `ModelRef`s actually used) — converted to the `list[tuple[registry_id, version, weights_checksum]]` shape `compute_idempotency_key` expects, the same conversion applied on the current side to `refs.values()` |
 | `predict_code_sha` / `predict_output_params` | the same manifest's `predict_code_sha` / `predict_output_params` fields |
 
-So `_stored_identity_key(out_scan_dir, scan_key)` just reads those two existing files (returning
-`None` if either is missing/unreadable — e.g. a first run, or a crash left a partial write — which
-naturally falls through to "re-run," matching the existing "prefer re-run over serving stale/
-incomplete data" philosophy already baked into the sidecar-before-manifest ordering) and calls the
-same `compute_idempotency_key` used for the current side. No new file, no contracts change, and
-the exact same trick is available to traits later (it reads the identical two files plus its own
+So `_previous_identity_key(out_scan_dir, scan_key)` just reads those two existing files (returning
+`None` if either is missing/unreadable — e.g. a first run, a crash left a partial write, or the
+old files are present but corrupt/unparseable, see the ordering section above — which naturally
+falls through to "re-run," matching the existing "prefer re-run over serving stale/incomplete
+data" philosophy already baked into the sidecar-before-manifest ordering) and calls the same
+`compute_idempotency_key` used for the current side. No new file, no contracts change, and the
+exact same trick is available to traits later (it reads the identical two files plus its own
 `traits_code_sha`).
 
 ## Error handling summary
 
 - Malformed manifest → raises (batch-level, before any scan is touched).
 - Sidecar not in scope → excluded silently (debug log only).
-- Manifest scan_key with no sidecar → `ScanResult(status="failed")`, batch continues.
-- Zero models resolved → unchanged, still `failed` (check happens right after the moved-up
-  `resolve()` call).
-- No previous manifest/sidecar on disk yet, or either is unreadable → `previous_key = None` →
-  treated as changed → predict runs (first run, or a prior crash mid-write; never silently
-  skips on ambiguous state).
+- Manifest scan_key with no sidecar → synthetic `ScanInput.error` set, so it's caught by the
+  existing `scan.error` check *before* `resolve()` is ever called → `ScanResult(status="failed")`,
+  batch continues.
+- Zero models resolved, or any other exception inside the widened per-scan `try/except` (e.g. an
+  ambiguous-match `ValueError` from `choose_models`) → `failed`, batch continues — unchanged
+  guarantee, now covering a slightly larger block (see the ordering section above).
+- Previous manifest/sidecar missing, unreadable, *or corrupt/unparseable* → `_previous_identity_key`
+  catches this internally and returns `None` → treated as changed → predict runs (never silently
+  skips on ambiguous state, and never recorded as `failed` for a *previous*-side problem).
 - Everything else (missing input_dir, duplicate scan_key, unreadable sidecar, missing params) →
   unchanged.
 
@@ -132,12 +177,23 @@ cleaner split out):
 7. `run_batch` re-run with a different `SRP_PREDICT_CODE_SHA` re-predicts.
 8. `pyproject.toml` bumped to `sleap-roots-contracts==0.1.0a7`; full existing suite still green
    (regression gate for the version bump itself).
-9. A first run (nothing in `out_scan_dir` yet) always predicts — `_stored_identity_key` returns
+9. A first run (nothing in `out_scan_dir` yet) always predicts — `_previous_identity_key` returns
    `None`.
+10. A re-run where the currently-resolved `ModelRef` for some root type differs from what
+    produced the existing outputs (registry/version/weights_checksum) re-predicts, not skips —
+    identity-key inputs include model refs, so this needs its own explicit test rather than
+    relying on the sidecar-change tests to imply it.
+11. A re-run where the existing `out_scan_dir/{scan_key}.predictions.json` is present but corrupt
+    (valid JSON, fails `PredictionManifest` validation) re-predicts (status `ok`, overwriting the
+    corrupt state), and is **not** recorded as a batch failure.
+12. A scan whose synthetic error `ScanInput` (manifest scan_key, no sidecar; `params=None`) never
+    reaches `resolve()` — regression guard for the ordering fix above.
 
 ## Open note (non-blocking)
 
 `compute_idempotency_key` is not in `sleap_roots_contracts.__all__` — it's imported from its
 submodule (`sleap_roots_contracts.identity`) rather than the package root. Worth flagging to the
 contracts maintainers as a candidate for a future `__all__` addition, but not blocking (submodule
-import is stable, already-shipped code).
+import is stable, already-shipped code; no other module in this repo currently reaches into a
+non-`__all__` contracts submodule, so this is a new-but-low-risk pattern here, capped by the exact
+version pin).
