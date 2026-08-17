@@ -141,7 +141,12 @@ intermediate commit red, unlike group 2 (whose tests are independently satisfiab
 
 ## 6. Pre-merge gate
 
-- [ ] 6.1 Full `/pre-merge` gate (format, lint, test, build) before opening the PR. Confirm the
+- [x] 6.1 Full `/pre-merge` gate (format, lint, test, build) before opening the PR. Confirm the
       pytest invocation matches `ci.yml`'s exact marker expression (`-m "not gpu and not
       acceptance and not wandb"`), not `/pre-merge`'s own default `-m "not gpu"` (which would pull
       in flaky wandb-registry tests).
+      (black/ruff/codespell PASS; 304 passed, 7 deselected via bare `pytest tests/`, which relies
+      on `addopts` rather than `/pre-merge`'s own stale `-m "not gpu"` suggestion, for the same
+      reason flagged here; `uv build` PASS; Docker image build skipped locally — Dockerfile
+      itself is unchanged and CI's build-only PR job covers it; GPU subset: N/A, no CUDA/MPS
+      accelerator on this machine — needs verification on a GPU box before merge.)
