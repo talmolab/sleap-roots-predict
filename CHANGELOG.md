@@ -37,16 +37,22 @@ All notable changes to this project are documented here. The format is based on
   entrypoint — `sleap-roots-predict <input_scan_dir> <output_dir>` (also
   `python -m sleap_roots_predict`) and the `run_batch(...)` library function. Discovers scans
   (a `{scan_key}.scan_metadata.json` sidecar co-located with its frames), loads models once
-  via a resident `WarmModelWorker`, and per scan skips-if-done (existence-based resume),
-  predicts (single-channel video), writes the output-contract artifacts into
-  `out_dir/{scan_key}/`, and copies the sidecar through so the output is a self-contained
-  trait-extractor input tree. Per-scan failures are isolated; the process exits non-zero iff
-  any scan failed. The root `Dockerfile` now ships a real exec-form
-  `ENTRYPOINT ["python","-m","sleap_roots_predict"]` on the GPU (`linux_cuda`) stack and bakes
-  the build git sha (`SRP_PREDICT_CODE_SHA` build-arg → `ENV` → manifest `predict_code_sha`);
-  `docker-build.yml` tags `type=sha,format=long`. New public export: `run_batch`. See the
-  `predict-container` OpenSpec spec (closes #24). Model-derived channel handling (#25) and
-  Argo-readiness hardening (#26) are follow-ups.
+  via a resident `WarmModelWorker`, and per scan, when a `run_manifest.json` (`RunManifest`,
+  `sleap-roots-contracts==0.1.0a7`) is staged in `input_dir`, scopes discovery to exactly its
+  `scan_keys` (an out-of-scope sidecar is silently excluded); skip-if-done now compares a
+  recomputed idempotency key (`compute_idempotency_key`) against the prior run's own artifacts,
+  skipping only on an exact match and otherwise (re)predicting — no new storage. Note:
+  `resolve()` (and its one-time model-registry fetch) now runs once per batch invocation even
+  when every scan is already done, which it previously did not. Predicts (single-channel
+  video), writes the output-contract artifacts into `out_dir/{scan_key}/`, and copies the
+  sidecar through so the output is a self-contained trait-extractor input tree. Per-scan
+  failures are isolated; the process exits non-zero iff any scan failed. The root `Dockerfile`
+  now ships a real exec-form `ENTRYPOINT ["python","-m","sleap_roots_predict"]` on the GPU
+  (`linux_cuda`) stack and bakes the build git sha (`SRP_PREDICT_CODE_SHA` build-arg → `ENV` →
+  manifest `predict_code_sha`); `docker-build.yml` tags `type=sha,format=long`. New public
+  export: `run_batch`. See the `predict-container` OpenSpec spec (closes #24, and the
+  `sleap-roots-predict` row of `sleap-roots-pipeline`#37). Model-derived channel handling (#25)
+  and Argo-readiness hardening (#26) are follow-ups.
 - **A3-predict parity harness** (`sleap_roots_predict.parity`): resolves real human-labeled
   ground truth per production `ModelCard` (labels-registry lookup, bundled-labels path
   relinking, or basename search, in that priority order; unresolvable models are reported as

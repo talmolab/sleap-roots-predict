@@ -116,7 +116,7 @@ intermediate commit red, unlike group 2 (whose tests are independently satisfiab
 
 ## 5. Docs
 
-- [ ] 5.1 Update `CHANGELOG.md`'s `[Unreleased]` "Predict container CLI" bullet in place: replace
+- [x] 5.1 Update `CHANGELOG.md`'s `[Unreleased]` "Predict container CLI" bullet in place: replace
       "skips-if-done (existence-based resume)" with: "and per scan, when a `run_manifest.json`
       (`RunManifest`, `sleap-roots-contracts==0.1.0a7`) is staged in `input_dir`, scopes discovery
       to exactly its `scan_keys` (an out-of-scope sidecar is silently excluded); skip-if-done now
@@ -124,20 +124,20 @@ intermediate commit red, unlike group 2 (whose tests are independently satisfiab
       own artifacts, skipping only on an exact match and otherwise (re)predicting — no new
       storage." Note the accepted trade-off (resolve() now runs once per batch even on a full
       resume) in a short follow-up sentence.
-- [ ] 5.2 Update `API.md`'s `run_batch` prose ("skips if the manifest already exists (resume)")
+- [x] 5.2 Update `API.md`'s `run_batch` prose ("skips if the manifest already exists (resume)")
       to describe the idempotency-key comparison and manifest-scoped discovery, matching the
       CHANGELOG wording from 5.1.
-- [ ] 5.3 Update `README.md`'s "Running the predict container" section (~line 211, "It skips a
+- [x] 5.3 Update `README.md`'s "Running the predict container" section (~line 211, "It skips a
       scan whose manifest already exists (resume)...") with the same replacement wording as 5.1,
       and add a sentence noting `run_manifest.json`-scoped discovery when the operator's pipeline
       stages one.
-- [ ] 5.4 Update `openspec/project.md`: the External Dependencies `sleap-roots-contracts` version
+- [x] 5.4 Update `openspec/project.md`: the External Dependencies `sleap-roots-contracts` version
       literal (`==0.1.0a6` → `==0.1.0a7`), and the Roadmap note at the top of the file to credit
       this change with closing the `sleap-roots-predict` row of `sleap-roots-pipeline#37`,
       parallel to the existing `#15` credit for the parity harness.
-- [ ] 5.5 Grep sweep: search `README.md`, `API.md`, `CHANGELOG.md`, `openspec/project.md` for
+- [x] 5.5 Grep sweep: search `README.md`, `API.md`, `CHANGELOG.md`, `openspec/project.md` for
       `skip|manifest|exists|resume` and confirm no stale existence-based-resume phrasing survives
-      anywhere (mirrors the precedent PR's closing sweep task).
+      anywhere (mirrors the precedent PR's closing sweep task). (Clean — no matches.)
 
 ## 6. Pre-merge gate
 

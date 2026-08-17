@@ -206,12 +206,16 @@ docker run --rm -e WANDB_API_KEY=$WANDB_API_KEY \
 
 Each scan is a directory of image frames with a co-located
 `{scan_key}.scan_metadata.json` sidecar (carrying the resolved `{species, mode, age}`
-params). The container loads models once, predicts every scan, and writes per scan
+params). If the input directory also has a `run_manifest.json` (staged by an upstream
+pipeline stage), discovery is scoped to exactly that manifest's `scan_keys` — a leftover
+sidecar from a prior run is silently excluded rather than reprocessed. The container loads
+models once, predicts every scan, and writes per scan
 `out/{scan_key}/{scan_key}.predictions.json` + named per-root `.slp` + a copy of the
-sidecar. It skips a scan whose manifest already exists (resume) and exits non-zero if any
-scan failed. GPU is used when available (`nvidia.com/gpu`); it also runs CPU-only. The same
-entrypoint is available as a library: `from sleap_roots_predict import run_batch`, or
-`python -m sleap_roots_predict <in> <out>`.
+sidecar. Skip-if-done compares a recomputed idempotency key against the prior run's own
+artifacts (no new storage needed) and skips only on an exact match, (re)predicting
+otherwise; it exits non-zero if any scan failed. GPU is used when available
+(`nvidia.com/gpu`); it also runs CPU-only. The same entrypoint is available as a library:
+`from sleap_roots_predict import run_batch`, or `python -m sleap_roots_predict <in> <out>`.
 
 ## CI/CD
 
