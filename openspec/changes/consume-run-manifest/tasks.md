@@ -111,7 +111,8 @@ intermediate commit red, unlike group 2 (whose tests are independently satisfiab
 
 ## 4. OpenSpec validation gate
 
-- [ ] 4.1 `openspec validate consume-run-manifest --strict` — resolve any issues.
+- [x] 4.1 `openspec validate consume-run-manifest --strict` — resolve any issues.
+      (`Change 'consume-run-manifest' is valid`.)
 
 ## 5. Docs
 
