@@ -19,26 +19,27 @@ commit.
 Each sub-item: write the failing test first, then the minimal `discover_scans` change to pass
 it, per the design doc's data-flow section.
 
-- [ ] 2.1 Test: `discover_scans` scopes to a present `run_manifest.json`'s `scan_keys` — a
+- [x] 2.1 Test: `discover_scans` scopes to a present `run_manifest.json`'s `scan_keys` — a
       leftover sidecar outside that set is excluded (not returned, no error recorded). Then
       implement: read `input_dir / RUN_MANIFEST_FILENAME` if present, parse via
       `RunManifest.model_validate_json`, filter the `rglob` results to `scan_key in
       manifest.scan_keys` before dup-tracking (so an out-of-scope sidecar is never even
       considered for the duplicate-`scan_key` check).
-- [ ] 2.2 Test: no `run_manifest.json` present → `discover_scans` returns exactly what it does
+- [x] 2.2 Test: no `run_manifest.json` present → `discover_scans` returns exactly what it does
       today (every sidecar found, none excluded) — a regression guard, not new behavior; existing
       fixtures/tests should need no changes to keep passing.
-- [ ] 2.3 Test: a manifest `scan_key` with no matching sidecar anywhere under the input directory
+- [x] 2.3 Test: a manifest `scan_key` with no matching sidecar anywhere under the input directory
       becomes a `ScanInput` with `.error` set and `params=None` (reuses the existing error →
       `ScanResult(status="failed")` path — verify via `run_batch`, not just `discover_scans`,
       since that's where the status actually surfaces). Implement: after building the
       scoped+discovered set, compute `manifest.scan_keys - {discovered scan_keys}` and append a
       synthetic errored `ScanInput` per missing key.
-- [ ] 2.4 Test: a malformed `run_manifest.json` (invalid JSON, or valid JSON failing `RunManifest`
+- [x] 2.4 Test: a malformed `run_manifest.json` (invalid JSON, or valid JSON failing `RunManifest`
       validation, e.g. empty `scan_keys`) raises from `discover_scans` before any scan is
       returned/processed.
-- [ ] 2.5 Run the targeted test file (`pytest tests/test_batch.py -k manifest or discover`) and
+- [x] 2.5 Run the targeted test file (`pytest tests/test_batch.py -k manifest or discover`) and
       confirm all four new scenarios pass alongside the untouched existing discovery tests.
+      (28 tests in test_batch.py, all passing; full suite 295 passed, 7 deselected.)
 
 ## 3. Idempotency-key skip-if-done (TDD)
 

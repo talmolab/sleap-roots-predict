@@ -13,7 +13,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sleap_roots_contracts import ResolvedParams
+from sleap_roots_contracts import RUN_MANIFEST_FILENAME, ResolvedParams, RunManifest
 
 from sleap_roots_predict.model_registry import ModelCardSource
 from sleap_roots_predict.output_contract import write_prediction_outputs
@@ -72,26 +72,44 @@ def discover_scans(input_dir: str | Path) -> list[ScanInput]:
     returned with ``.error`` set (isolated failure); a duplicate ``scan_key``
     anywhere in the tree raises.
 
+    If ``input_dir / RUN_MANIFEST_FILENAME`` exists, discovery is scoped to
+    exactly its ``scan_keys``: a discovered sidecar outside that set is
+    silently excluded, and a listed ``scan_key`` with no matching sidecar is
+    returned as an isolated error entry. Absent a manifest, every sidecar found
+    is returned (unscoped), unchanged from before manifest-awareness existed.
+
     Args:
         input_dir: Directory of staged scans (must exist).
 
     Returns:
-        One :class:`ScanInput` per discovered sidecar, sorted by path.
+        One :class:`ScanInput` per discovered (or manifest-expected-but-missing)
+        sidecar, sorted by path.
 
     Raises:
         FileNotFoundError: If ``input_dir`` does not exist (a mis-configured mount,
             distinct from an empty-but-present directory which is a no-op).
-        ValueError: If two sidecars share a ``scan_key``.
+        ValueError: If two in-scope sidecars share a ``scan_key``.
+        pydantic.ValidationError: If a present ``run_manifest.json`` fails to parse
+            or validate as a :class:`RunManifest`.
     """
     input_dir = Path(input_dir)
     if not input_dir.exists():
         raise FileNotFoundError(
             f"input scan directory does not exist: {input_dir.as_posix()}"
         )
+
+    manifest_path = input_dir / RUN_MANIFEST_FILENAME
+    scoped_keys: set[str] | None = None
+    if manifest_path.exists():
+        manifest = RunManifest.model_validate_json(manifest_path.read_text())
+        scoped_keys = set(manifest.scan_keys)
+
     scans: list[ScanInput] = []
     seen: dict[str, Path] = {}
     for sidecar in sorted(input_dir.rglob("*" + _SIDECAR_SUFFIX)):
         scan_key = sidecar.name[: -len(_SIDECAR_SUFFIX)]
+        if scoped_keys is not None and scan_key not in scoped_keys:
+            continue
         if scan_key in seen:
             raise ValueError(
                 f"duplicate scan_key {scan_key!r}: "
@@ -99,6 +117,17 @@ def discover_scans(input_dir: str | Path) -> list[ScanInput]:
             )
         seen[scan_key] = sidecar
         scans.append(_load_scan(sidecar, scan_key))
+
+    if scoped_keys is not None:
+        for key in sorted(scoped_keys - set(seen)):
+            scans.append(
+                ScanInput(
+                    key,
+                    input_dir / f"{key}{_SIDECAR_SUFFIX}",
+                    error=f"no sidecar found for manifest scan_key {key!r}",
+                )
+            )
+
     return scans
 
 

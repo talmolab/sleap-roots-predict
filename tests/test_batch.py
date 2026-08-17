@@ -82,6 +82,23 @@ def test_duplicate_scan_key_raises(tmp_path: Path):
         discover_scans(tmp_path)
 
 
+def test_discover_scans_scopes_to_run_manifest(tmp_path: Path):
+    _write_scan(tmp_path, "scan_1009", _RICE)
+    _write_scan(tmp_path, "scan_1010", _RICE)  # leftover from a prior run, not in scope
+    (tmp_path / "run_manifest.json").write_text(
+        json.dumps({"pipeline_run_id": "run-1", "scan_keys": ["scan_1009"]})
+    )
+    scans = discover_scans(tmp_path)
+    assert [s.scan_key for s in scans] == ["scan_1009"]
+
+
+def test_no_manifest_falls_back_to_unscoped_discovery(tmp_path: Path):
+    _write_scan(tmp_path, "scanA", _RICE)
+    _write_scan(tmp_path, "scanB", _RICE)
+    scans = discover_scans(tmp_path)
+    assert sorted(s.scan_key for s in scans) == ["scanA", "scanB"]
+
+
 def test_batch_does_not_import_trait_extractor():
     import sleap_roots_predict.batch  # noqa: F401
 
@@ -347,6 +364,37 @@ def test_resume_mixed_skip_and_predict(all_roots_source, tmp_path: Path):
     statuses = {s.scan_key: s.status for s in result.scans}
     assert statuses["sDone"] == "skipped"
     assert statuses["sNew"] == "ok"
+
+
+def test_manifest_scan_key_with_no_sidecar_is_failed(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanGOOD", _RICE)
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {"pipeline_run_id": "run-1", "scan_keys": ["scanGOOD", "scanMISSING"]}
+        )
+    )
+    out = tmp_path / "out"
+    result = run_batch(inp, out, source=all_roots_source)
+    statuses = {s.scan_key: s.status for s in result.scans}
+    assert statuses["scanGOOD"] == "ok"
+    assert statuses["scanMISSING"] == "failed"
+
+
+def test_malformed_manifest_json_raises(tmp_path: Path):
+    _write_scan(tmp_path, "scanA", _RICE)
+    (tmp_path / "run_manifest.json").write_text("{not valid json")
+    with pytest.raises(Exception):
+        discover_scans(tmp_path)
+
+
+def test_manifest_with_empty_scan_keys_raises(tmp_path: Path):
+    _write_scan(tmp_path, "scanA", _RICE)
+    (tmp_path / "run_manifest.json").write_text(
+        json.dumps({"pipeline_run_id": "run-1", "scan_keys": []})
+    )
+    with pytest.raises(Exception):
+        discover_scans(tmp_path)
 
 
 def test_extra_params_keys_ignored(tmp_path: Path):
