@@ -92,6 +92,52 @@ def test_discover_scans_scopes_to_run_manifest(tmp_path: Path):
     assert [s.scan_key for s in scans] == ["scan_1009"]
 
 
+def test_excluded_out_of_scope_sidecar_logs_debug(tmp_path: Path, caplog):
+    _write_scan(tmp_path, "scan_1009", _RICE)
+    _write_scan(tmp_path, "scan_1010", _RICE)  # leftover from a prior run, not in scope
+    (tmp_path / "run_manifest.json").write_text(
+        json.dumps({"pipeline_run_id": "run-1", "scan_keys": ["scan_1009"]})
+    )
+    with caplog.at_level("DEBUG", logger="sleap_roots_predict.batch"):
+        discover_scans(tmp_path)
+    assert any("scan_1010" in r.message for r in caplog.records)
+
+
+def test_no_exclusion_logs_no_debug_line(tmp_path: Path, caplog):
+    _write_scan(tmp_path, "scan_1009", _RICE)
+    (tmp_path / "run_manifest.json").write_text(
+        json.dumps({"pipeline_run_id": "run-1", "scan_keys": ["scan_1009"]})
+    )
+    with caplog.at_level("DEBUG", logger="sleap_roots_predict.batch"):
+        discover_scans(tmp_path)
+    assert not any("excluded" in r.message.lower() for r in caplog.records)
+
+
+def test_manifest_scoped_stem_mismatch_reports_the_real_error(tmp_path: Path):
+    # sidecar filename stem "scanB" (matches the manifest's scan_key, so it passes
+    # scoping) but its internal scan_key is "scanOTHER" — must surface the actual
+    # stem-mismatch error, not a misleading "no sidecar found for manifest scan_key"
+    # (which would fire if this sidecar were wrongly treated as never having been found).
+    d = tmp_path / "scanB"
+    d.mkdir()
+    Image.fromarray(np.zeros((16, 16), dtype="uint8")).save(d / "frame_000.png")
+    (d / "scanB.scan_metadata.json").write_text(
+        json.dumps(
+            {
+                "scan_key": "scanOTHER",
+                "params": {"species": "rice", "mode": "cylinder", "age": 3},
+            }
+        )
+    )
+    (tmp_path / "run_manifest.json").write_text(
+        json.dumps({"pipeline_run_id": "run-1", "scan_keys": ["scanB"]})
+    )
+    (scan,) = discover_scans(tmp_path)
+    assert scan.error is not None
+    assert "scanOTHER" in scan.error
+    assert "no sidecar found" not in scan.error
+
+
 def test_no_manifest_falls_back_to_unscoped_discovery(tmp_path: Path):
     _write_scan(tmp_path, "scanA", _RICE)
     _write_scan(tmp_path, "scanB", _RICE)
@@ -504,6 +550,7 @@ def test_changed_predict_code_sha_causes_repredict(
     result2 = run_batch(inp, out, source=all_roots_source)
     assert [s.status for s in result2.scans] == ["ok"]
     assert manifest.stat().st_mtime_ns != mtime1
+    assert json.loads(manifest.read_text())["predict_code_sha"] == "sha-two"
 
 
 def test_changed_model_ref_causes_repredict(tmp_path: Path, native_model_dir):
@@ -561,3 +608,35 @@ def test_manifest_missing_sidecar_does_not_abort_other_scans(
     result = run_batch(inp, out, source=all_roots_source)
     statuses = {s.scan_key: s.status for s in result.scans}
     assert statuses == {"scanGOOD": "ok", "scanMISSING": "failed"}
+
+
+def test_scan_error_short_circuits_before_resolve(
+    all_roots_source, tmp_path, monkeypatch
+):
+    import sleap_roots_predict.batch as batch_mod
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanGOOD", _RICE)
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {"pipeline_run_id": "run-1", "scan_keys": ["scanGOOD", "scanMISSING"]}
+        )
+    )
+    out = tmp_path / "out"
+
+    calls = []
+    original_resolve = batch_mod.WarmModelWorker.resolve
+
+    def spy_resolve(self, params, overrides=None):
+        calls.append(params)
+        return original_resolve(self, params, overrides)
+
+    monkeypatch.setattr(batch_mod.WarmModelWorker, "resolve", spy_resolve)
+    result = run_batch(inp, out, source=all_roots_source)
+    statuses = {s.scan_key: s.status for s in result.scans}
+    assert statuses == {"scanGOOD": "ok", "scanMISSING": "failed"}
+    # resolve() legitimately runs more than once for a successful scan (once for the
+    # identity-key comparison, once more inside worker.predict()) — what must never happen
+    # is a call for scanMISSING, whose ScanInput.params is None.
+    assert calls, "resolve() should have been called at least once, for scanGOOD"
+    assert all(params is not None for params in calls)

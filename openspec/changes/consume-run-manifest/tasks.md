@@ -151,3 +151,39 @@ intermediate commit red, unlike group 2 (whose tests are independently satisfiab
       itself is unchanged and CI's build-only PR job covers it; GPU subset: `uv sync --extra dev
       --extra windows_cuda` then `pytest -m gpu tests/` — 3 passed on this machine's NVIDIA RTX
       A5000; full suite re-confirmed green under the CUDA-enabled environment, 304 passed.)
+
+## 7. Post-review hardening (PR #35 5-lens review findings)
+
+None of these change the spec deltas — they close gaps the review found between the design doc's
+promises / this PR's own correctness margins and the shipped code, plus two DRY follow-ups the
+reviewers flagged as coupling risks. Land as normal TDD commits (test-first where new behavior is
+being added; refactors verified by keeping existing tests green, per the TDD refactor discipline).
+
+- [x] 7.1 Test-first: `discover_scans` emits a `logger.debug` line reporting the excluded
+      out-of-scope scan_key(s) when a manifest is present (the design doc already promises this;
+      the implementation never added it). Use `caplog` to assert the debug message appears when a
+      leftover sidecar is excluded, and confirm no regression on the no-manifest path.
+- [x] 7.2 Test-first: add a regression test proving `run_batch` never calls `WarmModelWorker.resolve`
+      for a scan with `.error` set (the manifest-scan_key-with-no-sidecar case) — spy/monkeypatch
+      `resolve` and assert zero calls for that scan. Closes the gap where every existing test only
+      checks the final `status`, not that resolution was skipped.
+- [x] 7.3 Refactor (no new test; keep all existing tests green): extract a shared
+      `predictions_json_path(out_dir, scan_key)` helper in `output_contract.py` (single source of
+      truth for the `{scan_key}.predictions.json` filename, mirroring the existing `_SIDECAR_SUFFIX`
+      pattern); use it from both `write_prediction_outputs` and `batch.py`'s
+      `_previous_identity_key`.
+- [x] 7.4 Refactor (no new test; keep all existing tests green): promote `output_contract.py`'s
+      private `_resolve_identity` to a public `resolve_identity`; reuse it from `batch.py`'s
+      `resolved_code_sha` computation instead of a second inline implementation of the same
+      fallback.
+- [x] 7.5 Test-first: add a test combining manifest scoping with a sidecar whose filename stem
+      matches a manifest `scan_key` but whose internal `scan_key` field doesn't — confirm the
+      correct stem-mismatch failure surfaces (not a misleading "no sidecar found for manifest
+      scan_key" message), pinning down behavior currently correct only by code-order coincidence.
+- [x] 7.6 Strengthen `test_changed_predict_code_sha_causes_repredict` to assert the persisted
+      `predict_code_sha` value directly (matching `test_run_batch_writes_outputs_and_copies_sidecar`'s
+      existing pattern), not just that the manifest's mtime changed.
+- [x] 7.7 Fix PR #35's description: "`resolve()` now runs once per `run_batch()` invocation" is
+      imprecise — `resolve()` runs once per non-error scan; what's actually cached per-batch is
+      `WarmModelWorker._cards` (the `list_cards()` network call). Tighten the wording.
+- [x] 7.8 Full lint + test gate; push; re-post an updated summary to the PR.

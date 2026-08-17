@@ -9,7 +9,6 @@ writes the prediction-output artifacts, and copies the sidecar through so each
 
 import json
 import logging
-import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,7 +23,11 @@ from sleap_roots_contracts import (
 from sleap_roots_contracts.identity import compute_idempotency_key
 
 from sleap_roots_predict.model_registry import ModelCardSource
-from sleap_roots_predict.output_contract import write_prediction_outputs
+from sleap_roots_predict.output_contract import (
+    predictions_json_path,
+    resolve_identity,
+    write_prediction_outputs,
+)
 from sleap_roots_predict.video_utils import make_video_from_images, natural_sort
 from sleap_roots_predict.warm_worker import WarmModelWorker
 
@@ -115,9 +118,11 @@ def discover_scans(input_dir: str | Path) -> list[ScanInput]:
 
     scans: list[ScanInput] = []
     seen: dict[str, Path] = {}
+    excluded: list[str] = []
     for sidecar in sorted(input_dir.rglob("*" + _SIDECAR_SUFFIX)):
         scan_key = sidecar.name[: -len(_SIDECAR_SUFFIX)]
         if scoped_keys is not None and scan_key not in scoped_keys:
+            excluded.append(scan_key)
             continue
         if scan_key in seen:
             raise ValueError(
@@ -126,6 +131,13 @@ def discover_scans(input_dir: str | Path) -> list[ScanInput]:
             )
         seen[scan_key] = sidecar
         scans.append(_load_scan(sidecar, scan_key))
+
+    if excluded:
+        logger.debug(
+            "Excluded %d sidecar(s) outside run_manifest.json scope: %s",
+            len(excluded),
+            sorted(excluded),
+        )
 
     if scoped_keys is not None:
         for key in sorted(scoped_keys - set(seen)):
@@ -230,7 +242,7 @@ def _previous_identity_key(out_scan_dir: Path, scan_key: str) -> str | None:
     *previous* state is treated as "changed," never as a failure.
     """
     sidecar_path = out_scan_dir / f"{scan_key}{_SIDECAR_SUFFIX}"
-    manifest_path = out_scan_dir / f"{scan_key}.predictions.json"
+    manifest_path = predictions_json_path(out_scan_dir, scan_key)
     try:
         meta = json.loads(sidecar_path.read_text())
         manifest = PredictionManifest.model_validate_json(manifest_path.read_text())
@@ -292,11 +304,7 @@ def run_batch(
         logger.warning("No scans discovered under %s", input_dir.as_posix())
         return result
 
-    resolved_code_sha = (
-        predict_code_sha
-        if predict_code_sha is not None
-        else os.environ.get("SRP_PREDICT_CODE_SHA", "")
-    )
+    resolved_code_sha = resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA")
     worker = WarmModelWorker(source=source)
     for scan in scans:
         if scan.error is not None:
