@@ -135,7 +135,7 @@ sidecar verbatim:
 
 So `_previous_identity_key(out_scan_dir, scan_key)` just reads those two existing files (returning
 `None` if either is missing/unreadable — e.g. a first run, a crash left a partial write, or the
-old files are present but corrupt/unparseable, see the ordering section above — which naturally
+old files are present but corrupt/unparsable, see the ordering section above — which naturally
 falls through to "re-run," matching the existing "prefer re-run over serving stale/incomplete
 data" philosophy already baked into the sidecar-before-manifest ordering) and calls the same
 `compute_idempotency_key` used for the current side. No new file, no contracts change, and the
@@ -152,7 +152,7 @@ exact same trick is available to traits later (it reads the identical two files 
 - Zero models resolved, or any other exception inside the widened per-scan `try/except` (e.g. an
   ambiguous-match `ValueError` from `choose_models`) → `failed`, batch continues — unchanged
   guarantee, now covering a slightly larger block (see the ordering section above).
-- Previous manifest/sidecar missing, unreadable, *or corrupt/unparseable* → `_previous_identity_key`
+- Previous manifest/sidecar missing, unreadable, *or corrupt/unparsable* → `_previous_identity_key`
   catches this internally and returns `None` → treated as changed → predict runs (never silently
   skips on ambiguous state, and never recorded as `failed` for a *previous*-side problem).
 - Everything else (missing input_dir, duplicate scan_key, unreadable sidecar, missing params) →

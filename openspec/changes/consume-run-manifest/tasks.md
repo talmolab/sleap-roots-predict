@@ -4,14 +4,15 @@ Land 1.1–1.2 as a single commit — the Dockerfile's `uv sync --frozen` hard-f
 doesn't match `pyproject.toml`, so a bumped pin without its relock is never a safe standalone
 commit.
 
-- [ ] 1.1 Bump `sleap-roots-contracts` from `==0.1.0a6` to `==0.1.0a7` in `pyproject.toml`.
-- [ ] 1.2 Relock scoped to just this dependency: `uv lock -P sleap-roots-contracts` (not a bare
+- [x] 1.1 Bump `sleap-roots-contracts` from `==0.1.0a6` to `==0.1.0a7` in `pyproject.toml`.
+- [x] 1.2 Relock scoped to just this dependency: `uv lock -P sleap-roots-contracts` (not a bare
       `uv lock`); confirm the `uv.lock` diff touches only the `sleap-roots-contracts` entry.
-- [ ] 1.3 Verify `python -c "from sleap_roots_contracts import RunManifest, RUN_MANIFEST_FILENAME;
+- [x] 1.3 Verify `python -c "from sleap_roots_contracts import RunManifest, RUN_MANIFEST_FILENAME;
       from sleap_roots_contracts.identity import compute_idempotency_key; print('ok')"` succeeds
       at the new pin, with no other code changes yet.
-- [ ] 1.4 Run the full test suite (`pytest -m "not gpu and not acceptance and not wandb and not
+- [x] 1.4 Run the full test suite (`pytest -m "not gpu and not acceptance and not wandb and not
       parity"`) and confirm it is still green before any further edits — the regression baseline.
+      (290 passed, 7 deselected.)
 
 ## 2. Manifest-scoped discovery (TDD)
 

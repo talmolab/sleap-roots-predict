@@ -38,7 +38,7 @@ using data predict already has on disk, no new storage or contracts change requi
   already-copied sidecar (`images_checksum`, and `params` to recompute `param_hash`) and the
   already-written `{scan_key}.predictions.json` (`artifacts[].model`, `predict_code_sha`,
   `predict_output_params`) sitting in `out_scan_dir` from the prior run. Missing, unreadable, or
-  corrupt/unparseable prior artifacts (first run, a crash mid-write, or a hand-corrupted leftover)
+  corrupt/unparsable prior artifacts (first run, a crash mid-write, or a hand-corrupted leftover)
   yield no previous key, which is treated as "changed" — the scan is (re)predicted rather than
   silently skipped on ambiguous state or recorded as a batch failure. The existing `scan.error`
   check (invalid sidecar, stem mismatch, or a manifest scan_key with no sidecar) still runs first,
