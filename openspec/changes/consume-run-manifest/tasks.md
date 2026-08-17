@@ -187,3 +187,22 @@ being added; refactors verified by keeping existing tests green, per the TDD ref
       imprecise — `resolve()` runs once per non-error scan; what's actually cached per-batch is
       `WarmModelWorker._cards` (the `list_cards()` network call). Tighten the wording.
 - [x] 7.8 Full lint + test gate; push; re-post an updated summary to the PR.
+
+## 8. Second review round follow-ups (cheap suggestions)
+
+A second `/review-pr` pass (report-only, Mode B) re-verified all of group 7's fixes by direct
+tracing and found no BLOCKING/IMPORTANT issues (scores 8-9/10 across all five lenses). These
+three items address the cheapest of its SUGGESTION-tier findings.
+
+- [x] 8.1 Add a docstring note to `output_contract.py`'s `resolve_identity` and
+      `predictions_json_path` marking them as intentionally cross-module-internal helpers (not
+      part of the package's public API / not re-exported via `__init__.py`), so their
+      un-underscored naming doesn't read as an oversight.
+- [x] 8.2 Remove `test_manifest_missing_sidecar_does_not_abort_other_scans` — it is now a strict
+      subset of `test_scan_error_short_circuits_before_resolve` (identical fixture, weaker
+      assertion) and adds no coverage.
+- [x] 8.3 Strengthen `test_scan_error_short_circuits_before_resolve`'s assertion from
+      `all(params is not None for params in calls)` to `len(calls) == 2`, locking in the
+      documented "resolve() runs twice per successful scan" behavior instead of only ruling out
+      a `None`-params call.
+- [x] 8.4 Full lint + test gate; commit; push; update the PR.

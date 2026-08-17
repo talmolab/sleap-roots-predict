@@ -594,22 +594,6 @@ def test_corrupt_previous_manifest_causes_repredict_not_failure(
     assert [s.status for s in result2.scans] == ["ok"]
 
 
-def test_manifest_missing_sidecar_does_not_abort_other_scans(
-    all_roots_source, tmp_path
-):
-    inp = tmp_path / "in"
-    _real_scan(inp, "scanGOOD", _RICE)
-    (inp / "run_manifest.json").write_text(
-        json.dumps(
-            {"pipeline_run_id": "run-1", "scan_keys": ["scanGOOD", "scanMISSING"]}
-        )
-    )
-    out = tmp_path / "out"
-    result = run_batch(inp, out, source=all_roots_source)
-    statuses = {s.scan_key: s.status for s in result.scans}
-    assert statuses == {"scanGOOD": "ok", "scanMISSING": "failed"}
-
-
 def test_scan_error_short_circuits_before_resolve(
     all_roots_source, tmp_path, monkeypatch
 ):
@@ -635,8 +619,9 @@ def test_scan_error_short_circuits_before_resolve(
     result = run_batch(inp, out, source=all_roots_source)
     statuses = {s.scan_key: s.status for s in result.scans}
     assert statuses == {"scanGOOD": "ok", "scanMISSING": "failed"}
-    # resolve() legitimately runs more than once for a successful scan (once for the
-    # identity-key comparison, once more inside worker.predict()) — what must never happen
-    # is a call for scanMISSING, whose ScanInput.params is None.
-    assert calls, "resolve() should have been called at least once, for scanGOOD"
+    # resolve() runs exactly twice for scanGOOD (once for the identity-key comparison
+    # in run_batch, once more inside worker.predict() -> get_predictors()) and never
+    # for scanMISSING (whose ScanInput.params is None) — pinning down both the "never
+    # called for an error'd scan" invariant and the documented call count together.
+    assert len(calls) == 2
     assert all(params is not None for params in calls)

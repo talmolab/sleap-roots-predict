@@ -99,7 +99,9 @@ def resolve_identity(explicit: str | None, env_var: str) -> str:
 
     Public (not module-private) because ``batch.py`` reuses it to resolve
     ``predict_code_sha`` for the skip-if-done identity-key comparison, so both sites
-    derive the exact same value from the exact same input.
+    derive the exact same value from the exact same input. Not part of this
+    package's public API — it is a cross-module-internal helper, deliberately not
+    re-exported from ``sleap_roots_predict``'s ``__init__.py``.
     """
     if explicit is not None:
         return explicit
@@ -110,7 +112,9 @@ def predictions_json_path(out_dir: str | Path, scan_key: str) -> Path:
     """Return the per-scan prediction-manifest path (single source of truth).
 
     Used by both this module's writer and ``batch.py``'s skip-if-done reader, so a
-    future filename change can't desync the two.
+    future filename change can't desync the two. Not part of this package's public
+    API — it is a cross-module-internal helper, deliberately not re-exported from
+    ``sleap_roots_predict``'s ``__init__.py``.
     """
     return Path(out_dir) / f"{scan_key}{_PREDICTIONS_JSON_SUFFIX}"
 
