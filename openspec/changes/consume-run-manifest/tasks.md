@@ -148,5 +148,6 @@ intermediate commit red, unlike group 2 (whose tests are independently satisfiab
       (black/ruff/codespell PASS; 304 passed, 7 deselected via bare `pytest tests/`, which relies
       on `addopts` rather than `/pre-merge`'s own stale `-m "not gpu"` suggestion, for the same
       reason flagged here; `uv build` PASS; Docker image build skipped locally — Dockerfile
-      itself is unchanged and CI's build-only PR job covers it; GPU subset: N/A, no CUDA/MPS
-      accelerator on this machine — needs verification on a GPU box before merge.)
+      itself is unchanged and CI's build-only PR job covers it; GPU subset: `uv sync --extra dev
+      --extra windows_cuda` then `pytest -m gpu tests/` — 3 passed on this machine's NVIDIA RTX
+      A5000; full suite re-confirmed green under the CUDA-enabled environment, 304 passed.)
