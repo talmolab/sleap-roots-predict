@@ -416,3 +416,148 @@ def test_extra_params_keys_ignored(tmp_path: Path):
     (scan,) = discover_scans(tmp_path)
     assert scan.error is None
     assert scan.params.values == {"species": "rice", "mode": "cylinder", "age": 3}
+
+
+def test_identity_key_changes_with_images_checksum():
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_contracts import ModelRef
+
+    ref = ModelRef(registry_id="reg/x", version="v1", sleap_nn_version="0.3.0")
+    base_kwargs = dict(
+        scan_key="scanA",
+        params_dict={"species": "rice", "mode": "cylinder", "age": 3},
+        model_refs={"primary": ref},
+        predict_code_sha="sha1",
+        predict_output_params={"peak_threshold": 0.2},
+    )
+    key_a = batch_mod._identity_key(images_checksum="sha256:a", **base_kwargs)
+    key_b = batch_mod._identity_key(images_checksum="sha256:b", **base_kwargs)
+    assert key_a != key_b
+
+
+def test_previous_identity_key_none_when_nothing_on_disk(tmp_path: Path):
+    import sleap_roots_predict.batch as batch_mod
+
+    assert batch_mod._previous_identity_key(tmp_path, "scanA") is None
+
+
+def test_previous_identity_key_none_when_predictions_json_corrupt(tmp_path: Path):
+    import sleap_roots_predict.batch as batch_mod
+
+    (tmp_path / "scanA.scan_metadata.json").write_text(
+        json.dumps(
+            {"scan_key": "scanA", "images_checksum": "sha256:x", "params": _RICE}
+        )
+    )
+    (tmp_path / "scanA.predictions.json").write_text('{"not": "a valid manifest"}')
+    assert batch_mod._previous_identity_key(tmp_path, "scanA") is None
+
+
+def test_changed_params_causes_repredict(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    out = tmp_path / "out"
+    run_batch(inp, out, source=all_roots_source)
+    manifest = out / "scanA" / "scanA.predictions.json"
+    mtime1 = manifest.stat().st_mtime_ns
+
+    sidecar = inp / "scanA" / "scanA.scan_metadata.json"
+    body = json.loads(sidecar.read_text())
+    body["params"] = {"species": "rice", "mode": "cylinder", "age": 4}
+    sidecar.write_text(json.dumps(body))
+
+    result2 = run_batch(inp, out, source=all_roots_source)
+    assert [s.status for s in result2.scans] == ["ok"]
+    assert manifest.stat().st_mtime_ns != mtime1
+
+
+def test_changed_images_checksum_causes_repredict(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    out = tmp_path / "out"
+    run_batch(inp, out, source=all_roots_source)
+    manifest = out / "scanA" / "scanA.predictions.json"
+    mtime1 = manifest.stat().st_mtime_ns
+
+    sidecar = inp / "scanA" / "scanA.scan_metadata.json"
+    body = json.loads(sidecar.read_text())
+    body["images_checksum"] = "sha256:changed"
+    sidecar.write_text(json.dumps(body))
+
+    result2 = run_batch(inp, out, source=all_roots_source)
+    assert [s.status for s in result2.scans] == ["ok"]
+    assert manifest.stat().st_mtime_ns != mtime1
+
+
+def test_changed_predict_code_sha_causes_repredict(
+    all_roots_source, tmp_path, monkeypatch
+):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    out = tmp_path / "out"
+    monkeypatch.setenv("SRP_PREDICT_CODE_SHA", "sha-one")
+    run_batch(inp, out, source=all_roots_source)
+    manifest = out / "scanA" / "scanA.predictions.json"
+    mtime1 = manifest.stat().st_mtime_ns
+
+    monkeypatch.setenv("SRP_PREDICT_CODE_SHA", "sha-two")
+    result2 = run_batch(inp, out, source=all_roots_source)
+    assert [s.status for s in result2.scans] == ["ok"]
+    assert manifest.stat().st_mtime_ns != mtime1
+
+
+def test_changed_model_ref_causes_repredict(tmp_path: Path, native_model_dir):
+    from sleap_roots_contracts import ModelCard
+    from sleap_roots_predict.model_registry import LocalCardSource
+
+    def _source(version):
+        card = ModelCard(
+            species="rice",
+            mode="cylinder",
+            age_min=2,
+            age_max=5,
+            root_type="primary",
+            registry_id="reg/rice-primary",
+            version=version,
+        )
+        return LocalCardSource([(card, native_model_dir)])
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    out = tmp_path / "out"
+    run_batch(inp, out, source=_source("v1"))
+    manifest = out / "scanA" / "scanA.predictions.json"
+    mtime1 = manifest.stat().st_mtime_ns
+
+    result2 = run_batch(inp, out, source=_source("v2"))
+    assert [s.status for s in result2.scans] == ["ok"]
+    assert manifest.stat().st_mtime_ns != mtime1
+
+
+def test_corrupt_previous_manifest_causes_repredict_not_failure(
+    all_roots_source, tmp_path
+):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    out = tmp_path / "out"
+    run_batch(inp, out, source=all_roots_source)
+    (out / "scanA" / "scanA.predictions.json").write_text('{"not": "a valid manifest"}')
+
+    result2 = run_batch(inp, out, source=all_roots_source)
+    assert [s.status for s in result2.scans] == ["ok"]
+
+
+def test_manifest_missing_sidecar_does_not_abort_other_scans(
+    all_roots_source, tmp_path
+):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanGOOD", _RICE)
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {"pipeline_run_id": "run-1", "scan_keys": ["scanGOOD", "scanMISSING"]}
+        )
+    )
+    out = tmp_path / "out"
+    result = run_batch(inp, out, source=all_roots_source)
+    statuses = {s.scan_key: s.status for s in result.scans}
+    assert statuses == {"scanGOOD": "ok", "scanMISSING": "failed"}

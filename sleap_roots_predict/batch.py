@@ -9,11 +9,19 @@ writes the prediction-output artifacts, and copies the sidecar through so each
 
 import json
 import logging
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sleap_roots_contracts import RUN_MANIFEST_FILENAME, ResolvedParams, RunManifest
+from sleap_roots_contracts import (
+    RUN_MANIFEST_FILENAME,
+    PredictionManifest,
+    ResolvedParams,
+    RunManifest,
+    compute_param_hash,
+)
+from sleap_roots_contracts.identity import compute_idempotency_key
 
 from sleap_roots_predict.model_registry import ModelCardSource
 from sleap_roots_predict.output_contract import write_prediction_outputs
@@ -39,6 +47,7 @@ class ScanInput:
     sidecar_path: Path
     frames: list[Path] = field(default_factory=list)
     params: ResolvedParams | None = None
+    images_checksum: str = ""
     error: str | None = None
 
 
@@ -168,7 +177,76 @@ def _load_scan(sidecar: Path, scan_key: str) -> ScanInput:
         )
     ]
     resolved = ResolvedParams(values={k: params[k] for k in _REQUIRED_PARAM_KEYS})
-    return ScanInput(scan_key, sidecar, frames=frames, params=resolved)
+    images_checksum = meta.get("images_checksum", "")
+    return ScanInput(
+        scan_key,
+        sidecar,
+        frames=frames,
+        params=resolved,
+        images_checksum=images_checksum,
+    )
+
+
+def _identity_key(
+    *,
+    scan_key: str,
+    images_checksum: str,
+    params_dict: dict,
+    model_refs,
+    predict_code_sha: str,
+    predict_output_params: dict,
+) -> str:
+    """Derive the predict-scoped identity key for one scan's current or prior state.
+
+    ``model_refs`` may be a ``dict[RootType, ModelRef]`` (as returned by
+    ``worker.resolve``) or any iterable of ``ModelRef`` (as read back from a
+    ``PredictionManifest``'s ``artifacts``) — both are reduced to the same
+    order-independent ``(registry_id, version, weights_checksum)`` tuples
+    ``compute_idempotency_key`` expects. ``traits_code_sha`` is a fixed empty-string
+    placeholder: predict never owns that value and only ever compares this key
+    against its own previously-derived one, never against a traits-computed key.
+    """
+    refs = model_refs.values() if isinstance(model_refs, dict) else model_refs
+    models = [(ref.registry_id, ref.version, ref.weights_checksum) for ref in refs]
+    return compute_idempotency_key(
+        scan_key=scan_key,
+        images_checksum=images_checksum,
+        models=models,
+        param_hash=compute_param_hash(params_dict),
+        predict_code_sha=predict_code_sha,
+        traits_code_sha="",
+        predict_output_params=predict_output_params,
+    )
+
+
+def _previous_identity_key(out_scan_dir: Path, scan_key: str) -> str | None:
+    """Recompute the previous run's identity key from artifacts already on disk.
+
+    Reads back the already-copied sidecar and already-written prediction manifest
+    from ``out_scan_dir`` — no new storage is needed. Returns ``None`` if either
+    file is missing, unreadable, or present but fails to parse/validate (a
+    :class:`pydantic.ValidationError`, which subclasses ``ValueError`` and is
+    caught here without importing pydantic directly) — a corrupt or absent
+    *previous* state is treated as "changed," never as a failure.
+    """
+    sidecar_path = out_scan_dir / f"{scan_key}{_SIDECAR_SUFFIX}"
+    manifest_path = out_scan_dir / f"{scan_key}.predictions.json"
+    try:
+        meta = json.loads(sidecar_path.read_text())
+        manifest = PredictionManifest.model_validate_json(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    params = meta.get("params")
+    if not isinstance(params, dict):
+        return None
+    return _identity_key(
+        scan_key=scan_key,
+        images_checksum=meta.get("images_checksum", ""),
+        params_dict={k: params[k] for k in _REQUIRED_PARAM_KEYS if k in params},
+        model_refs=[artifact.model for artifact in manifest.artifacts],
+        predict_code_sha=manifest.predict_code_sha,
+        predict_output_params=manifest.predict_output_params,
+    )
 
 
 def run_batch(
@@ -181,11 +259,15 @@ def run_batch(
 ) -> BatchResult:
     """Predict every scan under ``input_dir``, writing outputs under ``output_dir``.
 
-    Loads models once via a single resident worker. Per scan: skip if its manifest
-    already exists (resume); otherwise resolve + predict, write the prediction-output
-    artifacts into ``output_dir/{scan_key}/``, and copy the sidecar through. A
-    per-scan error is isolated (recorded ``failed``, batch continues). An empty (but
-    present) input directory is a no-op.
+    Loads models once via a single resident worker. Per scan: a scan already
+    recorded as invalid (``scan.error`` set) is isolated as ``failed`` immediately,
+    before any model resolution runs. Otherwise, the currently-resolved models plus
+    the scan's current inputs are compared, via a recomputed idempotency key,
+    against the key recomputed from that scan's own previously-written artifacts
+    (no new storage — see :func:`_previous_identity_key`); an exact match skips,
+    anything else (including no previous artifacts at all) predicts and overwrites.
+    A per-scan error is isolated (recorded ``failed``, batch continues). An empty
+    (but present) input directory is a no-op.
 
     Args:
         input_dir: Directory of staged scans.
@@ -210,21 +292,41 @@ def run_batch(
         logger.warning("No scans discovered under %s", input_dir.as_posix())
         return result
 
+    resolved_code_sha = (
+        predict_code_sha
+        if predict_code_sha is not None
+        else os.environ.get("SRP_PREDICT_CODE_SHA", "")
+    )
     worker = WarmModelWorker(source=source)
     for scan in scans:
-        out_scan_dir = output_dir / scan.scan_key
-        manifest_path = out_scan_dir / f"{scan.scan_key}.predictions.json"
-        if manifest_path.exists():
-            logger.info("Skipping %s (manifest exists)", scan.scan_key)
-            result.scans.append(ScanResult(scan.scan_key, "skipped"))
-            continue
         if scan.error is not None:
             logger.error("Scan %s failed: %s", scan.scan_key, scan.error)
             result.scans.append(ScanResult(scan.scan_key, "failed", scan.error))
             continue
+
+        out_scan_dir = output_dir / scan.scan_key
         try:
+            refs = worker.resolve(scan.params)
+            current_key = _identity_key(
+                scan_key=scan.scan_key,
+                images_checksum=scan.images_checksum,
+                params_dict=scan.params.values,
+                model_refs=refs,
+                predict_code_sha=resolved_code_sha,
+                predict_output_params=worker.output_params(),
+            )
+            previous_key = _previous_identity_key(out_scan_dir, scan.scan_key)
+            if previous_key is not None and previous_key == current_key:
+                logger.info("Skipping %s (idempotency key unchanged)", scan.scan_key)
+                result.scans.append(ScanResult(scan.scan_key, "skipped"))
+                continue
             _predict_one(
-                worker, scan, out_scan_dir, predict_code_sha, predict_container_digest
+                worker,
+                scan,
+                out_scan_dir,
+                refs,
+                predict_code_sha,
+                predict_container_digest,
             )
             result.scans.append(ScanResult(scan.scan_key, "ok"))
         except Exception as exc:  # noqa: BLE001 - isolate per-scan failures
@@ -237,6 +339,7 @@ def _predict_one(
     worker: WarmModelWorker,
     scan: ScanInput,
     out_scan_dir: Path,
+    refs: dict,
     predict_code_sha: str | None,
     predict_container_digest: str | None,
 ) -> None:
@@ -246,7 +349,6 @@ def _predict_one(
             f"no image frames co-located with sidecar {scan.sidecar_path.as_posix()}"
         )
     assert scan.params is not None  # run_batch filters error scans (params-None) first
-    refs = worker.resolve(scan.params)
     if not refs:
         # A scan matching no model for any root type is a hard per-scan failure rather
         # than an empty-artifacts manifest: write_prediction_outputs permits an empty

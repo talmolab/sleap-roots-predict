@@ -47,9 +47,9 @@ it, per the design doc's data-flow section.
 doesn't exist until 3.8's loop restructuring lands — committing them separately would leave an
 intermediate commit red, unlike group 2 (whose tests are independently satisfiable one at a time).
 
-- [ ] 3.1 Add `images_checksum: str = ""` to `ScanInput`, populated in `_load_scan` from
+- [x] 3.1 Add `images_checksum: str = ""` to `ScanInput`, populated in `_load_scan` from
       `meta.get("images_checksum", "")`.
-- [ ] 3.2 Write two small helpers, private to `batch.py`:
+- [x] 3.2 Write two small helpers, private to `batch.py`:
       - `_identity_key(*, scan_key, images_checksum, params_dict, model_refs, predict_code_sha,
         predict_output_params)` — converts `model_refs` (a `dict[RootType, ModelRef]` or
         iterable of `ModelRef`) to the `list[tuple[registry_id, version, weights_checksum]]` shape
@@ -67,32 +67,32 @@ intermediate commit red, unlike group 2 (whose tests are independently satisfiab
       feedback), including a case where `_previous_identity_key` is pointed at a directory with a
       hand-corrupted `{scan_key}.predictions.json` (valid JSON, invalid schema) and confirmed to
       return `None` rather than raising.
-- [ ] 3.3 Test: `test_rerun_skips_completed_scan` (existing) still passes essentially unchanged —
+- [x] 3.3 Test: `test_rerun_skips_completed_scan` (existing) still passes essentially unchanged —
       an unchanged re-run (same sidecar, same models, same `predict_code_sha`) skips via key
       match, not just `Path.exists()`. Update its assertions/setup only as needed to reflect that
       the skip is now key-based.
-- [ ] 3.4 Test (new): re-run after mutating the *input* sidecar's `params` (different
+- [x] 3.4 Test (new): re-run after mutating the *input* sidecar's `params` (different
       `param_hash`) between the two `run_batch` calls → the scan is re-predicted (`status="ok"`,
       manifest mtime changes), not skipped. This is the actual incident-2 fix from the design doc.
-- [ ] 3.5 Test (new): re-run after changing the input sidecar's `images_checksum` only (params
+- [x] 3.5 Test (new): re-run after changing the input sidecar's `images_checksum` only (params
       unchanged) → re-predicted, not skipped.
-- [ ] 3.6 Test (new): re-run with a different `SRP_PREDICT_CODE_SHA` env value between the two
+- [x] 3.6 Test (new): re-run with a different `SRP_PREDICT_CODE_SHA` env value between the two
       `run_batch` calls → re-predicted, not skipped.
-- [ ] 3.7 Test (new): a scan with no prior `out_scan_dir` contents at all (first run) always
+- [x] 3.7 Test (new): a scan with no prior `out_scan_dir` contents at all (first run) always
       predicts — `_previous_identity_key` returns `None`, never raises.
-- [ ] 3.7a Test (new): re-run against a `source` whose card for the same scan resolves to a
+- [x] 3.7a Test (new): re-run against a `source` whose card for the same scan resolves to a
       different `registry_id`/`version`/`weights_checksum` than the previous run → re-predicted,
       not skipped (identity-key inputs include model refs; no other test exercises this input).
-- [ ] 3.7b Test (new): re-run where the existing `{scan_key}.predictions.json` is present but
+- [x] 3.7b Test (new): re-run where the existing `{scan_key}.predictions.json` is present but
       hand-corrupted (valid JSON, fails `PredictionManifest` validation) → the scan is
       re-predicted (`status="ok"`), and — critically — is NOT recorded as `failed`; assert on
       `BatchResult.scans` directly, not just that a new manifest was written.
-- [ ] 3.7c Test (new): a manifest `scan_key` with no sidecar (2.3's synthetic error `ScanInput`,
+- [x] 3.7c Test (new): a manifest `scan_key` with no sidecar (2.3's synthetic error `ScanInput`,
       `params=None`) is recorded `failed` via `run_batch` without raising — regression guard
       confirming the `scan.error` check still runs before `resolve()` (a naive "move resolve() up"
       implementation would call `resolve(None)` and raise `AttributeError` inside `choose_models`
       instead of isolating this as a per-scan failure).
-- [ ] 3.8 Implement the `run_batch` loop restructuring, in this exact order per scan:
+- [x] 3.8 Implement the `run_batch` loop restructuring, in this exact order per scan:
       1. Check `scan.error is not None` first, unchanged from today — record `failed` and
          `continue` before anything else runs.
       2. Wrap everything else in the existing per-scan `try/except Exception` (widened to cover
@@ -103,10 +103,11 @@ intermediate commit red, unlike group 2 (whose tests are independently satisfiab
          `continue`. Otherwise → call `_predict_one` (passing `refs` through so it isn't
          re-resolved) and let it write outputs as today.
       Remove the old `manifest_path.exists()` check entirely.
-- [ ] 3.9 Run `pytest tests/test_batch.py` in full and confirm green, with special attention to
+- [x] 3.9 Run `pytest tests/test_batch.py` in full and confirm green, with special attention to
       the tests most at risk from this restructuring: `test_zero_resolved_models_is_failed`,
       `test_one_failing_scan_does_not_abort_batch`, `test_sidecar_copy_failure_leaves_no_manifest`,
       and `test_resume_mixed_skip_and_predict` — all must stay green with no behavior change.
+      (36 tests in test_batch.py, all passing; full suite 304 passed, 7 deselected.)
 
 ## 4. OpenSpec validation gate
 
