@@ -37,6 +37,10 @@ if TYPE_CHECKING:
 
 # --- filename helpers -------------------------------------------------------
 
+# Single source of truth for the manifest's filename, so a future rename can't silently
+# desync the writer here from batch.py's skip-if-done reader.
+_PREDICTIONS_JSON_SUFFIX = ".predictions.json"
+
 _SLUG_UNSAFE = re.compile(r"[^A-Za-z0-9-]")
 
 # Characters that break a single path segment on POSIX and/or Windows, plus `.`
@@ -90,11 +94,29 @@ def _validate_scan_key(scan_key: str) -> None:
         )
 
 
-def _resolve_identity(explicit: str | None, env_var: str) -> str:
-    """Return the explicit value, else the environment value, else ``""``."""
+def resolve_identity(explicit: str | None, env_var: str) -> str:
+    """Return the explicit value, else the environment value, else ``""``.
+
+    Public (not module-private) because ``batch.py`` reuses it to resolve
+    ``predict_code_sha`` for the skip-if-done identity-key comparison, so both sites
+    derive the exact same value from the exact same input. Not part of this
+    package's public API — it is a cross-module-internal helper, deliberately not
+    re-exported from ``sleap_roots_predict``'s ``__init__.py``.
+    """
     if explicit is not None:
         return explicit
     return os.environ.get(env_var, "")
+
+
+def predictions_json_path(out_dir: str | Path, scan_key: str) -> Path:
+    """Return the per-scan prediction-manifest path (single source of truth).
+
+    Used by both this module's writer and ``batch.py``'s skip-if-done reader, so a
+    future filename change can't desync the two. Not part of this package's public
+    API — it is a cross-module-internal helper, deliberately not re-exported from
+    ``sleap_roots_predict``'s ``__init__.py``.
+    """
+    return Path(out_dir) / f"{scan_key}{_PREDICTIONS_JSON_SUFFIX}"
 
 
 # --- writer -----------------------------------------------------------------
@@ -190,12 +212,12 @@ def write_prediction_outputs(
         artifacts=artifacts,
         predict_inference_config=dict(inference_config),
         predict_output_params=dict(output_params),
-        predict_code_sha=_resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA"),
-        predict_container_digest=_resolve_identity(
+        predict_code_sha=resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA"),
+        predict_container_digest=resolve_identity(
             predict_container_digest, "SRP_PREDICT_CONTAINER_DIGEST"
         ),
     )
-    (out / f"{scan_key}.predictions.json").write_text(
+    predictions_json_path(out, scan_key).write_text(
         manifest.model_dump_json(indent=2), encoding="utf-8"
     )
     return manifest

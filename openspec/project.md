@@ -20,9 +20,12 @@ importable library.
 > the real GPU service-image `ENTRYPOINT`). The **prediction-parity** harness (this repo's
 > `sleap_roots_predict.parity`, resolving sleap-roots-pipeline#15) also landed, with a
 > measured, relative empirical tolerance (`distance_p95` ≤ 25% relative delta,
-> `visibility_recall` ≥ -0.10) across all 13 production `ModelCard`s. Remaining A3/A4 work:
-> emitting the full `Provenance`/`ResultEnvelope` (traits assembles these from predict's
-> manifest).
+> `visibility_recall` ≥ -0.10) across all 13 production `ModelCard`s. The `predict-container`
+> capability now also consumes `RunManifest` (`sleap-roots-contracts` 0.1.0a7) to scope
+> discovery and verify skip-if-done via a recomputed idempotency key, closing the
+> `sleap-roots-predict` row of `sleap-roots-pipeline`#37's cross-repo idempotency chain.
+> Remaining A3/A4 work: emitting the full `Provenance`/`ResultEnvelope` (traits assembles
+> these from predict's manifest).
 
 ## Tech Stack
 - **Python** ≥ 3.11 (CI matrix: 3.11, 3.12)
@@ -120,9 +123,10 @@ downstream join.
 
 ## External Dependencies
 - **sleap-nn / sleap-io** — inference engine and label I/O.
-- **sleap-roots-contracts** (`==0.1.0a6`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`/
-  `PredictionArtifact`/`PredictionManifest`/`LabelCard`, and the `resolve_params` oracle (Bloom
-  scan metadata → `ResolvedParams`).
+- **sleap-roots-contracts** (`==0.1.0a7`) — shared `ModelCard`/`ModelRef`/`ResolvedParams`/`RootType`/
+  `PredictionArtifact`/`PredictionManifest`/`LabelCard`/`RunManifest`, the `resolve_params` oracle
+  (Bloom scan metadata → `ResolvedParams`), and `compute_idempotency_key`
+  (`sleap_roots_contracts.identity`, used for skip-if-done comparison).
 - **wandb** — the model registry the warm worker fetches root models from (network confined to
   `WandbRegistrySource`). Also a transitive sleap-nn dependency.
 - **sleap-roots model registry** — source of trained models (the wandb registry above).
