@@ -330,7 +330,15 @@ def test_cli_main_exit_codes(scan_input_dir: Path, tmp_path: Path, monkeypatch):
     state["ok"] = True
     assert main([str(scan_input_dir), str(tmp_path / "o1")]) == 0
     state["ok"] = False
-    assert main([str(scan_input_dir), str(tmp_path / "o2")]) == 1
+    assert main([str(scan_input_dir), str(tmp_path / "o2")]) == 3
+
+
+def test_cli_usage_error_exits_2_via_argparse():
+    from sleap_roots_predict.__main__ import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main([])  # missing both required positional arguments
+    assert exc_info.value.code == 2
 
 
 @pytest.mark.wandb
@@ -372,12 +380,25 @@ def test_missing_input_dir_raises(tmp_path):
         run_batch(tmp_path / "does_not_exist", tmp_path / "out")
 
 
-def test_cli_missing_input_dir_returns_nonzero(tmp_path):
+def test_cli_missing_input_dir_propagates_as_default_exit_1(tmp_path, caplog):
     from sleap_roots_predict.__main__ import main
 
-    # discover_scans raises FileNotFoundError before the worker is built (no network),
-    # and main converts it to a clean non-zero exit.
-    assert main([str(tmp_path / "nope"), str(tmp_path / "out")]) == 2
+    # discover_scans raises FileNotFoundError before the worker is built (no
+    # network); main logs a clean message then re-raises, so the process exits via
+    # Python's default unhandled-exception code (1), not a special-cased return.
+    with caplog.at_level("ERROR"):
+        with pytest.raises(FileNotFoundError):
+            main([str(tmp_path / "nope"), str(tmp_path / "out")])
+    assert any("Batch aborted" in r.message for r in caplog.records)
+
+
+def test_cli_empty_input_propagates_as_default_exit_1(tmp_path):
+    from sleap_roots_predict.__main__ import main
+
+    empty = tmp_path / "empty_in"
+    empty.mkdir()
+    with pytest.raises(ValueError, match="no scans discovered"):
+        main([str(empty), str(tmp_path / "out")])
 
 
 def test_sidecar_copy_failure_leaves_no_manifest(

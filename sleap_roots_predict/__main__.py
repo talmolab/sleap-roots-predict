@@ -1,7 +1,12 @@
 """CLI entrypoint: ``python -m sleap_roots_predict <input_dir> <output_dir>``.
 
-Warm-batch predict over a directory of staged scans. Exit code is ``0`` when no
-scan failed and ``1`` otherwise, so an Argo step sees a real batch result.
+Warm-batch predict over a directory of staged scans. Exit codes: ``0`` success (no
+scan failed); ``3`` partial (the batch ran to completion but one or more scans
+isolated-failed); Python's default ``1`` for every other failure (a pre-flight
+staging error — missing input directory, duplicate ``scan_key``, malformed
+``run_manifest.json``, or zero scans discovered — or a genuine crash). ``2`` is
+reserved by ``argparse`` for a CLI usage error and is never returned by this
+driver's own logic.
 """
 
 import argparse
@@ -17,7 +22,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         argv: Optional argument vector (defaults to ``sys.argv[1:]``).
 
     Returns:
-        ``0`` if no scan failed, ``1`` otherwise.
+        ``0`` on success, ``3`` on a partial batch (isolated scan failures). A
+        pre-flight staging error or other crash propagates uncaught, surfacing
+        Python's default exit ``1`` (see the module docstring).
     """
     parser = argparse.ArgumentParser(
         prog="sleap_roots_predict",
@@ -45,10 +52,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         result = run_batch(args.input_dir, args.output_dir)
     except (FileNotFoundError, ValueError) as exc:
-        # Batch-level staging error (missing input mount / duplicate scan_key): a clean
-        # logged message + non-zero exit rather than a raw traceback.
+        # A pre-flight staging error (missing input mount, duplicate scan_key,
+        # malformed run_manifest.json, or zero scans discovered — the latter two
+        # also raise ValueError, so they land here too). Log a clean message, then
+        # re-raise so the process still exits via Python's default unhandled-
+        # exception code (1), identical to any other crash.
         logging.getLogger(__name__).error("Batch aborted: %s", exc)
-        return 2
+        raise
 
     n_ok = sum(1 for s in result.scans if s.status == "ok")
     n_skip = sum(1 for s in result.scans if s.status == "skipped")
@@ -56,7 +66,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     logging.getLogger(__name__).info(
         "Batch complete: %d ok, %d skipped, %d failed", n_ok, n_skip, n_fail
     )
-    return 0 if result.ok else 1
+    return 0 if result.ok else 3
 
 
 if __name__ == "__main__":
