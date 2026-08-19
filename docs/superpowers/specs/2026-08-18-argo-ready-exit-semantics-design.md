@@ -38,6 +38,21 @@ failure (staging error, empty-input, or crash, no longer split) / `143`=SIGTERM,
 untouched for `argparse` — identical to `sleap-roots#259`. Read `design.md`'s "Decisions" section
 for the full corrected reasoning; treat every `2` mentioned below as historical, not current.
 
+**Second amendment (2026-08-19), after `/review-openspec` round 1:** four more items surfaced and
+were resolved in the OpenSpec change's `design.md`/`tasks.md` (not re-litigated here in full —
+see those files): (1) two existing tests hardcode the pre-this-design exit-code scheme and needed
+naming explicitly so they'd be updated, not left contradicting new tests; (2) `sio.save_file`
+infers its output format from the destination filename's extension, so D3's `.slp` temp write
+must pass `format="slp"` explicitly rather than relying on a `.tmp`-suffixed temp name; (3) D4's
+`SIGTERM` handler registers cleanly on Windows but real `os.kill`-based delivery there invokes
+`TerminateProcess` instead of the handler — tests must call the handler directly, never via
+`os.kill` (the design below already did this correctly, just hadn't documented *why* it matters);
+(4) dropping the `except (FileNotFoundError, ValueError): return 2` clause (D1/D2) would also
+drop the clean log line for those two cases in favor of a raw traceback — decided to keep a narrow
+`except ...: log; raise` so the log line survives while the exit code still ends up as the default
+`1`. Also: three documentation spots (`README.md`, `API.md`, `CHANGELOG.md`) were found stale and
+now have explicit update tasks.
+
 ## What was already decided (we conform, not re-litigate)
 
 - **Per-scan isolation.** A scan-level error is caught, recorded `failed`, and the batch

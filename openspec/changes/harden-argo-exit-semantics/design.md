@@ -47,18 +47,41 @@ doc for the "why not the alternative" reasoning.
       (partial); every other nonzero code is retried the same way regardless of whether it's `1`
       or a separate `2`. Losing that distinction costs log readability, not Argo behavior.
 - **Empty input → raise:** previously reused the existing `except (FileNotFoundError, ValueError)`
-  → exit `2` path in `__main__.py`. Per the reversed decision above, that special case is removed
-  entirely — `run_batch` still raises on empty input (unchanged goal), but `__main__.py` no longer
-  catches `FileNotFoundError`/`ValueError` into a custom code; they (and any other staging
-  exception) simply propagate, surfacing as Python's default `1`, identical to any other crash.
+  → exit `2` path in `__main__.py`. Per the reversed decision above, that special case's exit code
+  is removed — `run_batch` still raises on empty input (unchanged goal), and any other staging
+  exception simply propagates, surfacing as Python's default `1`, identical to any other crash.
+- **Revised again after `/review-openspec` round 1 (2026-08-19): keep the log line, drop only the
+  exit code.** The straightforward reading of "propagate uncaught" would also drop the clean
+  `"Batch aborted: %s"` log message these two exception types currently get, replacing it with a
+  raw Python traceback — a real log-aggregation regression the first draft of this design didn't
+  discuss. Decision: `__main__.py` keeps a narrow
+  `except (FileNotFoundError, ValueError) as exc: log; raise` — the log line survives, the
+  exception still propagates uncaught afterward, and the final exit code is still Python's default
+  `1`. Any *other* exception type (not one of these two known staging errors) is never caught at
+  all and gets the default traceback + exit `1`, unchanged.
 - **Atomic writes are defense-in-depth, not a correctness fix:** verified (not assumed) that
   predict #35's `_previous_identity_key` already treats a corrupt/truncated previous artifact as
   "changed," so a SIGKILL-truncated file was never silently treated as done under the *current*
   resume logic. Ships anyway — cheap, closes an external-reader race, brings parity with the
   traits driver's existing atomic writes.
+  - **Implementation gotcha found in `/review-openspec` round 1:** `sio.save_file` infers its
+    output format purely from the destination filename's extension and raises if it doesn't
+    recognize one. A temp filename built by naively appending `.tmp` (this repo's existing
+    convention elsewhere, e.g. `parity.py`'s `write_report`) would turn `foo.slp` into
+    `foo.slp.tmp`, which `sio.save_file` can't dispatch. The `.slp` temp write must pass
+    `format="slp"` explicitly instead of relying on the temp name's extension.
 - **SIGTERM: stop at scan boundary, not mid-inference:** a `threading.Event` set by the signal
   handler, checked at the top of `run_batch`'s per-scan loop. Bounded worst-case latency = one
   scan's duration (accepted; there's no safe interrupt point inside sleap-nn/GPU inference).
+  - **Windows caveat found in `/review-openspec` round 1:** `signal.signal(signal.SIGTERM, ...)`
+    registers without error on Windows, but real cross-process delivery
+    (`os.kill(pid, signal.SIGTERM)`) is implemented via `TerminateProcess`, which kills the
+    process immediately **without invoking the registered handler** — unlike Linux/macOS, where
+    real delivery does invoke it. This repo's CI runs a Windows job, so the handler's *logic* is
+    unit-tested by invoking it directly (never via `os.kill`); real end-to-end SIGTERM delivery is
+    only ever meaningfully validated on Linux (the actual Argo/Kubernetes runtime) or macOS.
+    Nobody should "improve" the test to use `os.kill` later — on Windows that would silently hang
+    or kill the CI job instead of failing cleanly.
 
 ## Risks / Trade-offs
 
@@ -80,6 +103,10 @@ No data migration. Behavioral/CLI-contract change only:
   `retryStrategy`/`continueOn` logic yet).
 - Any caller depending on empty-input silently exiting `0` will now see it raise/exit `1` — a
   deliberate **BREAKING** change per the issue's own ask.
+- `README.md`'s "Running the predict container" section and `API.md`'s `run_batch` entry both
+  describe the old exit-code contract in prose (found stale in `/review-openspec` round 1); both
+  now have explicit update tasks (`tasks.md` 5.2/5.3), as does a `CHANGELOG.md` `[Unreleased]`
+  entry (5.4) for this **BREAKING** change.
 
 ## Open Questions
 
@@ -87,3 +114,9 @@ No data migration. Behavioral/CLI-contract change only:
   matching `sleap-roots#259` exactly — see the reversed decision above). Nothing else outstanding
   from the original four forks (exit codes, empty-input, atomic writes, SIGTERM); see the linked
   design doc for the full decision trail on those.
+- `/review-openspec` round 1 (2026-08-19) surfaced and resolved: two existing tests
+  (`test_cli_main_exit_codes`, `test_cli_missing_input_dir_returns_nonzero`) hardcoding the old
+  scheme, now named explicitly in `tasks.md` 1.1/1.3; the `sio.save_file` format-dispatch gotcha
+  (`tasks.md` 3.5); the Windows `SIGTERM`-delivery caveat (documented above); the log-line
+  preservation decision (documented above); and the three documentation gaps (above). Nothing
+  outstanding pending a round-2 re-review.

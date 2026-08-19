@@ -22,7 +22,10 @@ isolated per-scan failure from a genuine crash:
   directory, or a `run_manifest.json` scoping discovery to zero `scan_keys`), or a genuine
   pod-level crash (e.g. model-registry authentication failing before any scan is attempted). Both
   are "the batch could not meaningfully run" conditions and are not split into separate codes;
-  Argo's `retryStrategy` should retry either.
+  Argo's `retryStrategy` should retry either. For the two known staging-error types (a missing
+  input directory, or two sidecars sharing a `scan_key`) the CLI SHALL log a clear one-line message
+  before the exception propagates; any other exception type is not specially logged and surfaces
+  Python's default traceback.
 
 Exit code `2` is deliberately NOT part of this convention: `argparse` already exits `2` on a CLI
 usage error (missing/extra positional arguments), before `run_batch` ever runs. This matches the
@@ -54,16 +57,21 @@ listed key, so that batch ends `partial` (`3`), not the crash/staging-error code
 
 #### Scenario: Empty input directory is a staging error
 
-- **WHEN** a present-but-empty input directory contains no `*.scan_metadata.json` (including a
-  `run_manifest.json` that scopes discovery to zero `scan_keys`)
+- **WHEN** a present-but-empty input directory contains no `*.scan_metadata.json`
 - **THEN** `run_batch` raises before constructing a `WarmModelWorker`, writes nothing, and the CLI
-  exits `1` (uncaught — not a special-cased code)
+  logs a clear message and exits `1`
+
+Note: a `run_manifest.json` that scopes discovery to zero `scan_keys` is a *different* raise path
+— it's rejected by the existing "A malformed manifest raises before any scan is processed"
+scenario in the "Scan discovery" requirement above (an empty `scan_keys` list fails `RunManifest`
+validation), not by this scenario's zero-scans-discovered check. Both land on exit `1` either way,
+so there's no behavioral difference, but they are two distinct raise sites, not one.
 
 #### Scenario: Missing input directory is an error
 
 - **WHEN** the input directory path does not exist
-- **THEN** the runner raises (surfaced by the CLI as exit `1`), rather than reporting
-  success with no outputs
+- **THEN** the runner raises, the CLI logs a clear message before the exception propagates, and
+  the process exits `1`, rather than reporting success with no outputs
 
 #### Scenario: A manifest scoped to missing sidecars ends partial, not a crash
 
@@ -72,12 +80,11 @@ listed key, so that batch ends `partial` (`3`), not the crash/staging-error code
 - **THEN** `discover_scans` returns one failed entry per listed key (not an empty list), and the
   process exits `3`, not `1`
 
-#### Scenario: A CLI usage error is unrelated to the partial/crash codes
+#### Scenario: A CLI usage error exits via argparse, before the driver runs
 
 - **WHEN** `python -m sleap_roots_predict` is invoked with a missing required argument
 - **THEN** the process exits `2` via `argparse`'s own pre-existing usage-error handling, before
-  `run_batch` ever runs, and this is unrelated to (does not collide in meaning with) the `0`/`1`/`3`
-  driver-owned codes
+  `run_batch` ever runs
 
 ### Requirement: Per-scan outputs with scan-metadata pass-through
 
@@ -121,6 +128,11 @@ inference). When the CLI's handler has fired, `main()` SHALL exit `143` (`128 + 
 regardless of what exit code the completed-so-far scans would otherwise produce, so the
 container's reported exit code honestly reflects "asked to stop," distinct from a normal
 success/partial/aborted outcome.
+
+Note: on Windows, `signal.signal(signal.SIGTERM, ...)` registers without error, but real
+cross-process delivery (`os.kill`) invokes `TerminateProcess` rather than the registered handler
+— unlike Linux/macOS. Tests SHALL exercise the handler by calling it directly, never via
+`os.kill`, so this requirement is verifiable identically across this project's CI matrix.
 
 #### Scenario: Stops at the next scan boundary, not mid-scan
 
