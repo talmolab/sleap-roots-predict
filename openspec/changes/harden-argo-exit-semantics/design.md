@@ -46,19 +46,24 @@ doc for the "why not the alternative" reasoning.
       operationally load-bearing: A4's `retryStrategy`/`continueOn` only needs to special-case `3`
       (partial); every other nonzero code is retried the same way regardless of whether it's `1`
       or a separate `2`. Losing that distinction costs log readability, not Argo behavior.
-- **Empty input → raise:** previously reused the existing `except (FileNotFoundError, ValueError)`
-  → exit `2` path in `__main__.py`. Per the reversed decision above, that special case's exit code
-  is removed — `run_batch` still raises on empty input (unchanged goal), and any other staging
-  exception simply propagates, surfacing as Python's default `1`, identical to any other crash.
+- **Empty input → raise:** `run_batch` raises `ValueError` on zero discovered scans — a distinct
+  raise site from a `run_manifest.json` scoping discovery to zero `scan_keys` (that one fails
+  `RunManifest` validation inside `discover_scans` before it ever returns; see the spec delta's
+  "Note" under its empty-input scenario). Both land on the same exit code (below), but they are
+  two different code paths, not one.
 - **Revised again after `/review-openspec` round 1 (2026-08-19): keep the log line, drop only the
-  exit code.** The straightforward reading of "propagate uncaught" would also drop the clean
-  `"Batch aborted: %s"` log message these two exception types currently get, replacing it with a
-  raw Python traceback — a real log-aggregation regression the first draft of this design didn't
-  discuss. Decision: `__main__.py` keeps a narrow
+  special exit code.** The original plan to let staging exceptions "propagate uncaught" would also
+  have dropped the clean `"Batch aborted: %s"` log message `FileNotFoundError`/`ValueError` cases
+  currently get, replacing it with a raw Python traceback — a real log-aggregation regression the
+  first draft of this design didn't discuss. Decision: `__main__.py` keeps a narrow
   `except (FileNotFoundError, ValueError) as exc: log; raise` — the log line survives, the
   exception still propagates uncaught afterward, and the final exit code is still Python's default
-  `1`. Any *other* exception type (not one of these two known staging errors) is never caught at
-  all and gets the default traceback + exit `1`, unchanged.
+  `1`. Because `json.JSONDecodeError` and `pydantic.ValidationError` both subclass `ValueError`
+  (confirmed, not assumed), this one `except` clause actually covers **all four** staging-error
+  cases (missing directory, duplicate `scan_key`, malformed manifest, and zero-scans-discovered),
+  not just two — every one of them gets the clean log line. Only a genuine crash of some other
+  exception type (e.g. a wandb authentication failure) falls outside it and gets the default
+  traceback + exit `1`, unchanged.
 - **Atomic writes are defense-in-depth, not a correctness fix:** verified (not assumed) that
   predict #35's `_previous_identity_key` already treats a corrupt/truncated previous artifact as
   "changed," so a SIGKILL-truncated file was never silently treated as done under the *current*
@@ -73,15 +78,12 @@ doc for the "why not the alternative" reasoning.
 - **SIGTERM: stop at scan boundary, not mid-inference:** a `threading.Event` set by the signal
   handler, checked at the top of `run_batch`'s per-scan loop. Bounded worst-case latency = one
   scan's duration (accepted; there's no safe interrupt point inside sleap-nn/GPU inference).
-  - **Windows caveat found in `/review-openspec` round 1:** `signal.signal(signal.SIGTERM, ...)`
-    registers without error on Windows, but real cross-process delivery
-    (`os.kill(pid, signal.SIGTERM)`) is implemented via `TerminateProcess`, which kills the
-    process immediately **without invoking the registered handler** — unlike Linux/macOS, where
-    real delivery does invoke it. This repo's CI runs a Windows job, so the handler's *logic* is
-    unit-tested by invoking it directly (never via `os.kill`); real end-to-end SIGTERM delivery is
+  - **Windows caveat found in `/review-openspec` round 1** (canonical statement now lives in
+    `specs/predict-container/spec.md`'s "Graceful SIGTERM handling" requirement — summarized
+    here, not restated in full): real Windows `SIGTERM` delivery bypasses the registered handler
+    entirely, so tests must call the handler directly, never via `os.kill`. This repo's CI runs a
+    Windows job; the handler's *logic* is unit-tested directly, while real end-to-end delivery is
     only ever meaningfully validated on Linux (the actual Argo/Kubernetes runtime) or macOS.
-    Nobody should "improve" the test to use `os.kill` later — on Windows that would silently hang
-    or kill the CI job instead of failing cleanly.
 
 ## Risks / Trade-offs
 

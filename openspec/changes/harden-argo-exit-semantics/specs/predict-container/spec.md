@@ -18,14 +18,18 @@ isolated per-scan failure from a genuine crash:
   with "this is done, some scans need attention."
 - *(Python's default, produced by an uncaught exception, not an explicit `return`)* `1` — every
   other failure: a pre-flight/staging error before any scan ran (a missing input directory, two
-  sidecars sharing a `scan_key`, or **zero scans discovered** — an empty-but-present input
-  directory, or a `run_manifest.json` scoping discovery to zero `scan_keys`), or a genuine
-  pod-level crash (e.g. model-registry authentication failing before any scan is attempted). Both
+  sidecars sharing a `scan_key`, a `run_manifest.json` that fails to parse or validate — including
+  an empty `scan_keys` list, rejected by the "Scan discovery" requirement's own manifest
+  validation before discovery ever runs — or **zero scans discovered**: `discover_scans` returns
+  an empty list because no sidecar exists anywhere under a present input directory), or a genuine
+  pod-level crash (e.g. model-registry authentication failing before any scan is attempted). All
   are "the batch could not meaningfully run" conditions and are not split into separate codes;
-  Argo's `retryStrategy` should retry either. For the two known staging-error types (a missing
-  input directory, or two sidecars sharing a `scan_key`) the CLI SHALL log a clear one-line message
-  before the exception propagates; any other exception type is not specially logged and surfaces
-  Python's default traceback.
+  Argo's `retryStrategy` should retry any of them. The CLI SHALL log a clear one-line message
+  before propagating any `FileNotFoundError` or `ValueError` (which, since `json.JSONDecodeError`
+  and `pydantic.ValidationError` both subclass `ValueError`, covers all four staging-error cases
+  above — missing directory, duplicate `scan_key`, malformed manifest, and zero-scans-discovered);
+  any other exception type (a genuine pod-level crash outside those two types) is not specially
+  logged and surfaces Python's default traceback.
 
 Exit code `2` is deliberately NOT part of this convention: `argparse` already exits `2` on a CLI
 usage error (missing/extra positional arguments), before `run_batch` ever runs. This matches the
@@ -61,11 +65,11 @@ listed key, so that batch ends `partial` (`3`), not the crash/staging-error code
 - **THEN** `run_batch` raises before constructing a `WarmModelWorker`, writes nothing, and the CLI
   logs a clear message and exits `1`
 
-Note: a `run_manifest.json` that scopes discovery to zero `scan_keys` is a *different* raise path
-— it's rejected by the existing "A malformed manifest raises before any scan is processed"
-scenario in the "Scan discovery" requirement above (an empty `scan_keys` list fails `RunManifest`
-validation), not by this scenario's zero-scans-discovered check. Both land on exit `1` either way,
-so there's no behavioral difference, but they are two distinct raise sites, not one.
+Note: this is distinct from a `run_manifest.json` scoping discovery to zero `scan_keys`, which is
+rejected earlier by the "Scan discovery" requirement's own manifest validation (an empty
+`scan_keys` list fails `RunManifest` validation before `discover_scans` returns at all) — see the
+exit-code bullet above, which already separates the two raise sites. Both land on exit `1` either
+way; the mechanism differs, the outcome doesn't.
 
 #### Scenario: Missing input directory is an error
 

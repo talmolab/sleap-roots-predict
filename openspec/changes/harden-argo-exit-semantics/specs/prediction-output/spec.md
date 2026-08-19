@@ -21,7 +21,11 @@ Both the `.slp` files and the `{scan_key}.predictions.json` manifest SHALL be wr
 atomically: each is written to a temporary file in the same directory as its final path, then
 moved into place via `os.replace`, so no reader can ever observe a partially-written file at the
 final path. The manifest SHALL still be written last, after every `.slp` write completes,
-preserving its established role as the resume commit-marker.
+preserving its established role as the resume commit-marker. The `.slp` temp write SHALL pass an
+explicit format (e.g. `format="slp"`) to the underlying `sio.save_file` call rather than relying
+on the temp filename's extension — `sio.save_file` infers its output format purely from the
+destination filename when `format` is omitted, so a temp name that does not itself end in `.slp`
+(e.g. one built by appending a `.tmp` suffix) would otherwise fail with an unknown-format error.
 
 #### Scenario: Writer returns a manifest and writes the artifacts
 
@@ -57,3 +61,10 @@ preserving its established role as the resume commit-marker.
 
 - **WHEN** `write_prediction_outputs` runs for a scan with one or more resolved root types
 - **THEN** every `.slp`'s atomic write completes before the manifest's atomic write begins
+
+#### Scenario: The .slp temp write does not depend on the temp filename's extension
+
+- **WHEN** the writer's temporary filename for a `.slp` write does not itself end in `.slp` (e.g.
+  a `.tmp`-suffixed name)
+- **THEN** the write still succeeds, because `format="slp"` is passed explicitly rather than
+  inferred from the filename

@@ -14,13 +14,24 @@ everywhere; this task list now does the same, so both producers use numerically 
 `test_cli_main_exit_codes` (asserts `main(...) == 1` for a failed batch) and
 `test_cli_missing_input_dir_returns_nonzero` (asserts `main(...) == 2`). Neither was named in
 the original 1.1/1.3 tasks, so implementing this section as originally written would have left
-the suite self-contradictory (the second case worse than a mere assertion mismatch — once 1.5
-removes the `except` clause, that test's `main()` call raises `FileNotFoundError` uncaught,
-an error, not a failure). Tasks 1.1 and 1.3 below now name both tests explicitly. Also decided:
-the log-quality regression from dropping the `except` clause (a missing-mount error would
-otherwise dump a raw traceback instead of a clean one-line log) is worth preserving — 1.5 now
-keeps a narrow `except (FileNotFoundError, ValueError)` that only logs before re-raising, so the
-final exit code is still Python's unhandled-exception default `1` but the log line survives.
+the suite self-contradictory. Tasks 1.1 and 1.3 below now name both tests explicitly. Also
+decided: the log-quality regression from dropping the `except` clause entirely (a missing-mount
+error would otherwise dump a raw traceback instead of a clean one-line log) is worth preserving
+— 1.5 keeps a narrow `except (FileNotFoundError, ValueError)` that only logs before re-raising.
+
+**Revised again after `/review-openspec` round 2:** two more corrections.
+1. Task 1.3's first draft prescribed `assert main(...) == 1` for the rewritten
+   `test_cli_missing_input_dir_returns_nonzero` — **wrong**, since a bare `raise` inside the new
+   `except` clause re-raises the exception rather than returning a value, so calling `main([...])`
+   directly (as every test in this file does) raises `FileNotFoundError` out of the call; it
+   never reaches a `return` statement to compare against `1`. Corrected below to
+   `pytest.raises(FileNotFoundError)` around the `main()` call.
+2. The `except (FileNotFoundError, ValueError)` clause actually covers **all four** staging-error
+   cases, not "two known staging-error types" as earlier drafts said: `json.JSONDecodeError` and
+   `pydantic.ValidationError` both subclass `ValueError` (confirmed empirically), so a malformed
+   `run_manifest.json` and the new zero-scans-discovered `ValueError` (section 2) both get the
+   clean log line too, alongside the missing-directory and duplicate-`scan_key` cases. Wording
+   below corrected accordingly.
 
 - [ ] 1.1 In `tests/test_batch.py` (or `test___main__.py`), write a failing test asserting
       `main()` returns `3` (not `1`) for a batch with one failed scan among otherwise-ok scans,
@@ -29,18 +40,23 @@ final exit code is still Python's unhandled-exception default `1` but the log li
       same scenario and must agree.
 - [ ] 1.2 In the same file, write a failing test asserting `main()` still returns `0` for an
       all-ok/all-skipped batch (pins the unchanged success path).
-- [ ] 1.3 In the same file, write a failing test asserting the existing
-      `FileNotFoundError`/duplicate-`scan_key` abort paths now return the default `1` (not the old
-      `2`) — this is a **behavior-change** regression test, not a no-op pin: it must fail against
-      the current code (which still returns `2`) until task 1.5 removes the special case.
-      **Rewrite `test_cli_missing_input_dir_returns_nonzero`** (currently `assert main(...) == 2`)
-      to expect `main(...) == 1` (per the logged-then-propagated behavior decided above, the
-      exception is caught, logged, and re-raised inside `main()`, so this is still an assertion on
-      `main()`'s return/raise, not a bare `pytest.raises` around a raw exception — confirm the
-      exact shape once 1.5's implementation is written, and adjust the test to match rather than
-      leaving the stale `== 2` assertion in place). Also add a CLI-level test asserting the new
-      empty-input `ValueError` (from section 2) surfaces through `main()` as exit `1` too, for the
-      same logged-then-reraised reason.
+- [ ] 1.3 In the same file, write a failing test asserting a missing input directory now
+      propagates as an uncaught `FileNotFoundError` from `main()` (not a returned `2`) — this is a
+      **behavior-change** regression test, not a no-op pin: it must fail against the current code
+      (which still returns `2`) until task 1.5 removes the special case.
+      **Rewrite `test_cli_missing_input_dir_returns_nonzero`** (currently
+      `assert main(...) == 2`) to `with pytest.raises(FileNotFoundError): main([...])` — NOT
+      `assert main(...) == 1` (that assertion is unreachable: `main()` re-raises on this path, it
+      never returns). Optionally assert the clean log line was emitted too (e.g. via `caplog`).
+      Depends on task 1.5 landing first — write this test failing against today's code, confirm it
+      passes only after 1.5's `except ...: log; raise` change is in place.
+      **This section's CLI-level empty-input test has a cross-section dependency, noted here
+      explicitly (per `/review-openspec` round 2's commit-sequencing finding):** add a second test
+      asserting the new empty-input `ValueError` (implemented in task 2.4, section 2) also
+      propagates uncaught from `main()` the same way (`pytest.raises(ValueError)`). This sub-test
+      has nothing to exercise until section 2's `run_batch` change lands — sequence section 2's
+      commit before finalizing this one, or write both together in one commit if landing them
+      separately isn't worth the overhead for a change this size.
 - [ ] 1.4 In the same file, write a failing test asserting a CLI usage error (invoke `main()`/the
       module with a missing required argument) exits `2` via `argparse`, and that this is
       independent of the driver's own `0`/`1`/`3` codes (documents the boundary so a future change
@@ -49,12 +65,13 @@ final exit code is still Python's unhandled-exception default `1` but the log li
       `return 0 if result.ok else 3`. Replace the existing `except (FileNotFoundError, ValueError):
       return 2` clause with `except (FileNotFoundError, ValueError) as exc:
       logging.getLogger(__name__).error("Batch aborted: %s", exc); raise` — this keeps the
-      existing clean one-line log message for these two known staging-error types (a real
-      operational-log-quality regression if dropped entirely, per `/review-openspec` round 1) while
-      letting the exception continue on to Python's default unhandled-exception exit `1`, same as
-      any other uncaught crash. Update the module docstring and `main()`'s docstring to enumerate
-      the three driver-owned codes (`0`/`3`/default `1`) plus a note that `2` is reserved by
-      `argparse`, not by this driver. Run 1.1–1.4 green.
+      existing clean one-line log message for every `FileNotFoundError`/`ValueError`-raising
+      staging condition (missing directory, duplicate `scan_key`, malformed manifest, and
+      zero-scans-discovered — see the note above) while letting the exception continue on to
+      Python's default unhandled-exception exit `1`, same as any other uncaught crash type. Update
+      the module docstring and `main()`'s docstring to enumerate the three driver-owned codes
+      (`0`/`3`/default `1`) plus a note that `2` is reserved by `argparse`, not by this driver.
+      Run 1.1–1.4 green.
 
 ## 2. Empty-input guard (D2): raise instead of silent no-op
 
@@ -63,10 +80,10 @@ final exit code is still Python's unhandled-exception default `1` but the log li
       *before* any `WarmModelWorker`/model-source interaction (assert via a source stub that
       records whether it was ever called).
 - [ ] 2.2 In `tests/test_batch.py`, write a failing test asserting a `run_manifest.json` present
-      but scoping to zero `scan_keys` also raises via the same path (pydantic validation of
-      `RunManifest` may already reject an empty `scan_keys` list — confirm which layer raises
-      and assert that one; do not add a redundant check if `RunManifest` itself already enforces
-      non-empty `scan_keys`).
+      but scoping to zero `scan_keys` also raises (via `RunManifest`'s own validation inside
+      `discover_scans` — a distinct raise site from 2.1's zero-scans-discovered check, both
+      landing on the same CLI exit code; confirm which layer raises and assert that one; do not
+      add a redundant check if `RunManifest` itself already enforces non-empty `scan_keys`).
 - [ ] 2.3 In `tests/test_batch.py`, write a regression test asserting a `run_manifest.json` that
       lists `scan_keys` with **no** matching sidecar still returns a non-empty `BatchResult` with
       `failed` entries via `run_batch` directly (i.e. does NOT raise the empty-input `ValueError`)
@@ -79,6 +96,8 @@ final exit code is still Python's unhandled-exception default `1` but the log li
       section) accordingly. Run 2.1–2.3 green; also re-run the existing "Empty input directory is
       a no-op" test from `test_batch.py` if present and update/replace it to assert the new
       raising behavior (do not leave a stale test asserting the old no-op contract).
+      **Land this commit before finalizing task 1.3's cross-section empty-input sub-test** (see
+      the note there).
 
 ## 3. Atomic writes (D3): `.slp`, manifest, and sidecar copy
 
@@ -87,9 +106,18 @@ from the destination filename's extension (confirmed by reading `sleap_io`'s sou
 `ValueError: Unknown format` if it doesn't recognize one. This repo's own existing atomic-write
 precedent (`sleap_roots_predict/parity.py`'s `write_report`, `foo.json` → `foo.json.tmp`) would
 break `.slp` writes if copy-pasted verbatim, since `foo.slp.tmp` no longer ends in `.slp`. Task
-3.4 below calls this out explicitly so it's designed in from the start, not discovered as a test
-failure partway through.
+3.5 below calls this out explicitly so it's designed in from the start, not discovered as a test
+failure partway through. This constraint is also now recorded directly in
+`specs/prediction-output/spec.md` (not just here), since `tasks.md`/`design.md` become historical
+after archiving and the persisted spec is what a future maintainer changing the temp-naming
+scheme would actually consult.
 
+- [ ] 3.0 In `tests/test_output_contract.py`, write a failing test asserting `write_prediction_outputs`
+      succeeds even when its internal `.slp` temp filename does not itself end in `.slp` (e.g. by
+      monkeypatching the temp-path construction, or simply asserting success once 3.5 is
+      implemented with a `.tmp`-suffixed temp name) — pins that `format="slp"` is passed explicitly
+      rather than relied-upon-via-extension (see the note above and the corresponding new scenario
+      in `specs/prediction-output/spec.md`).
 - [ ] 3.1 In `tests/test_output_contract.py`, write a failing test asserting that during
       `write_prediction_outputs`, no file ever exists at a `.slp`'s final path except either
       fully absent or fully written (e.g. by monkeypatching `os.replace` to raise once before it's
@@ -109,25 +137,25 @@ failure partway through.
       rather than relying on the temp filename's extension** (see the note above; do not use a
       bare `.tmp`-suffix-appended name unless it still ends in `.slp`), then `os.replace` into the
       final path; same pattern for the manifest's `.write_text`, keeping the manifest write
-      strictly last. Run 3.1–3.3 green; confirm all existing round-trip tests in
+      strictly last. Run 3.0–3.3 green; confirm all existing round-trip tests in
       `test_output_contract.py` still pass unchanged.
 - [ ] 3.6 Implement the same atomic pattern for the sidecar copy in
       `sleap_roots_predict/batch.py::_predict_one` (replace the direct `shutil.copyfile` with
       copy-to-temp + `os.replace`; a plain file copy has no format-inference concern, unlike 3.5).
-      Run 3.4 green. Land 3.5 and 3.6 as separate commits — independent write sites, no shared
-      code path (per `/review-openspec` round 1's commit-strategy feedback).
+      Run 3.4 green; also confirm the existing `test_sidecar_copy_failure_leaves_no_manifest`
+      (which monkeypatches `batch_mod.shutil.copyfile`) still passes — the copy-to-temp step still
+      calls `shutil.copyfile` internally, so it should, but verify rather than assume. Land 3.5 and
+      3.6 as separate commits — independent write sites, no shared code path (per
+      `/review-openspec` round 1's commit-strategy feedback).
 
 ## 4. SIGTERM handler (D4): stop at scan boundary, exit 143
 
-**Note found in `/review-openspec` round 1:** on Windows, `signal.signal(signal.SIGTERM, ...)`
-registers without error, but real cross-process delivery (`os.kill(pid, signal.SIGTERM)`) is
-implemented via `TerminateProcess`, which kills the process immediately **without invoking the
-registered handler** — unlike Linux/macOS, where real delivery does invoke it. The plan below
-already avoids this trap (4.3 tests the handler by calling it directly, never via `os.kill`), so
-there is no CI risk today — but if a future change "improves" that test to be more "realistic"
-via `os.kill`, it would silently hang/kill the `windows-latest` CI job instead of failing
-cleanly. `design.md` and the spec now document this platform split explicitly so the constraint
-in 4.3 doesn't get quietly removed later.
+**Note found in `/review-openspec` round 1:** on Windows, real cross-process `SIGTERM` delivery
+does not invoke a registered Python handler (see `specs/predict-container/spec.md`'s "Graceful
+SIGTERM handling" requirement for the full explanation — that's the canonical statement of this
+constraint; this note is just a pointer, not a restatement). The plan below already avoids the
+trap (4.3 tests the handler by calling it directly, never via `os.kill`) — don't "improve" that
+test to use `os.kill` later; on Windows CI that would silently hang or kill the job.
 
 - [ ] 4.1 In `tests/test_batch.py`, write a failing test asserting `run_batch(..., should_stop=fn)`
       stops after the first scan (of two) when `fn` returns `True` starting from the second
@@ -142,11 +170,13 @@ in 4.3 doesn't get quietly removed later.
       note — `main()` must expose a seam for this, e.g. a small `_install_sigterm_handler() ->
       threading.Event` helper it calls, so a test can call that helper directly rather than
       needing to invoke all of `main()` to obtain the handler); invoke the handler directly (never
-      `os.kill` — see the Windows note above), assert the event becomes set, assert `main()`
-      returns `143` when the event is already set going into its post-`run_batch` check — without
-      mocking `run_batch` itself (real TDD). **Save `signal.getsignal(signal.SIGTERM)` before the
-      test and restore it in a `finally`/fixture teardown**, so the handler registered by this test
-      doesn't leak into later tests or interact with CI's job-level timeout kill.
+      `os.kill` — see the Windows note above), assert the event becomes set, and assert `main()`
+      returns `143` when the event is already set going into its post-`run_batch` check — cover
+      this against **both** a would-otherwise-be-`0` batch and a would-otherwise-be-`3` batch, to
+      pin that `143` overrides either outcome, not just the success case — without mocking
+      `run_batch` itself (real TDD). **Save `signal.getsignal(signal.SIGTERM)` before the test and
+      restore it in a `finally`/fixture teardown**, so the handler registered by this test doesn't
+      leak into later tests or interact with CI's job-level timeout kill.
 - [ ] 4.4 Implement: add `should_stop: Callable[[], bool] = lambda: False` (keyword-only) to
       `run_batch`, checked at the top of the per-scan `for` loop (`if should_stop(): logger.warning(...);
       break`). Run 4.1–4.2 green.
@@ -157,6 +187,10 @@ in 4.3 doesn't get quietly removed later.
       into `run_batch`, and after `run_batch` returns, checks the event first — if set, log and
       `return 143` before falling through to the normal `0`/`3` logic (`2` is never part of this
       fallthrough — `argparse` exits `2` on its own, before `run_batch` runs). Run 4.3 green.
+      **Land 4.4 and 4.5 as separate commits** — `run_batch`'s `should_stop` hook
+      (`sleap_roots_predict/batch.py`) and `__main__.py`'s signal-handler plumbing are independent
+      write sites in different files with no shared code path, the same shape as 3.5/3.6 (per
+      `/review-openspec` round 2's commit-strategy feedback).
 
 ## 5. Docs and closeout
 
@@ -178,10 +212,14 @@ in 4.3 doesn't get quietly removed later.
       specifically to exit `3`, not "the CLI exit code" in general (a crash never reaches
       `BatchResult` construction at all). Reword to something like "(maps to CLI exit `3`, distinct
       from a staging-error/crash `1`)".
-- [ ] 5.4 Add a `CHANGELOG.md` entry under `[Unreleased]`: amend the existing "Predict container
-      CLI" bullet's "Per-scan failures are isolated; the process exits non-zero iff any scan
-      failed" sentence to describe the final `0`/`3`/default-`1`/`143` scheme and the
-      empty-input-now-raises change, and drop/update its closing "Argo-readiness hardening (#26)
-      are follow-ups" note now that #26 has landed alongside it.
+- [ ] 5.4 Amend the existing `CHANGELOG.md` `[Unreleased]` "Predict container CLI" entry — it needs
+      updates for **all three** behavior changes in this proposal, not just the exit-code one
+      (found incomplete in `/review-openspec` round 2, which only scoped this to D1/D2):
+      (a) replace "Per-scan failures are isolated; the process exits non-zero iff any scan failed"
+      with the final `0`/`3`/default-`1`/`143` scheme and the empty-input-now-raises change (D1/D2);
+      (b) add a mention that `.slp`/manifest/sidecar writes are now atomic (temp+rename) (D3);
+      (c) add a mention of the new `SIGTERM` handler and its `143` exit (D4); (d) drop/update the
+      closing "Argo-readiness hardening (#26) are follow-ups" note now that #26 has landed
+      alongside this entry rather than following it.
 - [ ] 5.5 Run `/lint` and `/test` (full suite, non-gpu/wandb/acceptance markers) — all green.
 - [ ] 5.6 Run `openspec validate harden-argo-exit-semantics --strict` — resolve every issue.
