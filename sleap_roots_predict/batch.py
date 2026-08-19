@@ -279,7 +279,8 @@ def run_batch(
     (no new storage — see :func:`_previous_identity_key`); an exact match skips,
     anything else (including no previous artifacts at all) predicts and overwrites.
     A per-scan error is isolated (recorded ``failed``, batch continues). An empty
-    (but present) input directory is a no-op.
+    (but present) input directory is a batch-level staging error (raises), not a
+    no-op — a misconfigured or empty stage-in mount should never look like success.
 
     Args:
         input_dir: Directory of staged scans.
@@ -293,16 +294,16 @@ def run_batch(
 
     Raises:
         FileNotFoundError: If ``input_dir`` does not exist.
-        ValueError: If two sidecars share a ``scan_key`` (a batch-level staging error,
-            surfaced before any prediction).
+        ValueError: If two sidecars share a ``scan_key``, or if zero scans are
+            discovered under a present ``input_dir`` (both batch-level staging
+            errors, surfaced before any prediction or model-source interaction).
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     scans = discover_scans(input_dir)
-    result = BatchResult()
     if not scans:
-        logger.warning("No scans discovered under %s", input_dir.as_posix())
-        return result
+        raise ValueError(f"no scans discovered under {input_dir.as_posix()}")
+    result = BatchResult()
 
     resolved_code_sha = resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA")
     worker = WarmModelWorker(source=source)

@@ -287,12 +287,30 @@ def test_zero_resolved_models_is_failed(rice_source, tmp_path: Path):
     assert not (out / "scanZ" / "scanZ.predictions.json").exists()
 
 
-def test_empty_input_is_noop(tmp_path: Path):
+def test_empty_input_raises(tmp_path: Path):
     empty = tmp_path / "empty_in"
     empty.mkdir()
-    result = run_batch(empty, tmp_path / "out")
-    assert isinstance(result, BatchResult)
-    assert result.ok and result.scans == []
+    with pytest.raises(ValueError, match="no scans discovered"):
+        run_batch(empty, tmp_path / "out")
+
+
+def test_empty_input_raises_before_worker_interaction(tmp_path: Path):
+    calls = {"n": 0}
+
+    class _RecordingSource:
+        def list_cards(self):
+            calls["n"] += 1
+            return []
+
+        def materialize(self, ref):
+            calls["n"] += 1
+            raise AssertionError("materialize should never be called")
+
+    empty = tmp_path / "empty_in"
+    empty.mkdir()
+    with pytest.raises(ValueError):
+        run_batch(empty, tmp_path / "out", source=_RecordingSource())
+    assert calls["n"] == 0
 
 
 def test_cli_main_exit_codes(scan_input_dir: Path, tmp_path: Path, monkeypatch):
