@@ -361,6 +361,120 @@ def test_writer_does_not_import_sleap_roots():
     assert result.returncode == 0, result.stderr
 
 
+# --- Task 3 (predict #26): atomic .slp/manifest writes -----------------------
+
+
+def test_slp_write_passes_format_explicitly(rice_source, video, tmp_path, monkeypatch):
+    """The .slp temp write passes format="slp" rather than relying on the
+    temp filename's extension (sio.save_file otherwise infers format from it)."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    real_save_file = oc_mod.sio.save_file
+    formats_seen = []
+
+    def _spy(labels_obj, path, **kwargs):
+        formats_seen.append(kwargs.get("format"))
+        return real_save_file(labels_obj, path, **kwargs)
+
+    monkeypatch.setattr(oc_mod.sio, "save_file", _spy)
+    write_prediction_outputs(
+        worker.predict(_params(), video),
+        worker.resolve(_params()),
+        tmp_path,
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    assert formats_seen  # at least one .slp was written
+    assert all(fmt == "slp" for fmt in formats_seen)
+
+
+def test_slp_write_leaves_no_partial_file_if_replace_fails(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """An interrupted .slp write leaves no file at the final path."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    monkeypatch.setattr(
+        oc_mod.os,
+        "replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
+    )
+    with pytest.raises(OSError):
+        write_prediction_outputs(
+            worker.predict(_params(), video),
+            worker.resolve(_params()),
+            tmp_path,
+            scan_key="scan0731",
+            inference_config=worker.inference_config(),
+            output_params=worker.output_params(),
+        )
+    assert not list(tmp_path.glob("*.slp"))
+
+
+def test_manifest_write_leaves_no_partial_file_if_replace_fails(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """An interrupted manifest write leaves no manifest at the final path, but
+    the already-succeeded .slp writes are unaffected."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    real_replace = oc_mod.os.replace
+
+    def _replace(src, dst):
+        if str(dst).endswith(".predictions.json"):
+            raise OSError("simulated interruption")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(oc_mod.os, "replace", _replace)
+    with pytest.raises(OSError):
+        write_prediction_outputs(
+            worker.predict(_params(), video),
+            worker.resolve(_params()),
+            tmp_path,
+            scan_key="scan0731",
+            inference_config=worker.inference_config(),
+            output_params=worker.output_params(),
+        )
+    assert not (tmp_path / "scan0731.predictions.json").exists()
+    assert list(tmp_path.glob("*.rootprimary.slp"))
+    assert list(tmp_path.glob("*.rootlateral.slp"))
+
+
+def test_manifest_replace_happens_after_all_slp_replaces(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """The manifest's atomic write completes only after every .slp's does."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    real_replace = oc_mod.os.replace
+    call_order = []
+
+    def _replace(src, dst):
+        call_order.append(str(dst))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(oc_mod.os, "replace", _replace)
+    write_prediction_outputs(
+        worker.predict(_params(), video),
+        worker.resolve(_params()),
+        tmp_path,
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    manifest_calls = [
+        i for i, p in enumerate(call_order) if p.endswith(".predictions.json")
+    ]
+    assert len(manifest_calls) == 1
+    assert manifest_calls[0] == len(call_order) - 1  # last call
+    assert manifest_calls[0] > 0  # at least one .slp replace happened first
+
+
 # --- Task 5: fail-soft build identity ---------------------------------------
 
 

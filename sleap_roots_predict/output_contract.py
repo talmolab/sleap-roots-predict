@@ -193,7 +193,13 @@ def write_prediction_outputs(
         slug = slugify_model_id(ref)
         filename = f"{scan_key}.model{slug}.root{root_type}.slp"
         slp_path = out / filename
-        sio.save_file(labels_by_root[root_type], slp_path.as_posix())
+        tmp_slp_path = slp_path.with_name(slp_path.name + ".tmp")
+        # format="slp" is passed explicitly rather than relied upon via the temp
+        # filename's extension: sio.save_file infers format from the filename when
+        # format is omitted, and the ".tmp"-suffixed temp name no longer ends in
+        # ".slp".
+        sio.save_file(labels_by_root[root_type], tmp_slp_path.as_posix(), format="slp")
+        os.replace(tmp_slp_path, slp_path)
         data = slp_path.read_bytes()
         artifacts.append(
             PredictionArtifact(
@@ -217,9 +223,12 @@ def write_prediction_outputs(
             predict_container_digest, "SRP_PREDICT_CONTAINER_DIGEST"
         ),
     )
-    predictions_json_path(out, scan_key).write_text(
-        manifest.model_dump_json(indent=2), encoding="utf-8"
-    )
+    # Written last (after every .slp's atomic write completes), preserving its
+    # established role as the resume commit-marker.
+    manifest_path = predictions_json_path(out, scan_key)
+    tmp_manifest_path = manifest_path.with_name(manifest_path.name + ".tmp")
+    tmp_manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp_manifest_path, manifest_path)
     return manifest
 
 
