@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from sleap_roots_predict.batch import BatchResult, discover_scans, run_batch
+from sleap_roots_predict.batch import discover_scans, run_batch
 
 
 def _write_scan(root: Path, scan_key: str, params, *, stem=None, extra_files=()):
@@ -511,6 +511,22 @@ def test_cli_empty_input_propagates_as_default_exit_1(tmp_path):
         main([str(empty), str(tmp_path / "out")])
 
 
+def test_main_restores_prior_sigterm_handler_on_staging_error(tmp_path):
+    # main() installs its own SIGTERM handler before running the batch; a staging
+    # error (re-raised, not returned) must not leave that handler installed --
+    # otherwise a real SIGTERM to whatever process later calls main() again (or
+    # to the pytest process itself) is silently swallowed by an orphaned handler
+    # closing over a dead threading.Event nobody reads.
+    import signal
+
+    from sleap_roots_predict.__main__ import main
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    with pytest.raises(FileNotFoundError):
+        main([str(tmp_path / "nope"), str(tmp_path / "out")])
+    assert signal.getsignal(signal.SIGTERM) is prev_handler
+
+
 def test_sidecar_copy_failure_leaves_no_manifest(
     scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
 ):
@@ -542,6 +558,7 @@ def test_sidecar_copy_leaves_no_partial_file_if_replace_fails(
     assert [s.status for s in result.scans] == ["failed"]
     assert not (out / "scanCPTEST0" / "scanCPTEST0.scan_metadata.json").exists()
     assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
+    assert not list((out / "scanCPTEST0").glob("*.tmp"))  # temp copy is cleaned up
 
 
 def test_unreadable_json_sidecar_is_error(tmp_path: Path):

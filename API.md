@@ -168,7 +168,10 @@ write_prediction_outputs(
 Write the named per-root `.slp` files and a combined `{scan_key}.predictions.json` into
 `out_dir` (created if missing); returns the `PredictionManifest`. `plant_qr_code` defaults
 to `scan_key`. Build identity falls back to `SRP_PREDICT_CODE_SHA` /
-`SRP_PREDICT_CONTAINER_DIGEST` then `""`. Re-runs overwrite in place.
+`SRP_PREDICT_CONTAINER_DIGEST` then `""`. Re-runs overwrite in place; a stale `.slp` from a
+changed model is removed only after every new file is written successfully. All writes
+(`.slp` and the manifest) are atomic — temp file + `os.replace` — so no reader ever
+observes a partially-written file; the manifest is written last.
 
 **Raises:** `ValueError` if `scan_key` is unsafe as a path segment, or `labels_by_root`
 and `refs_by_root` cover different root types.

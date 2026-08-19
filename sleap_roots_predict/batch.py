@@ -388,8 +388,12 @@ def _predict_one(
     # partially-written sidecar.
     sidecar_dst = out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
     tmp_sidecar_dst = sidecar_dst.with_name(sidecar_dst.name + ".tmp")
-    shutil.copyfile(scan.sidecar_path, tmp_sidecar_dst)
-    os.replace(tmp_sidecar_dst, sidecar_dst)
+    try:
+        shutil.copyfile(scan.sidecar_path, tmp_sidecar_dst)
+        os.replace(tmp_sidecar_dst, sidecar_dst)
+    except Exception:
+        tmp_sidecar_dst.unlink(missing_ok=True)
+        raise
     write_prediction_outputs(
         labels,
         refs,

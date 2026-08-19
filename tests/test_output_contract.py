@@ -319,6 +319,61 @@ def test_rerun_with_changed_model_prunes_stale_slp(rice_source, video, tmp_path)
     assert len(list(tmp_path.glob("*.rootprimary.slp"))) == 1
 
 
+def test_failed_write_does_not_delete_prior_valid_artifacts(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """If a later .slp write fails, the prior run's still-valid artifacts (which
+    a changed model ref would otherwise mark stale) are left untouched -- the
+    old files must not be deleted before every new one is confirmed written."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    kwargs = dict(
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    # Run 1: succeeds fully.
+    write_prediction_outputs(
+        worker.predict(_params(), video), worker.resolve(_params()), tmp_path, **kwargs
+    )
+    old_primary_slp = next(tmp_path.glob("*.rootprimary.slp"))
+    old_manifest_text = (tmp_path / "scan0731.predictions.json").read_text()
+
+    # Run 2: primary now resolves to a different model (a new slug, so it would
+    # supersede and mark the old primary .slp stale), but the lateral write is
+    # interrupted before this run can complete.
+    override = {
+        "primary": ModelRef(
+            registry_id="reg/rice-lateral",
+            version="v1",
+            sleap_nn_version="0.3.0",
+            root_type="primary",
+        )
+    }
+    real_save_file = oc_mod.sio.save_file
+
+    def _boom_on_lateral(labels_obj, path, **kw):
+        if "rootlateral" in str(path):
+            raise OSError("simulated interruption")
+        return real_save_file(labels_obj, path, **kw)
+
+    monkeypatch.setattr(oc_mod.sio, "save_file", _boom_on_lateral)
+    with pytest.raises(OSError):
+        write_prediction_outputs(
+            worker.predict(_params(), video, overrides=override),
+            worker.resolve(_params(), override),
+            tmp_path,
+            **kwargs,
+        )
+
+    # Run 1's artifacts are untouched -- nothing was deleted before run 2's new
+    # writes were confirmed complete, so a resumed batch still sees a fully
+    # valid, internally-consistent (manifest, .slp) pair from run 1.
+    assert old_primary_slp.exists()
+    assert (tmp_path / "scan0731.predictions.json").read_text() == old_manifest_text
+
+
 def test_manifest_records_worker_provenance(rice_source, video, tmp_path):
     """The writer stores the worker's inference config + output params verbatim."""
     worker = WarmModelWorker(rice_source, peak_threshold=0.15)
@@ -412,6 +467,9 @@ def test_slp_write_leaves_no_partial_file_if_replace_fails(
             output_params=worker.output_params(),
         )
     assert not list(tmp_path.glob("*.slp"))
+    assert not list(
+        tmp_path.glob("*.tmp")
+    )  # the failed write's temp file is cleaned up
 
 
 def test_manifest_write_leaves_no_partial_file_if_replace_fails(
@@ -442,6 +500,9 @@ def test_manifest_write_leaves_no_partial_file_if_replace_fails(
     assert not (tmp_path / "scan0731.predictions.json").exists()
     assert list(tmp_path.glob("*.rootprimary.slp"))
     assert list(tmp_path.glob("*.rootlateral.slp"))
+    assert not list(
+        tmp_path.glob("*.tmp")
+    )  # the failed manifest write's temp file is gone
 
 
 def test_manifest_replace_happens_after_all_slp_replaces(
