@@ -375,6 +375,33 @@ def test_run_batch_constructs_single_worker(all_roots_source, tmp_path, monkeypa
     assert counter["n"] == 1  # one resident worker for the whole batch
 
 
+def test_should_stop_stops_after_first_scan(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "s1", _RICE)
+    _real_scan(inp, "s2", _RICE)
+    out = tmp_path / "out"
+    calls = {"n": 0}
+
+    def _stop():
+        calls["n"] += 1
+        return calls["n"] > 1  # False the first time (before s1), True thereafter
+
+    result = run_batch(inp, out, source=all_roots_source, should_stop=_stop)
+    assert [s.scan_key for s in result.scans] == ["s1"]
+    assert result.scans[0].status == "ok"
+    assert (out / "s1" / "s1.predictions.json").exists()
+    assert list((out / "s1").glob("*.slp"))
+    assert not (out / "s2").exists()
+
+
+def test_should_stop_default_is_unaffected(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "s1", _RICE)
+    _real_scan(inp, "s2", _RICE)
+    result = run_batch(inp, tmp_path / "out", source=all_roots_source)
+    assert [s.status for s in result.scans] == ["ok", "ok"]
+
+
 def test_missing_input_dir_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         run_batch(tmp_path / "does_not_exist", tmp_path / "out")

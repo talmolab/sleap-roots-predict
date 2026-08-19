@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -269,6 +270,7 @@ def run_batch(
     source: ModelCardSource | None = None,
     predict_code_sha: str | None = None,
     predict_container_digest: str | None = None,
+    should_stop: Callable[[], bool] = lambda: False,
 ) -> BatchResult:
     """Predict every scan under ``input_dir``, writing outputs under ``output_dir``.
 
@@ -289,6 +291,10 @@ def run_batch(
         source: Model-card source; ``None`` uses the production WandbRegistrySource.
         predict_code_sha: Provenance sha (falls back to ``SRP_PREDICT_CODE_SHA``).
         predict_container_digest: Provenance digest (env fallback).
+        should_stop: Checked at the top of each per-scan loop iteration; when it
+            returns ``True`` the batch stops before starting the next scan (never
+            interrupting a scan already in progress). Defaults to a no-op, so
+            existing callers are unaffected.
 
     Returns:
         A :class:`BatchResult` with one :class:`ScanResult` per scan.
@@ -309,6 +315,13 @@ def run_batch(
     resolved_code_sha = resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA")
     worker = WarmModelWorker(source=source)
     for scan in scans:
+        if should_stop():
+            logger.warning(
+                "Stopping early: requested after %d/%d scans",
+                len(result.scans),
+                len(scans),
+            )
+            break
         if scan.error is not None:
             logger.error("Scan %s failed: %s", scan.scan_key, scan.error)
             result.scans.append(ScanResult(scan.scan_key, "failed", scan.error))
