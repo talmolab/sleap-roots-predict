@@ -323,7 +323,7 @@ def test_cli_main_exit_codes(scan_input_dir: Path, tmp_path: Path, monkeypatch):
 
     state = {"ok": True}
 
-    def fake_run_batch(inp, out):
+    def fake_run_batch(inp, out, **kwargs):
         return _Res(state["ok"])
 
     monkeypatch.setattr("sleap_roots_predict.batch.run_batch", fake_run_batch)
@@ -339,6 +339,89 @@ def test_cli_usage_error_exits_2_via_argparse():
     with pytest.raises(SystemExit) as exc_info:
         main([])  # missing both required positional arguments
     assert exc_info.value.code == 2
+
+
+def test_install_sigterm_handler_sets_event_when_invoked():
+    import signal
+
+    from sleap_roots_predict.__main__ import _install_sigterm_handler
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        event = _install_sigterm_handler()
+        assert not event.is_set()
+        signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        assert event.is_set()
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
+
+
+def test_sigterm_overrides_success_exit_code(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
+):
+    import signal
+
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        real_run_batch = batch_mod.run_batch
+
+        def _run_then_signal(*args, **kwargs):
+            # Delegating spy: run the real batch, then trigger the SIGTERM handler
+            # main() already installed, strictly between run_batch returning and
+            # main()'s post-run_batch check -- mirrors this file's existing
+            # spy_resolve/_Counting(orig) wrap-and-delegate pattern. `source` is
+            # injected so this hits the offline test fixture, not the live registry.
+            kwargs.setdefault("source", all_roots_source)
+            result = real_run_batch(*args, **kwargs)
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            return result
+
+        monkeypatch.setattr(batch_mod, "run_batch", _run_then_signal)
+        assert main([str(scan_input_dir), str(tmp_path / "out")]) == 143
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
+
+
+def test_sigterm_overrides_partial_exit_code(
+    all_roots_source, tmp_path: Path, monkeypatch
+):
+    import signal
+
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanGOOD", _RICE)
+    bad = inp / "scanBAD"
+    bad.mkdir()
+    (bad / "scanBAD.scan_metadata.json").write_text(
+        json.dumps(
+            {
+                "scan_key": "scanBAD",
+                "image_ids": ["a"],
+                "images_checksum": "sha256:x",
+                "params": _RICE,
+            }
+        )
+    )
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        real_run_batch = batch_mod.run_batch
+
+        def _run_then_signal(*args, **kwargs):
+            kwargs.setdefault("source", all_roots_source)
+            result = real_run_batch(*args, **kwargs)
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            return result
+
+        monkeypatch.setattr(batch_mod, "run_batch", _run_then_signal)
+        assert main([str(inp), str(tmp_path / "out")]) == 143
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
 
 
 @pytest.mark.wandb
