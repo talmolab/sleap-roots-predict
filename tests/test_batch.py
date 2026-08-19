@@ -418,6 +418,22 @@ def test_sidecar_copy_failure_leaves_no_manifest(
     assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
 
 
+def test_sidecar_copy_leaves_no_partial_file_if_replace_fails(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
+):
+    # batch.py has no local `os` reference to patch (unlike output_contract.py),
+    # so patch the global `os.replace` rather than a module attribute.
+    monkeypatch.setattr(
+        "os.replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
+    )
+    out = tmp_path / "out"
+    result = run_batch(scan_input_dir, out, source=all_roots_source)
+    assert [s.status for s in result.scans] == ["failed"]
+    assert not (out / "scanCPTEST0" / "scanCPTEST0.scan_metadata.json").exists()
+    assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
+
+
 def test_unreadable_json_sidecar_is_error(tmp_path: Path):
     d = tmp_path / "scanBad"
     d.mkdir()

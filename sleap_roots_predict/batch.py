@@ -9,6 +9,7 @@ writes the prediction-output artifacts, and copies the sidecar through so each
 
 import json
 import logging
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -369,10 +370,13 @@ def _predict_one(
     # Copy the sidecar BEFORE the manifest: write_prediction_outputs writes the manifest
     # last as the resume commit-marker, so the sidecar must already be present when it
     # lands — else a crash in between leaves a manifest with no sidecar that resume skips
-    # forever and the trait-extractor then rejects (an incomplete input tree).
-    shutil.copyfile(
-        scan.sidecar_path, out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
-    )
+    # forever and the trait-extractor then rejects (an incomplete input tree). The copy
+    # itself is atomic (temp file + os.replace), so no reader ever observes a
+    # partially-written sidecar.
+    sidecar_dst = out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
+    tmp_sidecar_dst = sidecar_dst.with_name(sidecar_dst.name + ".tmp")
+    shutil.copyfile(scan.sidecar_path, tmp_sidecar_dst)
+    os.replace(tmp_sidecar_dst, sidecar_dst)
     write_prediction_outputs(
         labels,
         refs,
