@@ -39,14 +39,14 @@ scope and inconsistent with this document's own precedent elsewhere (3.5/3.6 and
 mandate a split for independent write sites, with no such opt-out) — removed. Section 2's commit
 lands before section 1's is now the only path, stated plainly below.
 
-- [ ] 1.1 In `tests/test_batch.py` (or `test___main__.py`), write a failing test asserting
+- [x] 1.1 In `tests/test_batch.py` (or `test___main__.py`), write a failing test asserting
       `main()` returns `3` (not `1`) for a batch with one failed scan among otherwise-ok scans,
       **and update `test_cli_main_exit_codes`'s existing `assert main(...) == 1` (failed-batch
       case) to `== 3`** — do not leave the old assertion alongside the new test; they cover the
       same scenario and must agree.
-- [ ] 1.2 In the same file, write a failing test asserting `main()` still returns `0` for an
+- [x] 1.2 In the same file, write a failing test asserting `main()` still returns `0` for an
       all-ok/all-skipped batch (pins the unchanged success path).
-- [ ] 1.3 In the same file, write a failing test asserting a missing input directory now
+- [x] 1.3 In the same file, write a failing test asserting a missing input directory now
       propagates as an uncaught `FileNotFoundError` from `main()` (not a returned `2`) — this is a
       **behavior-change** regression test, not a no-op pin: it must fail against the current code
       (which still returns `2`) until task 1.5 removes the special case.
@@ -63,11 +63,11 @@ lands before section 1's is now the only path, stated plainly below.
       has nothing to exercise until section 2's `run_batch` change lands — **section 2's commit
       lands before section 1's commit is finalized**, reversing the numeric order of the sections
       (call this out explicitly when sequencing the PR, so nobody lands 1 before 2 out of habit).
-- [ ] 1.4 In the same file, write a failing test asserting a CLI usage error (invoke `main()`/the
+- [x] 1.4 In the same file, write a failing test asserting a CLI usage error (invoke `main()`/the
       module with a missing required argument) exits `2` via `argparse`, and that this is
       independent of the driver's own `0`/`1`/`3` codes (documents the boundary so a future change
       can't quietly blur it again).
-- [ ] 1.5 Implement: in `sleap_roots_predict/__main__.py`, change `return 0 if result.ok else 1` to
+- [x] 1.5 Implement: in `sleap_roots_predict/__main__.py`, change `return 0 if result.ok else 1` to
       `return 0 if result.ok else 3`. Replace the existing `except (FileNotFoundError, ValueError):
       return 2` clause with `except (FileNotFoundError, ValueError) as exc:
       logging.getLogger(__name__).error("Batch aborted: %s", exc); raise` — this keeps the
@@ -81,23 +81,23 @@ lands before section 1's is now the only path, stated plainly below.
 
 ## 2. Empty-input guard (D2): raise instead of silent no-op
 
-- [ ] 2.1 In `tests/test_batch.py`, write a failing test asserting `run_batch` raises `ValueError`
+- [x] 2.1 In `tests/test_batch.py`, write a failing test asserting `run_batch` raises `ValueError`
       over a present-but-empty input directory (no `*.scan_metadata.json`), and that it raises
       *before* any `WarmModelWorker`/model-source interaction (assert via a source stub that
       records whether it was ever called).
-- [ ] 2.2 In `tests/test_batch.py`, write a failing test asserting a `run_manifest.json` present
+- [x] 2.2 In `tests/test_batch.py`, write a failing test asserting a `run_manifest.json` present
       but scoping to zero `scan_keys` also raises (via `RunManifest`'s own validation inside
       `discover_scans` — a distinct raise site from 2.1's zero-scans-discovered check, both
       landing on the same CLI exit code; confirm which layer raises and assert that one; do not
       add a redundant check if `RunManifest` itself already enforces non-empty `scan_keys`).
-- [ ] 2.3 In `tests/test_batch.py`, write a regression test asserting a `run_manifest.json` that
+- [x] 2.3 In `tests/test_batch.py`, write a regression test asserting a `run_manifest.json` that
       lists `scan_keys` with **no** matching sidecar still returns a non-empty `BatchResult` with
       `failed` entries via `run_batch` directly (i.e. does NOT raise the empty-input `ValueError`)
       — pins the D2/D1 boundary described in the spec delta at the `run_batch` level, distinct
       from the CLI-level `main()` exit-code tests in section 1. This scenario is already
       substantially covered by the existing `test_manifest_scan_key_with_no_sidecar_is_failed`;
       confirm it already passes rather than writing a near-duplicate.
-- [ ] 2.4 Implement: in `sleap_roots_predict/batch.py::run_batch`, replace the
+- [x] 2.4 Implement: in `sleap_roots_predict/batch.py::run_batch`, replace the
       `if not scans: logger.warning(...); return result` branch with
       `raise ValueError(f"no scans discovered under {input_dir.as_posix()}")`, placed before
       `WarmModelWorker(source=source)` is constructed. Update `run_batch`'s docstring (`Raises:`
@@ -119,7 +119,7 @@ failure partway through. This constraint is also now recorded directly in
 after archiving and the persisted spec is what a future maintainer changing the temp-naming
 scheme would actually consult.
 
-- [ ] 3.0 In `tests/test_output_contract.py`, write a failing test that spies on `sio.save_file`
+- [x] 3.0 In `tests/test_output_contract.py`, write a failing test that spies on `sio.save_file`
       (e.g. `monkeypatch.setattr(output_contract_mod.sio, "save_file", spy)` wrapping the real
       function) and asserts it is called with `format="slp"` explicitly for every `.slp` write —
       this is genuinely red today (the current code passes no `format` kwarg at all) and pins the
@@ -128,23 +128,23 @@ scheme would actually consult.
       construction, or simply assert success once 3.5 lands," named no concrete seam and would
       have been redundant with every existing round-trip test in this file, which would already
       fail with "Unknown format" if 3.5 used a `.tmp`-suffixed name without `format=`.)
-- [ ] 3.1 In `tests/test_output_contract.py`, write a failing test asserting that during
+- [x] 3.1 In `tests/test_output_contract.py`, write a failing test asserting that during
       `write_prediction_outputs`, no file ever exists at a `.slp`'s final path except either
       fully absent or fully written (e.g. by monkeypatching `os.replace` to raise once before it's
       actually called, then asserting the final path does not exist and any temp file is cleaned
       up or at least never mistaken for the final artifact).
-- [ ] 3.2 In `tests/test_output_contract.py`, write the equivalent failing test for
+- [x] 3.2 In `tests/test_output_contract.py`, write the equivalent failing test for
       `{scan_key}.predictions.json` (temp file created, final path untouched until rename).
-- [ ] 3.3 In `tests/test_output_contract.py`, write a failing test asserting every `.slp`'s atomic
+- [x] 3.3 In `tests/test_output_contract.py`, write a failing test asserting every `.slp`'s atomic
       write completes (final `os.replace` observed) before the manifest's atomic write begins —
       pins the "manifest is still written last" ordering invariant the spec requires, distinct
       from the interrupted-write tests in 3.1/3.2 (e.g. via a call-order spy wrapping `os.replace`).
-- [ ] 3.4 In `tests/test_batch.py`, write a failing test for the sidecar copy in
+- [x] 3.4 In `tests/test_batch.py`, write a failing test for the sidecar copy in
       `batch.py::_predict_one` with the same interrupted-before-rename assertion as 3.1 — note
       `batch.py` does not currently `import os` (unlike `output_contract.py`, which already does),
       so patch via `monkeypatch.setattr("os.replace", ...)` (patches the module globally) rather
       than `monkeypatch.setattr(batch_mod.os, "replace", ...)`, which would raise `AttributeError`.
-- [ ] 3.5 Implement atomic writes in `sleap_roots_predict/output_contract.py`'s
+- [x] 3.5 Implement atomic writes in `sleap_roots_predict/output_contract.py`'s
       `write_prediction_outputs`: write each `.slp` to a temp path in the same directory via
       `sio.save_file(labels, tmp_path.as_posix(), format="slp")` — **pass `format="slp"` explicitly
       rather than relying on the temp filename's extension** (see the note above; do not use a
@@ -152,7 +152,7 @@ scheme would actually consult.
       final path; same pattern for the manifest's `.write_text`, keeping the manifest write
       strictly last. Run 3.0–3.3 green; confirm all existing round-trip tests in
       `test_output_contract.py` still pass unchanged.
-- [ ] 3.6 Implement the same atomic pattern for the sidecar copy in
+- [x] 3.6 Implement the same atomic pattern for the sidecar copy in
       `sleap_roots_predict/batch.py::_predict_one` (replace the direct `shutil.copyfile` with
       copy-to-temp + `os.replace`; a plain file copy has no format-inference concern, unlike 3.5).
       Run 3.4 green; also confirm the existing `test_sidecar_copy_failure_leaves_no_manifest`
@@ -170,14 +170,14 @@ constraint; this note is just a pointer, not a restatement). The plan below alre
 trap (4.3 tests the handler by calling it directly, never via `os.kill`) — don't "improve" that
 test to use `os.kill` later; on Windows CI that would silently hang or kill the job.
 
-- [ ] 4.1 In `tests/test_batch.py`, write a failing test asserting `run_batch(..., should_stop=fn)`
+- [x] 4.1 In `tests/test_batch.py`, write a failing test asserting `run_batch(..., should_stop=fn)`
       stops after the first scan (of two) when `fn` returns `True` starting from the second
       iteration, and that the first scan's outputs are complete and valid (reloadable manifest +
       `.slp`).
-- [ ] 4.2 In `tests/test_batch.py`, write a failing test asserting `run_batch` with the default
+- [x] 4.2 In `tests/test_batch.py`, write a failing test asserting `run_batch` with the default
       `should_stop` (no argument passed) is unaffected — processes all scans exactly as before
       (regression pin for existing callers/tests).
-- [ ] 4.3 Add a test (`test_batch.py` or a new `tests/test_main.py` if signal-handling tests don't
+- [x] 4.3 Add a test (`test_batch.py` or a new `tests/test_main.py` if signal-handling tests don't
       fit `test_batch.py`'s existing scope) that: obtains the registered `SIGTERM` handler and its
       backing `threading.Event` independently of running a full batch (see 4.5's implementation
       note — `main()` must expose a seam for this, e.g. a small `_install_sigterm_handler() ->
@@ -195,10 +195,10 @@ test to use `os.kill` later; on Windows CI that would silently hang or kill the 
       `signal.getsignal(signal.SIGTERM)` before the test and restore it in a `finally`/fixture
       teardown**, so the handler registered by this test doesn't leak into later tests or interact
       with CI's job-level timeout kill.
-- [ ] 4.4 Implement: add `should_stop: Callable[[], bool] = lambda: False` (keyword-only) to
+- [x] 4.4 Implement: add `should_stop: Callable[[], bool] = lambda: False` (keyword-only) to
       `run_batch`, checked at the top of the per-scan `for` loop (`if should_stop(): logger.warning(...);
       break`). Run 4.1–4.2 green.
-- [ ] 4.5 Implement: add a small `_install_sigterm_handler() -> threading.Event` helper in
+- [x] 4.5 Implement: add a small `_install_sigterm_handler() -> threading.Event` helper in
       `sleap_roots_predict/__main__.py` that creates the `Event`, registers a
       `signal.signal(signal.SIGTERM, ...)` handler that sets it, and returns the `Event` — giving
       4.3 a seam to call directly. `main()` calls this helper, passes `should_stop=event.is_set`
@@ -212,11 +212,11 @@ test to use `os.kill` later; on Windows CI that would silently hang or kill the 
 
 ## 5. Docs and closeout
 
-- [ ] 5.1 Update `sleap_roots_predict/__main__.py`'s module docstring (already touched in 1.5) and
+- [x] 5.1 Update `sleap_roots_predict/__main__.py`'s module docstring (already touched in 1.5) and
       `sleap_roots_predict/batch.py`'s `run_batch` docstring (`Raises:`/behavior description) to
       match the final implemented behavior — re-read both after 1–4 land to catch any drift from
       the design doc's phrasing.
-- [ ] 5.2 Update `README.md`'s "Running the predict container" section: replace "it exits
+- [x] 5.2 Update `README.md`'s "Running the predict container" section: replace "it exits
       non-zero if any scan failed" with a one-line pointer to the exit-code contract (`0`=success,
       `3`=partial, default `1`=staging-error-or-crash, `143`=`SIGTERM`, `2` reserved for
       `argparse`) rather than re-describing the table in prose — point at the `predict-container`
@@ -225,12 +225,12 @@ test to use `os.kill` later; on Windows CI that would silently hang or kill the 
       Add a sentence documenting that an empty (zero-scan) input directory now raises/exits
       non-zero instead of the old silent no-op — this behavior is currently undocumented anywhere
       in `README.md`.
-- [ ] 5.3 Fix `API.md`'s `run_batch` section: the parenthetical "`BatchResult.ok` is `False` iff
+- [x] 5.3 Fix `API.md`'s `run_batch` section: the parenthetical "`BatchResult.ok` is `False` iff
       any scan failed (the CLI exit code)" is misleading post-change — `ok=False` now maps
       specifically to exit `3`, not "the CLI exit code" in general (a crash never reaches
       `BatchResult` construction at all). Reword to something like "(maps to CLI exit `3`, distinct
       from a staging-error/crash `1`)".
-- [ ] 5.4 Amend the existing `CHANGELOG.md` `[Unreleased]` "Predict container CLI" entry — it needs
+- [x] 5.4 Amend the existing `CHANGELOG.md` `[Unreleased]` "Predict container CLI" entry — it needs
       updates for **all three** behavior changes in this proposal, not just the exit-code one
       (found incomplete in `/review-openspec` round 2, which only scoped this to D1/D2):
       (a) replace "Per-scan failures are isolated; the process exits non-zero iff any scan failed"
@@ -239,5 +239,5 @@ test to use `os.kill` later; on Windows CI that would silently hang or kill the 
       (c) add a mention of the new `SIGTERM` handler and its `143` exit (D4); (d) drop/update the
       closing "Argo-readiness hardening (#26) are follow-ups" note now that #26 has landed
       alongside this entry rather than following it.
-- [ ] 5.5 Run `/lint` and `/test` (full suite, non-gpu/wandb/acceptance markers) — all green.
-- [ ] 5.6 Run `openspec validate harden-argo-exit-semantics --strict` — resolve every issue.
+- [x] 5.5 Run `/lint` and `/test` (full suite, non-gpu/wandb/acceptance markers) — all green.
+- [x] 5.6 Run `openspec validate harden-argo-exit-semantics --strict` — resolve every issue.
