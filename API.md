@@ -198,6 +198,7 @@ run_batch(
     batch_size: int = 4,
     predict_code_sha: Optional[str] = None,
     predict_container_digest: Optional[str] = None,
+    should_stop: Callable[[], bool] = lambda: False,
 ) -> BatchResult
 ```
 The container-oriented batch runner — also the `sleap-roots-predict` /
@@ -211,9 +212,14 @@ models **once** via a single resident `WarmModelWorker` (`source=None` → the p
 (`compute_idempotency_key`) against the prior run's own artifacts (no new storage — the key
 is recovered from the previously-copied sidecar and previously-written manifest), skipping
 only on an exact match and otherwise (re)predicting; writes the output-contract artifacts
-into `out_dir/{scan_key}/`, and copies the sidecar through so the output is a self-contained
-traits-input tree. Per-scan failures are isolated; `BatchResult.ok` is `False` iff any scan
-failed (the CLI exit code). See the `predict-container` OpenSpec spec.
+into `out_dir/{scan_key}/` (all writes atomic — temp file + rename), and copies the sidecar
+through so the output is a self-contained traits-input tree. `should_stop` is checked at
+each per-scan loop boundary; when it returns `True` the batch stops before the next scan
+(the CLI's `SIGTERM` handler wires this to graceful preemption). An empty (zero-scan) input
+raises rather than silently succeeding. Per-scan failures are isolated; `BatchResult.ok` is
+`False` iff any scan failed, which maps to CLI exit `3` — distinct from a staging-error or
+crash, which surfaces exit `1`. See the `predict-container` OpenSpec spec for the full
+exit-code contract.
 
 ---
 

@@ -46,9 +46,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         argv: Optional argument vector (defaults to ``sys.argv[1:]``).
 
     Returns:
-        ``0`` on success, ``3`` on a partial batch (isolated scan failures). A
-        pre-flight staging error or other crash propagates uncaught, surfacing
-        Python's default exit ``1`` (see the module docstring).
+        ``0`` on success, ``3`` on a partial batch (isolated scan failures), or
+        ``143`` if terminated by ``SIGTERM``. A pre-flight staging error or other
+        crash propagates uncaught, surfacing Python's default exit ``1`` (see the
+        module docstring).
     """
     parser = argparse.ArgumentParser(
         prog="sleap_roots_predict",

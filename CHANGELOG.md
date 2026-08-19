@@ -45,14 +45,23 @@ All notable changes to this project are documented here. The format is based on
   `resolve()` (and its one-time model-registry fetch) now runs once per batch invocation even
   when every scan is already done, which it previously did not. Predicts (single-channel
   video), writes the output-contract artifacts into `out_dir/{scan_key}/`, and copies the
-  sidecar through so the output is a self-contained trait-extractor input tree. Per-scan
-  failures are isolated; the process exits non-zero iff any scan failed. The root `Dockerfile`
-  now ships a real exec-form `ENTRYPOINT ["python","-m","sleap_roots_predict"]` on the GPU
-  (`linux_cuda`) stack and bakes the build git sha (`SRP_PREDICT_CODE_SHA` build-arg → `ENV` →
-  manifest `predict_code_sha`); `docker-build.yml` tags `type=sha,format=long`. New public
-  export: `run_batch`. See the `predict-container` OpenSpec spec (closes #24, and the
-  `sleap-roots-predict` row of `sleap-roots-pipeline`#37). Model-derived channel handling (#25)
-  and Argo-readiness hardening (#26) are follow-ups.
+  sidecar through so the output is a self-contained trait-extractor input tree — the `.slp`,
+  manifest, and sidecar are all written atomically (temp file + rename), so no reader ever
+  observes a partially-written file. Per-scan failures are isolated. **Exit-code contract
+  (Argo-ready, #26):** `0` success, `3` partial (isolated scan failure(s), batch otherwise
+  completed), Python's default `1` for every other failure (a staging error — missing input
+  directory, duplicate `scan_key`, malformed `run_manifest.json`, or a now-rejected empty
+  input directory — or a genuine crash), `143` (`128+SIGTERM`) if a `SIGTERM` (Argo
+  preemption) stopped the batch at the next scan boundary; `2` is reserved for a CLI usage
+  error (`argparse`) and is never returned by the driver's own logic. **BREAKING**: an empty
+  (zero-scan) input directory previously exited `0` as a silent no-op — it now raises; the
+  previous `1`="some scan failed" / `2`="staging error" split is now `3`/default-`1`. The root
+  `Dockerfile` now ships a real exec-form `ENTRYPOINT ["python","-m","sleap_roots_predict"]`
+  on the GPU (`linux_cuda`) stack and bakes the build git sha (`SRP_PREDICT_CODE_SHA`
+  build-arg → `ENV` → manifest `predict_code_sha`); `docker-build.yml` tags
+  `type=sha,format=long`. New public export: `run_batch`. See the `predict-container`
+  OpenSpec spec (closes #24 and #26, and the `sleap-roots-predict` row of
+  `sleap-roots-pipeline`#37). Model-derived channel handling (#25) is a follow-up.
 - **A3-predict parity harness** (`sleap_roots_predict.parity`): resolves real human-labeled
   ground truth per production `ModelCard` (labels-registry lookup, bundled-labels path
   relinking, or basename search, in that priority order; unresolvable models are reported as
