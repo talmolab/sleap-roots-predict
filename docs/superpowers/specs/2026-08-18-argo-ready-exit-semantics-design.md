@@ -36,7 +36,8 @@ D2 below are kept as a record of the original reasoning but are corrected in the
 `design.md` for this change: the scheme is now `0`=success / `3`=partial / default `1`=every other
 failure (staging error, empty-input, or crash, no longer split) / `143`=SIGTERM, with `2` left
 untouched for `argparse` — identical to `sleap-roots#259`. Read `design.md`'s "Decisions" section
-for the full corrected reasoning; treat every `2` mentioned below as historical, not current.
+for the full corrected reasoning; treat any `2`-as-aborted meaning below as historical — the
+`2`-reserved-for-`argparse` meaning is current and unchanged.
 
 **Second amendment (2026-08-19), after `/review-openspec` round 1:** four more items surfaced and
 were resolved in the OpenSpec change's `design.md`/`tasks.md` (not re-litigated here in full —

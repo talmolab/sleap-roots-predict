@@ -33,6 +33,12 @@ error would otherwise dump a raw traceback instead of a clean one-line log) is w
    clean log line too, alongside the missing-directory and duplicate-`scan_key` cases. Wording
    below corrected accordingly.
 
+**Revised again after `/review-openspec` round 3:** task 1.3's escape hatch ("or write both
+together in one commit if landing them separately isn't worth the overhead") was ambiguous about
+scope and inconsistent with this document's own precedent elsewhere (3.5/3.6 and 4.4/4.5 both
+mandate a split for independent write sites, with no such opt-out) — removed. Section 2's commit
+lands before section 1's is now the only path, stated plainly below.
+
 - [ ] 1.1 In `tests/test_batch.py` (or `test___main__.py`), write a failing test asserting
       `main()` returns `3` (not `1`) for a batch with one failed scan among otherwise-ok scans,
       **and update `test_cli_main_exit_codes`'s existing `assert main(...) == 1` (failed-batch
@@ -54,9 +60,9 @@ error would otherwise dump a raw traceback instead of a clean one-line log) is w
       explicitly (per `/review-openspec` round 2's commit-sequencing finding):** add a second test
       asserting the new empty-input `ValueError` (implemented in task 2.4, section 2) also
       propagates uncaught from `main()` the same way (`pytest.raises(ValueError)`). This sub-test
-      has nothing to exercise until section 2's `run_batch` change lands — sequence section 2's
-      commit before finalizing this one, or write both together in one commit if landing them
-      separately isn't worth the overhead for a change this size.
+      has nothing to exercise until section 2's `run_batch` change lands — **section 2's commit
+      lands before section 1's commit is finalized**, reversing the numeric order of the sections
+      (call this out explicitly when sequencing the PR, so nobody lands 1 before 2 out of habit).
 - [ ] 1.4 In the same file, write a failing test asserting a CLI usage error (invoke `main()`/the
       module with a missing required argument) exits `2` via `argparse`, and that this is
       independent of the driver's own `0`/`1`/`3` codes (documents the boundary so a future change
@@ -88,7 +94,9 @@ error would otherwise dump a raw traceback instead of a clean one-line log) is w
       lists `scan_keys` with **no** matching sidecar still returns a non-empty `BatchResult` with
       `failed` entries via `run_batch` directly (i.e. does NOT raise the empty-input `ValueError`)
       — pins the D2/D1 boundary described in the spec delta at the `run_batch` level, distinct
-      from the CLI-level `main()` exit-code tests in section 1.
+      from the CLI-level `main()` exit-code tests in section 1. This scenario is already
+      substantially covered by the existing `test_manifest_scan_key_with_no_sidecar_is_failed`;
+      confirm it already passes rather than writing a near-duplicate.
 - [ ] 2.4 Implement: in `sleap_roots_predict/batch.py::run_batch`, replace the
       `if not scans: logger.warning(...); return result` branch with
       `raise ValueError(f"no scans discovered under {input_dir.as_posix()}")`, placed before
@@ -96,8 +104,7 @@ error would otherwise dump a raw traceback instead of a clean one-line log) is w
       section) accordingly. Run 2.1–2.3 green; also re-run the existing "Empty input directory is
       a no-op" test from `test_batch.py` if present and update/replace it to assert the new
       raising behavior (do not leave a stale test asserting the old no-op contract).
-      **Land this commit before finalizing task 1.3's cross-section empty-input sub-test** (see
-      the note there).
+      **This commit lands before section 1's commit** (see the note under task 1.3).
 
 ## 3. Atomic writes (D3): `.slp`, manifest, and sidecar copy
 
@@ -112,12 +119,15 @@ failure partway through. This constraint is also now recorded directly in
 after archiving and the persisted spec is what a future maintainer changing the temp-naming
 scheme would actually consult.
 
-- [ ] 3.0 In `tests/test_output_contract.py`, write a failing test asserting `write_prediction_outputs`
-      succeeds even when its internal `.slp` temp filename does not itself end in `.slp` (e.g. by
-      monkeypatching the temp-path construction, or simply asserting success once 3.5 is
-      implemented with a `.tmp`-suffixed temp name) — pins that `format="slp"` is passed explicitly
-      rather than relied-upon-via-extension (see the note above and the corresponding new scenario
-      in `specs/prediction-output/spec.md`).
+- [ ] 3.0 In `tests/test_output_contract.py`, write a failing test that spies on `sio.save_file`
+      (e.g. `monkeypatch.setattr(output_contract_mod.sio, "save_file", spy)` wrapping the real
+      function) and asserts it is called with `format="slp"` explicitly for every `.slp` write —
+      this is genuinely red today (the current code passes no `format` kwarg at all) and pins the
+      invariant independently of whatever temp-filename scheme 3.5 ends up using. (**Revised in
+      `/review-openspec` round 3** — the original wording here, "monkeypatch the temp-path
+      construction, or simply assert success once 3.5 lands," named no concrete seam and would
+      have been redundant with every existing round-trip test in this file, which would already
+      fail with "Unknown format" if 3.5 used a `.tmp`-suffixed name without `format=`.)
 - [ ] 3.1 In `tests/test_output_contract.py`, write a failing test asserting that during
       `write_prediction_outputs`, no file ever exists at a `.slp`'s final path except either
       fully absent or fully written (e.g. by monkeypatching `os.replace` to raise once before it's
@@ -130,7 +140,10 @@ scheme would actually consult.
       pins the "manifest is still written last" ordering invariant the spec requires, distinct
       from the interrupted-write tests in 3.1/3.2 (e.g. via a call-order spy wrapping `os.replace`).
 - [ ] 3.4 In `tests/test_batch.py`, write a failing test for the sidecar copy in
-      `batch.py::_predict_one` with the same interrupted-before-rename assertion as 3.1.
+      `batch.py::_predict_one` with the same interrupted-before-rename assertion as 3.1 — note
+      `batch.py` does not currently `import os` (unlike `output_contract.py`, which already does),
+      so patch via `monkeypatch.setattr("os.replace", ...)` (patches the module globally) rather
+      than `monkeypatch.setattr(batch_mod.os, "replace", ...)`, which would raise `AttributeError`.
 - [ ] 3.5 Implement atomic writes in `sleap_roots_predict/output_contract.py`'s
       `write_prediction_outputs`: write each `.slp` to a temp path in the same directory via
       `sio.save_file(labels, tmp_path.as_posix(), format="slp")` — **pass `format="slp"` explicitly
@@ -174,9 +187,14 @@ test to use `os.kill` later; on Windows CI that would silently hang or kill the 
       returns `143` when the event is already set going into its post-`run_batch` check — cover
       this against **both** a would-otherwise-be-`0` batch and a would-otherwise-be-`3` batch, to
       pin that `143` overrides either outcome, not just the success case — without mocking
-      `run_batch` itself (real TDD). **Save `signal.getsignal(signal.SIGTERM)` before the test and
-      restore it in a `finally`/fixture teardown**, so the handler registered by this test doesn't
-      leak into later tests or interact with CI's job-level timeout kill.
+      `run_batch` itself (real TDD; if triggering the event needs to happen strictly between
+      `run_batch` returning and `main()`'s post-check, use a delegating spy that calls the real
+      `run_batch` and then sets the event as a side effect, mirroring this file's existing
+      `spy_resolve`/`_Counting(orig)` pattern in `test_scan_error_short_circuits_before_resolve`/
+      `test_run_batch_constructs_single_worker` rather than inventing a new technique). **Save
+      `signal.getsignal(signal.SIGTERM)` before the test and restore it in a `finally`/fixture
+      teardown**, so the handler registered by this test doesn't leak into later tests or interact
+      with CI's job-level timeout kill.
 - [ ] 4.4 Implement: add `should_stop: Callable[[], bool] = lambda: False` (keyword-only) to
       `run_batch`, checked at the top of the per-scan `for` loop (`if should_stop(): logger.warning(...);
       break`). Run 4.1–4.2 green.
