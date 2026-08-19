@@ -26,6 +26,18 @@ below are meant to match exactly across both repos. Item 3 is *not* expected to 
 the traits driver's per-scan writes are already atomic (per its issue text), so it only needs the
 SIGTERM handler half.
 
+**Amendment (2026-08-19), after checking in with the sleap-roots#259 session:** D1's original
+scheme below (`0`/`2`-aborted/`3`-partial/default-`1`-crash) is superseded. That session's own
+`review-openspec` pass caught that reusing an exit code for a driver-owned "aborted" bucket
+collides with `argparse`'s pre-existing usage-error `sys.exit(2)` — a bug this repo's CLI shares
+(`sleap_roots_predict/__main__.py` also parses via `argparse`, and its pre-existing `except
+(FileNotFoundError, ValueError): return 2` already collides with it, unnoticed until now). D1 and
+D2 below are kept as a record of the original reasoning but are corrected in the OpenSpec
+`design.md` for this change: the scheme is now `0`=success / `3`=partial / default `1`=every other
+failure (staging error, empty-input, or crash, no longer split) / `143`=SIGTERM, with `2` left
+untouched for `argparse` — identical to `sleap-roots#259`. Read `design.md`'s "Decisions" section
+for the full corrected reasoning; treat every `2` mentioned below as historical, not current.
+
 ## What was already decided (we conform, not re-litigate)
 
 - **Per-scan isolation.** A scan-level error is caught, recorded `failed`, and the batch
@@ -50,19 +62,21 @@ Today: `0` = no scan failed, `1` = any scan failed *or* an uncaught exception (b
 pod-level death (Argo retry + resume-skip)** — the current scheme can't express that distinction
 on the wire.
 
-New scheme:
+New scheme (**corrected 2026-08-19** — see the Amendment note above; the originally-drafted `2`
+= aborted code is dropped):
 
 | Code | Meaning | Argo should... |
 |---|---|---|
 | `0` | Success — ≥1 scan discovered, none failed (`ok`/`skipped` only) | proceed normally |
 | `3` | **Partial** — ≥1 scan discovered and processed, ≥1 isolated scan failure, process did not crash | *not* retry the whole batch (per-scan isolation already ran); mark the step `partial` (Argo-template-side handling — out of scope here, see below) |
-| `2` | **Aborted** — pre-flight/staging error: missing input dir, duplicate `scan_key`, or zero scans discovered (D2) | do not retry blindly — the mount/config needs fixing, not a rerun |
-| *(none — Python default)* `1` | Uncaught exception (e.g. model-registry auth failure before the per-scan loop starts) — a genuine pod-level crash | Argo `retryStrategy` retries |
+| *(none — Python default)* `1` | Every other failure: a pre-flight/staging error (missing input dir, duplicate `scan_key`, zero scans discovered — D2) or a genuine uncaught crash (e.g. model-registry auth failure before the per-scan loop starts) — no longer split into a separate code | Argo `retryStrategy` retries |
+| `2` | *(not used by this driver)* — reserved: `argparse` already calls `sys.exit(2)` on a CLI usage error, before `run_batch` ever runs | n/a — a CLI invocation problem, unrelated to a batch outcome |
 
 This is a two-line change: `__main__.py`'s `return 0 if result.ok else 1` becomes
-`return 0 if result.ok else 3`, and the docstring/module comment updated to describe all four
-codes. `2` already exists (`FileNotFoundError`/`ValueError` staging errors); D2 below routes the
-new empty-input case through the same existing path, adding no new `except` clause.
+`return 0 if result.ok else 3`, its `except (FileNotFoundError, ValueError): return 2` special
+case is **removed** (those exceptions now propagate uncaught, surfacing as the default `1`, like
+any other crash), and the docstring/module comment is updated to describe the three driver-owned
+codes plus the `argparse`-owned `2`.
 
 **Out of scope, flagged not implemented:** the Argo template still needs to interpret `3` as
 "partial, continue" rather than "step failed" (a `sleap-roots-pipeline` template change, e.g.
@@ -76,8 +90,8 @@ today produces a green Argo node that emitted nothing.
 
 Fix: `run_batch` raises `ValueError(f"no scans discovered under {input_dir}")` in place of the
 current warn-and-return-empty branch, *before* constructing the `WarmModelWorker` (no needless
-model load). This reuses `__main__.py`'s existing `except (FileNotFoundError, ValueError)` →
-log + exit `2` path unchanged — no new exception type, no new CLI branch.
+model load). **Corrected 2026-08-19:** `__main__.py` no longer catches this into a special exit
+code — it propagates like any other staging exception, surfacing as the default `1` (see D1).
 
 This applies uniformly, including when a `run_manifest.json` is present and scopes discovery to
 zero `scan_keys` — a manifest declaring nothing to do is itself worth surfacing loudly rather
@@ -86,7 +100,7 @@ than silently no-op'ing, consistent with the rest of this design's stance on emp
 **Not empty input, unaffected:** a manifest that lists scan_keys with no matching sidecar
 produces isolated per-scan `error` entries (`ScanInput.error` set) — `discover_scans` returns a
 *non-empty* list in that case, so it flows through the existing per-scan-failure path and ends in
-D1's `partial` (`3`), not the aborted (`2`) path. Only a *literally empty* discovered-scan list
+D1's `partial` (`3`), not the crash (`1`) path. Only a *literally empty* discovered-scan list
 triggers D2.
 
 ### D3 — Atomic writes: still worth it, as defense-in-depth (not a closed correctness hole)
@@ -140,7 +154,7 @@ After `run_batch` returns, `main()` checks the event directly (no new `BatchResu
 SIGTERM after a partial batch" and return `143` (`128 + SIGTERM`, standard Unix convention for
 "killed by signal N"), overriding whatever D1 exit code the completed-so-far scans would
 otherwise produce. This makes the container's own reported exit code honestly reflect "I was
-asked to stop," distinct from `0`/`2`/`3`.
+asked to stop," distinct from `0`/`3`/default `1`.
 
 **Known limitation, accepted:** worst-case latency is bounded by one scan's predict duration, not
 truly immediate. A pathologically long single scan can still exceed the grace period and get
@@ -155,8 +169,9 @@ No new modules. Changes are localized:
   (checked at loop top, D4); the empty-scans branch raises instead of returning (D2); `_predict_one`'s
   sidecar copy becomes atomic (D3).
 - `sleap_roots_predict/__main__.py`: installs the `SIGTERM` handler + `threading.Event` around the
-  `run_batch` call (D4); exit-code logic changes from `0/1` to `0/2/3/(default 1)/143` (D1, D4);
-  docstring updated to enumerate all codes.
+  `run_batch` call (D4); exit-code logic changes from `0/1` to `0/3/(default 1)/143` (D1, D4),
+  removing the special-cased `except (FileNotFoundError, ValueError): return 2` (D1); docstring
+  updated to enumerate the three driver-owned codes plus the `argparse`-owned `2`.
 - `sleap_roots_predict/output_contract.py`: `write_prediction_outputs`'s `.slp` and manifest
   writes move to temp-then-`os.replace` (D3).
 
@@ -170,12 +185,14 @@ change to what's discovered or how scans are matched to models.
 ## Testing (real TDD, no mocks — mirrors existing suite's convention)
 
 - D1: `test___main__.py` (or equivalent) — a batch with one failed scan and otherwise-ok scans
-  exits `3`; an all-ok batch exits `0`; existing `FileNotFoundError`/duplicate-key cases still
-  exit `2`.
-- D2: `run_batch` over an empty (but existing) directory raises `ValueError`; CLI exits `2` with a
-  clear logged message. A `run_manifest.json` scoping to zero `scan_keys` also raises. A manifest
-  scoping to keys with no matching sidecar still produces isolated `failed` entries (exit `3`,
-  not `2`) — a regression test pinning this distinction.
+  exits `3`; an all-ok batch exits `0`; existing `FileNotFoundError`/duplicate-key cases now exit
+  the default `1` (no longer a distinct `2` — a regression test pinning the removal, not just the
+  addition). A test asserting a CLI usage error (missing required argument) exits `2` via
+  `argparse`, documenting that this is unrelated to the driver's own `0`/`1`/`3` codes.
+- D2: `run_batch` over an empty (but existing) directory raises `ValueError`; CLI exits the
+  default `1` with a clear logged message. A `run_manifest.json` scoping to zero `scan_keys` also
+  raises. A manifest scoping to keys with no matching sidecar still produces isolated `failed`
+  entries (exit `3`, not `1`) — a regression test pinning this distinction.
 - D3: a write interrupted between temp-write and rename (simulate by asserting the temp file
   never exists at the final path's name until the whole write succeeds) — assert no
   partially-written file is ever visible under the final filename; existing round-trip tests

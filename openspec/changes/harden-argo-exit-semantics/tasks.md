@@ -1,16 +1,32 @@
-## 1. Exit codes (D1): partial (3) distinct from crash (default 1)
+## 1. Exit codes (D1): partial (3) distinct from crash (default 1); drop the special-cased 2
 
-- [ ] 1.1 In `tests/test_batch.py`, write a failing test asserting `main()` returns `3` (not `1`)
-      for a batch with one failed scan among otherwise-ok scans.
-- [ ] 1.2 In `tests/test_batch.py`, write a failing test asserting `main()` still returns `0` for
-      an all-ok/all-skipped batch (pins the unchanged success path).
-- [ ] 1.3 In `tests/test_batch.py`, write a failing test asserting the existing
-      `FileNotFoundError`/duplicate-`scan_key` abort paths still return `2` (regression pin — no
-      behavior change here, but exercised alongside the new codes so the four-way split is
-      tested together).
-- [ ] 1.4 Implement: change `sleap_roots_predict/__main__.py`'s `return 0 if result.ok else 1` to
-      `return 0 if result.ok else 3`; update the module docstring and `main()`'s docstring to
-      enumerate all four codes (`0`/`2`/`3`/default `1`). Run 1.1–1.3 green.
+**Revised 2026-08-19 after cross-repo reconciliation with `sleap-roots#259`:** the original plan
+here kept a distinct `2` = "aborted" code (reusing the existing `except (FileNotFoundError,
+ValueError): return 2` in `__main__.py`) alongside the new `3` = partial. That collides with
+`argparse`'s own pre-existing `sys.exit(2)` on a CLI usage error — verified: `python -m
+sleap_roots_predict` with a missing argument already exits `2` today, via a code path this
+special-case never accounted for. The sibling `sleap-roots#259` proposal hit the identical bug
+in its first draft and fixed it by dropping the special code and reserving `2` for `argparse`
+everywhere; this task list now does the same, so both producers use numerically identical codes.
+
+- [ ] 1.1 In `tests/test_batch.py` (or `test___main__.py`), write a failing test asserting
+      `main()` returns `3` (not `1`) for a batch with one failed scan among otherwise-ok scans.
+- [ ] 1.2 In the same file, write a failing test asserting `main()` still returns `0` for an
+      all-ok/all-skipped batch (pins the unchanged success path).
+- [ ] 1.3 In the same file, write a failing test asserting the existing
+      `FileNotFoundError`/duplicate-`scan_key` abort paths now return the default `1` (not the old
+      `2`) — this is a **behavior-change** regression test, not a no-op pin: it must fail against
+      the current code (which still returns `2`) until task 1.4 removes the special case.
+- [ ] 1.4 In the same file, write a failing test asserting a CLI usage error (invoke `main()`/the
+      module with a missing required argument) exits `2` via `argparse`, and that this is
+      independent of the driver's own `0`/`1`/`3` codes (documents the boundary so a future change
+      can't quietly blur it again).
+- [ ] 1.5 Implement: in `sleap_roots_predict/__main__.py`, change `return 0 if result.ok else 1` to
+      `return 0 if result.ok else 3`, and **remove** the `except (FileNotFoundError, ValueError):
+      return 2` clause entirely — let those exceptions propagate uncaught (Python's default exit
+      `1`). Update the module docstring and `main()`'s docstring to enumerate the three
+      driver-owned codes (`0`/`3`/default `1`) plus a note that `2` is reserved by `argparse`, not
+      by this driver. Run 1.1–1.4 green.
 
 ## 2. Empty-input guard (D2): raise instead of silent no-op
 
@@ -75,8 +91,9 @@
 - [ ] 4.5 Implement: in `sleap_roots_predict/__main__.py`'s `main()`, create a `threading.Event`,
       register a `signal.signal(signal.SIGTERM, ...)` handler that sets it, pass
       `should_stop=event.is_set` into `run_batch`, and after `run_batch` returns, check the event
-      first — if set, log and `return 143` before falling through to the normal 0/2/3 logic. Run
-      4.3 green.
+      first — if set, log and `return 143` before falling through to the normal 0/3 logic (`2` is
+      never part of this fallthrough — `argparse` exits `2` on its own, before `run_batch` runs).
+      Run 4.3 green.
 
 ## 5. Docs and closeout
 

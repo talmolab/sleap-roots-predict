@@ -9,24 +9,30 @@ continues the batch, and still produces outputs for the other scans. `run_batch`
 types SHALL be treated as `failed` (rather than emitting an empty-artifacts manifest that the
 downstream trait-extractor would reject).
 
-The process SHALL exit with one of four distinct codes so an Argo step can distinguish an
+The process SHALL exit with one of three driver-owned codes so an Argo step can distinguish an
 isolated per-scan failure from a genuine crash:
 - `0` — success: at least one scan was discovered and none failed.
-- `2` — aborted: a pre-flight/staging error before any scan ran — a missing input directory, two
-  sidecars sharing a `scan_key`, or **zero scans discovered** (an empty-but-present input
-  directory, or a `run_manifest.json` scoping discovery to zero `scan_keys`) — a batch that ran
-  with no scans is a misconfiguration, not a no-op.
 - `3` — partial: at least one scan was discovered and the batch ran to completion, but one or
   more scans isolated-failed. The batch's own per-scan isolation already ran (the other scans'
   outputs are written); this exit code exists so Argo does not conflate "retry the whole batch"
   with "this is done, some scans need attention."
-- *(Python's default, produced by an uncaught exception, not an explicit `return`)* `1` — a
-  genuine pod-level crash (e.g. model-registry authentication failing before any scan is
-  attempted) that Argo's `retryStrategy` should retry.
+- *(Python's default, produced by an uncaught exception, not an explicit `return`)* `1` — every
+  other failure: a pre-flight/staging error before any scan ran (a missing input directory, two
+  sidecars sharing a `scan_key`, or **zero scans discovered** — an empty-but-present input
+  directory, or a `run_manifest.json` scoping discovery to zero `scan_keys`), or a genuine
+  pod-level crash (e.g. model-registry authentication failing before any scan is attempted). Both
+  are "the batch could not meaningfully run" conditions and are not split into separate codes;
+  Argo's `retryStrategy` should retry either.
+
+Exit code `2` is deliberately NOT part of this convention: `argparse` already exits `2` on a CLI
+usage error (missing/extra positional arguments), before `run_batch` ever runs. This matches the
+identical convention adopted by the sibling `sleap-roots` trait-extractor driver
+(`sleap-roots#259`) — both producers report numerically identical codes for numerically identical
+situations, per A4's design doc §8 ask to resolve this "the same way for both."
 
 A `run_manifest.json`-scoped batch where every listed `scan_key` has no matching sidecar is
 **not** the zero-scans-discovered case: `discover_scans` still returns one (failed) entry per
-listed key, so that batch ends `partial` (`3`), not aborted (`2`).
+listed key, so that batch ends `partial` (`3`), not the crash/staging-error code (`1`).
 
 #### Scenario: One failing scan does not abort the batch
 
@@ -51,20 +57,27 @@ listed key, so that batch ends `partial` (`3`), not aborted (`2`).
 - **WHEN** a present-but-empty input directory contains no `*.scan_metadata.json` (including a
   `run_manifest.json` that scopes discovery to zero `scan_keys`)
 - **THEN** `run_batch` raises before constructing a `WarmModelWorker`, writes nothing, and the CLI
-  exits `2`
+  exits `1` (uncaught — not a special-cased code)
 
 #### Scenario: Missing input directory is an error
 
 - **WHEN** the input directory path does not exist
-- **THEN** the runner raises (surfaced by the CLI as exit `2`), rather than reporting
+- **THEN** the runner raises (surfaced by the CLI as exit `1`), rather than reporting
   success with no outputs
 
-#### Scenario: A manifest scoped to missing sidecars ends partial, not aborted
+#### Scenario: A manifest scoped to missing sidecars ends partial, not a crash
 
 - **WHEN** `run_manifest.json` lists one or more `scan_keys` with no matching sidecar anywhere
   under the input directory, and no other scans are discovered
 - **THEN** `discover_scans` returns one failed entry per listed key (not an empty list), and the
-  process exits `3`, not `2`
+  process exits `3`, not `1`
+
+#### Scenario: A CLI usage error is unrelated to the partial/crash codes
+
+- **WHEN** `python -m sleap_roots_predict` is invoked with a missing required argument
+- **THEN** the process exits `2` via `argparse`'s own pre-existing usage-error handling, before
+  `run_batch` ever runs, and this is unrelated to (does not collide in meaning with) the `0`/`1`/`3`
+  driver-owned codes
 
 ### Requirement: Per-scan outputs with scan-metadata pass-through
 
@@ -123,5 +136,5 @@ success/partial/aborted outcome.
 #### Scenario: No signal received leaves existing behavior unchanged
 
 - **WHEN** the batch runs to completion without `SIGTERM` ever being received
-- **THEN** the exit code is determined exactly as before (`0`/`2`/`3`/default `1`), unaffected by
+- **THEN** the exit code is determined exactly as before (`0`/`3`/default `1`), unaffected by
   the new handler's presence
