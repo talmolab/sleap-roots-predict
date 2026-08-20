@@ -374,6 +374,53 @@ def test_failed_write_does_not_delete_prior_valid_artifacts(
     assert (tmp_path / "scan0731.predictions.json").read_text() == old_manifest_text
 
 
+def test_stale_sweep_failure_does_not_leave_manifest_pointing_at_deleted_files(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """The manifest is committed *before* the stale-.slp sweep runs, so if the
+    sweep itself fails partway (e.g. a locked file), the already-current
+    manifest still correctly references only this run's own artifacts -- the
+    sweep is purely best-effort cleanup once the manifest is correct, never a
+    step the manifest's correctness depends on."""
+    worker = WarmModelWorker(rice_source)
+    kwargs = dict(
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    write_prediction_outputs(
+        worker.predict(_params(), video), worker.resolve(_params()), tmp_path, **kwargs
+    )
+
+    override = {
+        "primary": ModelRef(
+            registry_id="reg/rice-lateral",
+            version="v1",
+            sleap_nn_version="0.3.0",
+            root_type="primary",
+        )
+    }
+
+    def _boom_unlink(self, *a, **k):
+        raise OSError("simulated interruption")
+
+    monkeypatch.setattr(Path, "unlink", _boom_unlink)
+    with pytest.raises(OSError):
+        write_prediction_outputs(
+            worker.predict(_params(), video, overrides=override),
+            worker.resolve(_params(), override),
+            tmp_path,
+            **kwargs,
+        )
+
+    manifest = PredictionManifest.model_validate_json(
+        (tmp_path / "scan0731.predictions.json").read_text()
+    )
+    primary_art = next(a for a in manifest.artifacts if a.root_type == "primary")
+    assert primary_art.model.registry_id == "reg/rice-lateral"
+    assert (tmp_path / primary_art.slp_path).exists()
+
+
 def test_manifest_records_worker_provenance(rice_source, video, tmp_path):
     """The writer stores the worker's inference config + output params verbatim."""
     worker = WarmModelWorker(rice_source, peak_threshold=0.15)

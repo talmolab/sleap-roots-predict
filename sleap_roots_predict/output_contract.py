@@ -215,24 +215,6 @@ def write_prediction_outputs(
             )
         )
 
-    # Idempotent re-run: remove this scan's now-superseded `.slp` artifacts only
-    # after every new one above has been written successfully. Their filenames
-    # embed the model slug, so a model/version/override change would otherwise
-    # orphan the old files (unreferenced by the new manifest, yet matched by
-    # glob-based consumers) -- but running this sweep *before* the new writes (as
-    # earlier code did) could delete a prior run's still-valid artifacts before
-    # their replacements were confirmed written, if a later root type's write then
-    # failed. Scoped by the validated (separator-free) scan_key prefix, so other
-    # scans in the same directory are untouched.
-    slp_prefix = f"{scan_key}.model"
-    for stale in list(out.iterdir()):
-        if (
-            stale.name.startswith(slp_prefix)
-            and stale.name.endswith(".slp")
-            and stale.name not in written_filenames
-        ):
-            stale.unlink()
-
     manifest = PredictionManifest(
         scan_key=scan_key,
         plant_qr_code=plant_qr_code or scan_key,
@@ -244,8 +226,11 @@ def write_prediction_outputs(
             predict_container_digest, "SRP_PREDICT_CONTAINER_DIGEST"
         ),
     )
-    # Written last (after every .slp's atomic write completes), preserving its
-    # established role as the resume commit-marker.
+    # Written after every .slp's atomic write completes but *before* the stale-.slp
+    # sweep below, preserving its established role as the resume commit-marker: once
+    # this succeeds, the manifest is already correct and complete on its own, so a
+    # failure in the purely-cosmetic sweep that follows can never leave a
+    # still-current manifest referencing artifacts the sweep only partially deleted.
     manifest_path = predictions_json_path(out, scan_key)
     tmp_manifest_path = manifest_path.with_name(manifest_path.name + ".tmp")
     try:
@@ -256,6 +241,27 @@ def write_prediction_outputs(
     except Exception:
         tmp_manifest_path.unlink(missing_ok=True)
         raise
+
+    # Idempotent re-run: remove this scan's now-superseded `.slp` artifacts only
+    # after the manifest above is already committed. Their filenames embed the
+    # model slug, so a model/version/override change would otherwise orphan the old
+    # files (unreferenced by the new manifest, yet matched by glob-based consumers)
+    # -- but running this sweep any earlier (before every new write, or even before
+    # the manifest) risks a partial failure here or in a later write leaving a
+    # still-current manifest that references a mix of deleted and non-deleted
+    # files. With the manifest already correct at this point, a sweep failure is
+    # inert disk clutter, not a correctness hazard. Scoped by the validated
+    # (separator-free) scan_key prefix, so other scans in the same directory are
+    # untouched.
+    slp_prefix = f"{scan_key}.model"
+    for stale in list(out.iterdir()):
+        if (
+            stale.name.startswith(slp_prefix)
+            and stale.name.endswith(".slp")
+            and stale.name not in written_filenames
+        ):
+            stale.unlink()
+
     return manifest
 
 
