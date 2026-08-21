@@ -84,6 +84,19 @@ doc for the "why not the alternative" reasoning.
     entirely, so tests must call the handler directly, never via `os.kill`. This repo's CI runs a
     Windows job; the handler's *logic* is unit-tested directly, while real end-to-end delivery is
     only ever meaningfully validated on Linux (the actual Argo/Kubernetes runtime) or macOS.
+  - **Cross-repo asymmetry, noted explicitly (found in a cross-repo PR review after
+    `sleap-roots#266` landed):** the traits driver's `SIGTERM` handler calls `sys.exit(143)`
+    immediately, with no scan-boundary wait — correctly, for two reasons specific to that driver:
+    (1) a single scan's trait computation is short and CPU-bound (no multi-second uninterruptible
+    native call to protect), and (2) its per-scan writes were already atomic before that PR, so an
+    interrupt at any point can only ever abandon an unfinished temp file, never corrupt a completed
+    `{scan_key}.result.json`. This driver waits for scan-boundary because neither of those is true
+    here: a scan is uninterruptible GPU inference, and (before this proposal) the writes weren't
+    atomic either. Both handlers reach the same outward contract (prompt exit, `143`, no corrupted
+    output); they differ only in how much in-flight work is discarded, as a direct consequence of
+    each driver's own per-scan cost and interruptibility — not an oversight to reconcile. (Traits'
+    own `design.md` for `harden-trait-extractor-exit-semantics` names and contrasts this driver's
+    approach explicitly; this note closes the loop so the cross-reference is mutual.)
 
 ## Risks / Trade-offs
 

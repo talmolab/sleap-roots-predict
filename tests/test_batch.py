@@ -424,6 +424,76 @@ def test_sigterm_overrides_partial_exit_code(
         signal.signal(signal.SIGTERM, prev_handler)
 
 
+def test_main_restores_prior_sigterm_handler_on_normal_completion(
+    scan_input_dir: Path, tmp_path: Path, monkeypatch
+):
+    # The staging-error-path restoration test only exercises main()'s except/raise
+    # branch; this pins the same guarantee on the plain success-return path, so the
+    # unconditional `finally` around the whole function body is tested on both
+    # sides, not just the one that happens to also need the log-then-reraise fix.
+    import signal
+
+    from sleap_roots_predict.__main__ import main
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    monkeypatch.setattr(
+        "sleap_roots_predict.batch.run_batch",
+        lambda *a, **k: type("R", (), {"ok": True, "scans": []})(),
+    )
+    assert main([str(scan_input_dir), str(tmp_path / "out")]) == 0
+    assert signal.getsignal(signal.SIGTERM) is prev_handler
+
+
+def test_sigterm_composes_with_should_stop_across_a_real_multi_scan_batch(
+    all_roots_source, tmp_path: Path, monkeypatch
+):
+    # The boundary-stop test (test_should_stop_stops_after_first_scan) and the
+    # SIGTERM-override tests above each exercise their own half in isolation --
+    # this wires a real SIGTERM delivery (via the actual registered handler,
+    # never os.kill) into should_stop's real per-scan-loop check over a real
+    # two-scan batch, so the full composition is exercised end to end at least
+    # once, not just its two halves independently.
+    import signal
+
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "s1", _RICE)
+    _real_scan(inp, "s2", _RICE)
+    out = tmp_path / "out"
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        real_run_batch = batch_mod.run_batch
+        calls = {"n": 0}
+
+        def _run_with_signal_after_first_scan(*args, **kwargs):
+            orig_should_stop = kwargs.get("should_stop", lambda: False)
+
+            def _wrapped_should_stop():
+                calls["n"] += 1
+                if calls["n"] == 2:
+                    # Fire the real handler main() already installed -- this sets
+                    # the real threading.Event backing orig_should_stop, so the
+                    # very next line observes it exactly as a genuine delivery
+                    # between scans would.
+                    signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+                return orig_should_stop()
+
+            kwargs["source"] = all_roots_source
+            kwargs["should_stop"] = _wrapped_should_stop
+            return real_run_batch(*args, **kwargs)
+
+        monkeypatch.setattr(batch_mod, "run_batch", _run_with_signal_after_first_scan)
+        assert main([str(inp), str(out)]) == 143
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
+
+    assert (out / "s1" / "s1.predictions.json").exists()
+    assert not (out / "s2").exists()
+
+
 @pytest.mark.wandb
 def test_module_cli_over_registry(scan_input_dir: Path, tmp_path: Path):
     import subprocess
