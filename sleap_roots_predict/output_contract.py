@@ -141,9 +141,14 @@ def write_prediction_outputs(
     filename convention; loaded downstream via ``Series.load`` with the manifest's
     explicit paths) and then a single combined ``{scan_key}.predictions.json``
     serializing a :class:`PredictionManifest`. Re-running for the same ``scan_key``
-    into the same ``out_dir`` overwrites the prior outputs in place, first removing
-    any stale ``.slp`` for that scan (so a changed model slug does not orphan files).
-    Path strings are emitted via ``Path.as_posix()``. Does not import ``sleap-roots``.
+    into the same ``out_dir`` overwrites the prior outputs in place; any stale
+    ``.slp`` for that scan (from a changed model slug) is removed only once every
+    new ``.slp`` and the manifest have been written successfully, so a failed
+    write never deletes a still-valid prior artifact. Each ``.slp`` and the
+    manifest are written atomically (temp file in the same directory, then
+    ``os.replace``), so no reader ever observes a partially-written file; the
+    manifest is written last, after every ``.slp``'s write completes. Path
+    strings are emitted via ``Path.as_posix()``. Does not import ``sleap-roots``.
 
     Args:
         labels_by_root: Predicted ``sio.Labels`` per root type (from the worker's
@@ -177,23 +182,27 @@ def write_prediction_outputs(
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    # Idempotent re-run: remove this scan's prior `.slp` artifacts first. Their
-    # filenames embed the model slug, so a model/version/override change would
-    # otherwise orphan the old files (unreferenced by the new manifest, yet matched
-    # by glob-based consumers). Scoped by the validated (separator-free) scan_key
-    # prefix, so other scans in the same directory are untouched.
-    slp_prefix = f"{scan_key}.model"
-    for stale in list(out.iterdir()):
-        if stale.name.startswith(slp_prefix) and stale.name.endswith(".slp"):
-            stale.unlink()
-
     artifacts: list[PredictionArtifact] = []
+    written_filenames: set[str] = set()
     for root_type in sorted(refs_by_root):
         ref = refs_by_root[root_type]
         slug = slugify_model_id(ref)
         filename = f"{scan_key}.model{slug}.root{root_type}.slp"
+        written_filenames.add(filename)
         slp_path = out / filename
-        sio.save_file(labels_by_root[root_type], slp_path.as_posix())
+        tmp_slp_path = slp_path.with_name(slp_path.name + ".tmp")
+        try:
+            # format="slp" is passed explicitly rather than relied upon via the temp
+            # filename's extension: sio.save_file infers format from the filename
+            # when format is omitted, and the ".tmp"-suffixed temp name no longer
+            # ends in ".slp".
+            sio.save_file(
+                labels_by_root[root_type], tmp_slp_path.as_posix(), format="slp"
+            )
+            os.replace(tmp_slp_path, slp_path)
+        except Exception:
+            tmp_slp_path.unlink(missing_ok=True)
+            raise
         data = slp_path.read_bytes()
         artifacts.append(
             PredictionArtifact(
@@ -217,9 +226,42 @@ def write_prediction_outputs(
             predict_container_digest, "SRP_PREDICT_CONTAINER_DIGEST"
         ),
     )
-    predictions_json_path(out, scan_key).write_text(
-        manifest.model_dump_json(indent=2), encoding="utf-8"
-    )
+    # Written after every .slp's atomic write completes but *before* the stale-.slp
+    # sweep below, preserving its established role as the resume commit-marker: once
+    # this succeeds, the manifest is already correct and complete on its own, so a
+    # failure in the purely-cosmetic sweep that follows can never leave a
+    # still-current manifest referencing artifacts the sweep only partially deleted.
+    manifest_path = predictions_json_path(out, scan_key)
+    tmp_manifest_path = manifest_path.with_name(manifest_path.name + ".tmp")
+    try:
+        tmp_manifest_path.write_text(
+            manifest.model_dump_json(indent=2), encoding="utf-8"
+        )
+        os.replace(tmp_manifest_path, manifest_path)
+    except Exception:
+        tmp_manifest_path.unlink(missing_ok=True)
+        raise
+
+    # Idempotent re-run: remove this scan's now-superseded `.slp` artifacts only
+    # after the manifest above is already committed. Their filenames embed the
+    # model slug, so a model/version/override change would otherwise orphan the old
+    # files (unreferenced by the new manifest, yet matched by glob-based consumers)
+    # -- but running this sweep any earlier (before every new write, or even before
+    # the manifest) risks a partial failure here or in a later write leaving a
+    # still-current manifest that references a mix of deleted and non-deleted
+    # files. With the manifest already correct at this point, a sweep failure is
+    # inert disk clutter, not a correctness hazard. Scoped by the validated
+    # (separator-free) scan_key prefix, so other scans in the same directory are
+    # untouched.
+    slp_prefix = f"{scan_key}.model"
+    for stale in list(out.iterdir()):
+        if (
+            stale.name.startswith(slp_prefix)
+            and stale.name.endswith(".slp")
+            and stale.name not in written_filenames
+        ):
+            stale.unlink()
+
     return manifest
 
 
@@ -257,7 +299,8 @@ def predict_and_write_batch(
 
     The worker's resident ``Predictor``s are reused across scans (models loaded
     once), so a batch amortizes model-load cost. Each scan is written into
-    ``out_dir/{scan_key}/`` via :func:`write_prediction_outputs`.
+    ``out_dir/{scan_key}/`` via :func:`write_prediction_outputs` (atomic writes;
+    see that function's docstring).
 
     Args:
         worker: A ``WarmModelWorker`` kept resident across the batch.

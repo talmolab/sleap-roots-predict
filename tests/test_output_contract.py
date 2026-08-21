@@ -319,6 +319,108 @@ def test_rerun_with_changed_model_prunes_stale_slp(rice_source, video, tmp_path)
     assert len(list(tmp_path.glob("*.rootprimary.slp"))) == 1
 
 
+def test_failed_write_does_not_delete_prior_valid_artifacts(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """If a later .slp write fails, the prior run's still-valid artifacts (which
+    a changed model ref would otherwise mark stale) are left untouched -- the
+    old files must not be deleted before every new one is confirmed written."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    kwargs = dict(
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    # Run 1: succeeds fully.
+    write_prediction_outputs(
+        worker.predict(_params(), video), worker.resolve(_params()), tmp_path, **kwargs
+    )
+    old_primary_slp = next(tmp_path.glob("*.rootprimary.slp"))
+    old_manifest_text = (tmp_path / "scan0731.predictions.json").read_text()
+
+    # Run 2: primary now resolves to a different model (a new slug, so it would
+    # supersede and mark the old primary .slp stale), but the lateral write is
+    # interrupted before this run can complete.
+    override = {
+        "primary": ModelRef(
+            registry_id="reg/rice-lateral",
+            version="v1",
+            sleap_nn_version="0.3.0",
+            root_type="primary",
+        )
+    }
+    real_save_file = oc_mod.sio.save_file
+
+    def _boom_on_lateral(labels_obj, path, **kw):
+        if "rootlateral" in str(path):
+            raise OSError("simulated interruption")
+        return real_save_file(labels_obj, path, **kw)
+
+    monkeypatch.setattr(oc_mod.sio, "save_file", _boom_on_lateral)
+    with pytest.raises(OSError):
+        write_prediction_outputs(
+            worker.predict(_params(), video, overrides=override),
+            worker.resolve(_params(), override),
+            tmp_path,
+            **kwargs,
+        )
+
+    # Run 1's artifacts are untouched -- nothing was deleted before run 2's new
+    # writes were confirmed complete, so a resumed batch still sees a fully
+    # valid, internally-consistent (manifest, .slp) pair from run 1.
+    assert old_primary_slp.exists()
+    assert (tmp_path / "scan0731.predictions.json").read_text() == old_manifest_text
+
+
+def test_stale_sweep_failure_does_not_leave_manifest_pointing_at_deleted_files(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """The manifest is committed *before* the stale-.slp sweep runs, so if the
+    sweep itself fails partway (e.g. a locked file), the already-current
+    manifest still correctly references only this run's own artifacts -- the
+    sweep is purely best-effort cleanup once the manifest is correct, never a
+    step the manifest's correctness depends on."""
+    worker = WarmModelWorker(rice_source)
+    kwargs = dict(
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    write_prediction_outputs(
+        worker.predict(_params(), video), worker.resolve(_params()), tmp_path, **kwargs
+    )
+
+    override = {
+        "primary": ModelRef(
+            registry_id="reg/rice-lateral",
+            version="v1",
+            sleap_nn_version="0.3.0",
+            root_type="primary",
+        )
+    }
+
+    def _boom_unlink(self, *a, **k):
+        raise OSError("simulated interruption")
+
+    monkeypatch.setattr(Path, "unlink", _boom_unlink)
+    with pytest.raises(OSError):
+        write_prediction_outputs(
+            worker.predict(_params(), video, overrides=override),
+            worker.resolve(_params(), override),
+            tmp_path,
+            **kwargs,
+        )
+
+    manifest = PredictionManifest.model_validate_json(
+        (tmp_path / "scan0731.predictions.json").read_text()
+    )
+    primary_art = next(a for a in manifest.artifacts if a.root_type == "primary")
+    assert primary_art.model.registry_id == "reg/rice-lateral"
+    assert (tmp_path / primary_art.slp_path).exists()
+
+
 def test_manifest_records_worker_provenance(rice_source, video, tmp_path):
     """The writer stores the worker's inference config + output params verbatim."""
     worker = WarmModelWorker(rice_source, peak_threshold=0.15)
@@ -359,6 +461,126 @@ def test_writer_does_not_import_sleap_roots():
         [sys.executable, "-c", code], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
+
+
+# --- Task 3 (predict #26): atomic .slp/manifest writes -----------------------
+
+
+def test_slp_write_passes_format_explicitly(rice_source, video, tmp_path, monkeypatch):
+    """The .slp temp write passes format="slp" rather than relying on the
+    temp filename's extension (sio.save_file otherwise infers format from it)."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    real_save_file = oc_mod.sio.save_file
+    formats_seen = []
+
+    def _spy(labels_obj, path, **kwargs):
+        formats_seen.append(kwargs.get("format"))
+        return real_save_file(labels_obj, path, **kwargs)
+
+    monkeypatch.setattr(oc_mod.sio, "save_file", _spy)
+    write_prediction_outputs(
+        worker.predict(_params(), video),
+        worker.resolve(_params()),
+        tmp_path,
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    assert formats_seen  # at least one .slp was written
+    assert all(fmt == "slp" for fmt in formats_seen)
+
+
+def test_slp_write_leaves_no_partial_file_if_replace_fails(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """An interrupted .slp write leaves no file at the final path."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    monkeypatch.setattr(
+        oc_mod.os,
+        "replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
+    )
+    with pytest.raises(OSError):
+        write_prediction_outputs(
+            worker.predict(_params(), video),
+            worker.resolve(_params()),
+            tmp_path,
+            scan_key="scan0731",
+            inference_config=worker.inference_config(),
+            output_params=worker.output_params(),
+        )
+    assert not list(tmp_path.glob("*.slp"))
+    assert not list(
+        tmp_path.glob("*.tmp")
+    )  # the failed write's temp file is cleaned up
+
+
+def test_manifest_write_leaves_no_partial_file_if_replace_fails(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """An interrupted manifest write leaves no manifest at the final path, but
+    the already-succeeded .slp writes are unaffected."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    real_replace = oc_mod.os.replace
+
+    def _replace(src, dst):
+        if str(dst).endswith(".predictions.json"):
+            raise OSError("simulated interruption")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(oc_mod.os, "replace", _replace)
+    with pytest.raises(OSError):
+        write_prediction_outputs(
+            worker.predict(_params(), video),
+            worker.resolve(_params()),
+            tmp_path,
+            scan_key="scan0731",
+            inference_config=worker.inference_config(),
+            output_params=worker.output_params(),
+        )
+    assert not (tmp_path / "scan0731.predictions.json").exists()
+    assert list(tmp_path.glob("*.rootprimary.slp"))
+    assert list(tmp_path.glob("*.rootlateral.slp"))
+    assert not list(
+        tmp_path.glob("*.tmp")
+    )  # the failed manifest write's temp file is gone
+
+
+def test_manifest_replace_happens_after_all_slp_replaces(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """The manifest's atomic write completes only after every .slp's does."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    worker = WarmModelWorker(rice_source)
+    real_replace = oc_mod.os.replace
+    call_order = []
+
+    def _replace(src, dst):
+        call_order.append(str(dst))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(oc_mod.os, "replace", _replace)
+    write_prediction_outputs(
+        worker.predict(_params(), video),
+        worker.resolve(_params()),
+        tmp_path,
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    manifest_calls = [
+        i for i, p in enumerate(call_order) if p.endswith(".predictions.json")
+    ]
+    assert len(manifest_calls) == 1
+    assert manifest_calls[0] == len(call_order) - 1  # last call
+    assert manifest_calls[0] > 0  # at least one .slp replace happened first
 
 
 # --- Task 5: fail-soft build identity ---------------------------------------

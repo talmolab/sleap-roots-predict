@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from sleap_roots_predict.batch import BatchResult, discover_scans, run_batch
+from sleap_roots_predict.batch import discover_scans, run_batch
 
 
 def _write_scan(root: Path, scan_key: str, params, *, stem=None, extra_files=()):
@@ -287,12 +287,30 @@ def test_zero_resolved_models_is_failed(rice_source, tmp_path: Path):
     assert not (out / "scanZ" / "scanZ.predictions.json").exists()
 
 
-def test_empty_input_is_noop(tmp_path: Path):
+def test_empty_input_raises(tmp_path: Path):
     empty = tmp_path / "empty_in"
     empty.mkdir()
-    result = run_batch(empty, tmp_path / "out")
-    assert isinstance(result, BatchResult)
-    assert result.ok and result.scans == []
+    with pytest.raises(ValueError, match="no scans discovered"):
+        run_batch(empty, tmp_path / "out")
+
+
+def test_empty_input_raises_before_worker_interaction(tmp_path: Path):
+    calls = {"n": 0}
+
+    class _RecordingSource:
+        def list_cards(self):
+            calls["n"] += 1
+            return []
+
+        def materialize(self, ref):
+            calls["n"] += 1
+            raise AssertionError("materialize should never be called")
+
+    empty = tmp_path / "empty_in"
+    empty.mkdir()
+    with pytest.raises(ValueError):
+        run_batch(empty, tmp_path / "out", source=_RecordingSource())
+    assert calls["n"] == 0
 
 
 def test_cli_main_exit_codes(scan_input_dir: Path, tmp_path: Path, monkeypatch):
@@ -305,14 +323,105 @@ def test_cli_main_exit_codes(scan_input_dir: Path, tmp_path: Path, monkeypatch):
 
     state = {"ok": True}
 
-    def fake_run_batch(inp, out):
+    def fake_run_batch(inp, out, **kwargs):
         return _Res(state["ok"])
 
     monkeypatch.setattr("sleap_roots_predict.batch.run_batch", fake_run_batch)
     state["ok"] = True
     assert main([str(scan_input_dir), str(tmp_path / "o1")]) == 0
     state["ok"] = False
-    assert main([str(scan_input_dir), str(tmp_path / "o2")]) == 1
+    assert main([str(scan_input_dir), str(tmp_path / "o2")]) == 3
+
+
+def test_cli_usage_error_exits_2_via_argparse():
+    from sleap_roots_predict.__main__ import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main([])  # missing both required positional arguments
+    assert exc_info.value.code == 2
+
+
+def test_install_sigterm_handler_sets_event_when_invoked():
+    import signal
+
+    from sleap_roots_predict.__main__ import _install_sigterm_handler
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        event = _install_sigterm_handler()
+        assert not event.is_set()
+        signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        assert event.is_set()
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
+
+
+def test_sigterm_overrides_success_exit_code(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
+):
+    import signal
+
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        real_run_batch = batch_mod.run_batch
+
+        def _run_then_signal(*args, **kwargs):
+            # Delegating spy: run the real batch, then trigger the SIGTERM handler
+            # main() already installed, strictly between run_batch returning and
+            # main()'s post-run_batch check -- mirrors this file's existing
+            # spy_resolve/_Counting(orig) wrap-and-delegate pattern. `source` is
+            # injected so this hits the offline test fixture, not the live registry.
+            kwargs.setdefault("source", all_roots_source)
+            result = real_run_batch(*args, **kwargs)
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            return result
+
+        monkeypatch.setattr(batch_mod, "run_batch", _run_then_signal)
+        assert main([str(scan_input_dir), str(tmp_path / "out")]) == 143
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
+
+
+def test_sigterm_overrides_partial_exit_code(
+    all_roots_source, tmp_path: Path, monkeypatch
+):
+    import signal
+
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanGOOD", _RICE)
+    bad = inp / "scanBAD"
+    bad.mkdir()
+    (bad / "scanBAD.scan_metadata.json").write_text(
+        json.dumps(
+            {
+                "scan_key": "scanBAD",
+                "image_ids": ["a"],
+                "images_checksum": "sha256:x",
+                "params": _RICE,
+            }
+        )
+    )
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        real_run_batch = batch_mod.run_batch
+
+        def _run_then_signal(*args, **kwargs):
+            kwargs.setdefault("source", all_roots_source)
+            result = real_run_batch(*args, **kwargs)
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            return result
+
+        monkeypatch.setattr(batch_mod, "run_batch", _run_then_signal)
+        assert main([str(inp), str(tmp_path / "out")]) == 143
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
 
 
 @pytest.mark.wandb
@@ -349,17 +458,73 @@ def test_run_batch_constructs_single_worker(all_roots_source, tmp_path, monkeypa
     assert counter["n"] == 1  # one resident worker for the whole batch
 
 
+def test_should_stop_stops_after_first_scan(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "s1", _RICE)
+    _real_scan(inp, "s2", _RICE)
+    out = tmp_path / "out"
+    calls = {"n": 0}
+
+    def _stop():
+        calls["n"] += 1
+        return calls["n"] > 1  # False the first time (before s1), True thereafter
+
+    result = run_batch(inp, out, source=all_roots_source, should_stop=_stop)
+    assert [s.scan_key for s in result.scans] == ["s1"]
+    assert result.scans[0].status == "ok"
+    assert (out / "s1" / "s1.predictions.json").exists()
+    assert list((out / "s1").glob("*.slp"))
+    assert not (out / "s2").exists()
+
+
+def test_should_stop_default_is_unaffected(all_roots_source, tmp_path: Path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "s1", _RICE)
+    _real_scan(inp, "s2", _RICE)
+    result = run_batch(inp, tmp_path / "out", source=all_roots_source)
+    assert [s.status for s in result.scans] == ["ok", "ok"]
+
+
 def test_missing_input_dir_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         run_batch(tmp_path / "does_not_exist", tmp_path / "out")
 
 
-def test_cli_missing_input_dir_returns_nonzero(tmp_path):
+def test_cli_missing_input_dir_propagates_as_default_exit_1(tmp_path, caplog):
     from sleap_roots_predict.__main__ import main
 
-    # discover_scans raises FileNotFoundError before the worker is built (no network),
-    # and main converts it to a clean non-zero exit.
-    assert main([str(tmp_path / "nope"), str(tmp_path / "out")]) == 2
+    # discover_scans raises FileNotFoundError before the worker is built (no
+    # network); main logs a clean message then re-raises, so the process exits via
+    # Python's default unhandled-exception code (1), not a special-cased return.
+    with caplog.at_level("ERROR"):
+        with pytest.raises(FileNotFoundError):
+            main([str(tmp_path / "nope"), str(tmp_path / "out")])
+    assert any("Batch aborted" in r.message for r in caplog.records)
+
+
+def test_cli_empty_input_propagates_as_default_exit_1(tmp_path):
+    from sleap_roots_predict.__main__ import main
+
+    empty = tmp_path / "empty_in"
+    empty.mkdir()
+    with pytest.raises(ValueError, match="no scans discovered"):
+        main([str(empty), str(tmp_path / "out")])
+
+
+def test_main_restores_prior_sigterm_handler_on_staging_error(tmp_path):
+    # main() installs its own SIGTERM handler before running the batch; a staging
+    # error (re-raised, not returned) must not leave that handler installed --
+    # otherwise a real SIGTERM to whatever process later calls main() again (or
+    # to the pytest process itself) is silently swallowed by an orphaned handler
+    # closing over a dead threading.Event nobody reads.
+    import signal
+
+    from sleap_roots_predict.__main__ import main
+
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    with pytest.raises(FileNotFoundError):
+        main([str(tmp_path / "nope"), str(tmp_path / "out")])
+    assert signal.getsignal(signal.SIGTERM) is prev_handler
 
 
 def test_sidecar_copy_failure_leaves_no_manifest(
@@ -377,6 +542,23 @@ def test_sidecar_copy_failure_leaves_no_manifest(
     # sidecar is copied BEFORE the manifest, so a copy failure leaves no manifest ->
     # resume re-runs the scan rather than skipping an incomplete tree.
     assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
+
+
+def test_sidecar_copy_leaves_no_partial_file_if_replace_fails(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
+):
+    # batch.py has no local `os` reference to patch (unlike output_contract.py),
+    # so patch the global `os.replace` rather than a module attribute.
+    monkeypatch.setattr(
+        "os.replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
+    )
+    out = tmp_path / "out"
+    result = run_batch(scan_input_dir, out, source=all_roots_source)
+    assert [s.status for s in result.scans] == ["failed"]
+    assert not (out / "scanCPTEST0" / "scanCPTEST0.scan_metadata.json").exists()
+    assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
+    assert not list((out / "scanCPTEST0").glob("*.tmp"))  # temp copy is cleaned up
 
 
 def test_unreadable_json_sidecar_is_error(tmp_path: Path):

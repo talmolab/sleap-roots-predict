@@ -208,13 +208,19 @@ Each scan is a directory of image frames with a co-located
 `{scan_key}.scan_metadata.json` sidecar (carrying the resolved `{species, mode, age}`
 params). If the input directory also has a `run_manifest.json` (staged by an upstream
 pipeline stage), discovery is scoped to exactly that manifest's `scan_keys` — a leftover
-sidecar from a prior run is silently excluded rather than reprocessed. The container loads
-models once, predicts every scan, and writes per scan
-`out/{scan_key}/{scan_key}.predictions.json` + named per-root `.slp` + a copy of the
-sidecar. Skip-if-done compares a recomputed idempotency key against the prior run's own
-artifacts (no new storage needed) and skips only on an exact match, (re)predicting
-otherwise; it exits non-zero if any scan failed. GPU is used when available
-(`nvidia.com/gpu`); it also runs CPU-only. The same entrypoint is available as a library:
+sidecar from a prior run is silently excluded rather than reprocessed. An empty (zero-scan)
+input directory raises rather than silently succeeding, so a misconfigured stage-in mount
+never looks like a completed batch. The container loads models once, predicts every scan,
+and writes per scan `out/{scan_key}/{scan_key}.predictions.json` + named per-root `.slp` +
+a copy of the sidecar, all written atomically (temp file + rename) so no reader ever
+observes a partially-written file. Skip-if-done compares a recomputed idempotency key
+against the prior run's own artifacts (no new storage needed) and skips only on an exact
+match, (re)predicting otherwise. A `SIGTERM` (Argo preemption) stops the batch at the next
+scan boundary rather than mid-scan. See the `predict-container` OpenSpec spec
+(`openspec/specs/predict-container/spec.md`) for the exact exit-code contract (`0`
+success / `3` partial / default `1` staging-error-or-crash / `143` `SIGTERM`-terminated;
+`2` is reserved for a CLI usage error). GPU is used when available (`nvidia.com/gpu`); it
+also runs CPU-only. The same entrypoint is available as a library:
 `from sleap_roots_predict import run_batch`, or `python -m sleap_roots_predict <in> <out>`.
 
 ## CI/CD

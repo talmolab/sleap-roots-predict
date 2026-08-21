@@ -9,7 +9,9 @@ writes the prediction-output artifacts, and copies the sidecar through so each
 
 import json
 import logging
+import os
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -268,6 +270,7 @@ def run_batch(
     source: ModelCardSource | None = None,
     predict_code_sha: str | None = None,
     predict_container_digest: str | None = None,
+    should_stop: Callable[[], bool] = lambda: False,
 ) -> BatchResult:
     """Predict every scan under ``input_dir``, writing outputs under ``output_dir``.
 
@@ -279,7 +282,8 @@ def run_batch(
     (no new storage — see :func:`_previous_identity_key`); an exact match skips,
     anything else (including no previous artifacts at all) predicts and overwrites.
     A per-scan error is isolated (recorded ``failed``, batch continues). An empty
-    (but present) input directory is a no-op.
+    (but present) input directory is a batch-level staging error (raises), not a
+    no-op — a misconfigured or empty stage-in mount should never look like success.
 
     Args:
         input_dir: Directory of staged scans.
@@ -287,26 +291,37 @@ def run_batch(
         source: Model-card source; ``None`` uses the production WandbRegistrySource.
         predict_code_sha: Provenance sha (falls back to ``SRP_PREDICT_CODE_SHA``).
         predict_container_digest: Provenance digest (env fallback).
+        should_stop: Checked at the top of each per-scan loop iteration; when it
+            returns ``True`` the batch stops before starting the next scan (never
+            interrupting a scan already in progress). Defaults to a no-op, so
+            existing callers are unaffected.
 
     Returns:
         A :class:`BatchResult` with one :class:`ScanResult` per scan.
 
     Raises:
         FileNotFoundError: If ``input_dir`` does not exist.
-        ValueError: If two sidecars share a ``scan_key`` (a batch-level staging error,
-            surfaced before any prediction).
+        ValueError: If two sidecars share a ``scan_key``, or if zero scans are
+            discovered under a present ``input_dir`` (both batch-level staging
+            errors, surfaced before any prediction or model-source interaction).
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     scans = discover_scans(input_dir)
-    result = BatchResult()
     if not scans:
-        logger.warning("No scans discovered under %s", input_dir.as_posix())
-        return result
+        raise ValueError(f"no scans discovered under {input_dir.as_posix()}")
+    result = BatchResult()
 
     resolved_code_sha = resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA")
     worker = WarmModelWorker(source=source)
     for scan in scans:
+        if should_stop():
+            logger.warning(
+                "Stopping early: requested after %d/%d scans",
+                len(result.scans),
+                len(scans),
+            )
+            break
         if scan.error is not None:
             logger.error("Scan %s failed: %s", scan.scan_key, scan.error)
             result.scans.append(ScanResult(scan.scan_key, "failed", scan.error))
@@ -368,10 +383,17 @@ def _predict_one(
     # Copy the sidecar BEFORE the manifest: write_prediction_outputs writes the manifest
     # last as the resume commit-marker, so the sidecar must already be present when it
     # lands — else a crash in between leaves a manifest with no sidecar that resume skips
-    # forever and the trait-extractor then rejects (an incomplete input tree).
-    shutil.copyfile(
-        scan.sidecar_path, out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
-    )
+    # forever and the trait-extractor then rejects (an incomplete input tree). The copy
+    # itself is atomic (temp file + os.replace), so no reader ever observes a
+    # partially-written sidecar.
+    sidecar_dst = out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
+    tmp_sidecar_dst = sidecar_dst.with_name(sidecar_dst.name + ".tmp")
+    try:
+        shutil.copyfile(scan.sidecar_path, tmp_sidecar_dst)
+        os.replace(tmp_sidecar_dst, sidecar_dst)
+    except Exception:
+        tmp_sidecar_dst.unlink(missing_ok=True)
+        raise
     write_prediction_outputs(
         labels,
         refs,
