@@ -382,10 +382,12 @@ def _predict_one(
     out_scan_dir.mkdir(parents=True, exist_ok=True)
     # Copy the sidecar BEFORE the manifest: write_prediction_outputs writes the manifest
     # last as the resume commit-marker, so the sidecar must already be present when it
-    # lands — else a crash in between leaves a manifest with no sidecar that resume skips
-    # forever and the trait-extractor then rejects (an incomplete input tree). The copy
-    # itself is atomic (temp file + os.replace), so no reader ever observes a
-    # partially-written sidecar.
+    # lands. This isn't required to protect predict's own resume logic -- a missing
+    # sidecar already makes _previous_identity_key's read raise OSError, caught and
+    # treated as "changed" (re-predict), never a silent skip. It's required because the
+    # trait-extractor expects a self-contained input tree (manifest + sidecar + .slp) and
+    # would reject a manifest with no sidecar. The copy itself is atomic (temp file +
+    # os.replace), so no reader ever observes a partially-written sidecar.
     sidecar_dst = out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
     tmp_sidecar_dst = sidecar_dst.with_name(sidecar_dst.name + ".tmp")
     try:

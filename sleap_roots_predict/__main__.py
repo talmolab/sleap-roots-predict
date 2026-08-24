@@ -16,6 +16,7 @@ import logging
 import signal
 import sys
 import threading
+from types import FrameType
 from typing import Optional, Sequence
 
 
@@ -32,7 +33,7 @@ def _install_sigterm_handler() -> threading.Event:
     """
     event = threading.Event()
 
-    def _handler(signum, frame):
+    def _handler(signum: int, frame: Optional[FrameType]) -> None:
         event.set()
 
     signal.signal(signal.SIGTERM, _handler)
