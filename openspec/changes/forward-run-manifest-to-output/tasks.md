@@ -292,7 +292,7 @@
       and trait-extraction can run after a partial predict, predict's forwarded-manifest
       semantics must change from "requested scope" to "delivered scope" (`ok ∪ skipped`).
       Recorded: talmolab/sleap-roots-pipeline#56 (issuecomment-5626571836)
-- [ ] 5.6 Open the PR referencing issue #39 and this change-id. State in the body: the
+- [x] 5.6 Open the PR referencing issue #39 and this change-id. State in the body: the
       naive-copy-vs-merge decision, the forward-unchanged semantics decision and its #56
       trip-wire, the sticky-manifest rollback hazard, and the deployment ordering constraint.
       Then present READY TO MERGE and stop — do not merge.
