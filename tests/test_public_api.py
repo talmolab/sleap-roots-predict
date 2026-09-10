@@ -24,6 +24,7 @@ def test_public_surface_importable_without_credentials(monkeypatch):
         "predict_and_write_batch",
         "run_batch",
         "discover_scans",
+        "copy_run_manifest_forward",
         "BatchResult",
         "ScanResult",
     ):

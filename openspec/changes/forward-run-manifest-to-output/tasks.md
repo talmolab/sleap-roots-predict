@@ -244,11 +244,11 @@
 
 ## 3. Public API
 
-- [ ] 3.1 Add `copy_run_manifest_forward` to `tests/test_public_api.py`'s name tuple; confirm
+- [x] 3.1 Add `copy_run_manifest_forward` to `tests/test_public_api.py`'s name tuple; confirm
       FAIL. The existing generic `hasattr` + `__all__` check is the whole test — no new function.
-- [ ] 3.2 Export it from `sleap_roots_predict/__init__.py` (import + `__all__`) and extend the
+- [x] 3.2 Export it from `sleap_roots_predict/__init__.py` (import + `__all__`) and extend the
       package docstring's feature list.
-- [ ] 3.3 `pytest tests/test_public_api.py` green. Commit 3.1-3.3 **together** (3.1 alone is red).
+- [x] 3.3 `pytest tests/test_public_api.py` green. Commit 3.1-3.3 **together** (3.1 alone is red).
 
 ## 4. Docs
 
