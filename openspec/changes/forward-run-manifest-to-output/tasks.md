@@ -252,21 +252,21 @@
 
 ## 4. Docs
 
-- [ ] 4.1 `API.md`: document `copy_run_manifest_forward`; extend the `run_batch` entry to cover
+- [x] 4.1 `API.md`: document `copy_run_manifest_forward`; extend the `run_batch` entry to cover
       forwarding. **Also fix pre-existing drift in that same block**: the documented `run_batch`
       signature lists `peak_threshold: float = 0.2` and `batch_size: int = 4`, neither of which
       exists in the real signature.
-- [ ] 4.2 `README.md`: three edits — (a) the container prose enumerating what is written per
+- [x] 4.2 `README.md`: three edits — (a) the container prose enumerating what is written per
       scan, now incomplete; (b) the **Project Structure module tree** (`run_manifest.py`);
       (c) the **tests tree**, which lists every test file (`test_run_manifest.py`).
-- [ ] 4.3 `CHANGELOG.md`: amend the existing `**Predict container CLI**` bullet under
+- [x] 4.3 `CHANGELOG.md`: amend the existing `**Predict container CLI**` bullet under
       `## [Unreleased]` → `### Added` rather than adding a new bullet (the repo's pattern —
       `consume-run-manifest` was folded into that same bullet). `Added`, not `Fixed`: nothing has
       been released, so no published claim is being corrected. While there, fix the pre-existing
       garble in that bullet — the orphaned "and per scan," clause belongs with the skip-if-done
       sentence, not with manifest scoping.
-- [ ] 4.4 `openspec/project.md`: add `run_manifest.py` to the authoritative module layout.
-- [ ] 4.5 Commit docs.
+- [x] 4.4 `openspec/project.md`: add `run_manifest.py` to the authoritative module layout.
+- [x] 4.5 Commit docs.
 
 ## 5. Verification gate
 

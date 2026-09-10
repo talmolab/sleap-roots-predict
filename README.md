@@ -212,8 +212,10 @@ sidecar from a prior run is silently excluded rather than reprocessed. An empty 
 input directory raises rather than silently succeeding, so a misconfigured stage-in mount
 never looks like a completed batch. The container loads models once, predicts every scan,
 and writes per scan `out/{scan_key}/{scan_key}.predictions.json` + named per-root `.slp` +
-a copy of the sidecar, all written atomically (temp file + rename) so no reader ever
-observes a partially-written file. Skip-if-done compares a recomputed idempotency key
+a copy of the sidecar; a staged `run_manifest.json` is also forwarded to the top level of
+`out/`, so the downstream trait-extraction stage — whose input directory *is* this output
+directory — stays scoped to the same run instead of falling back to unscoped discovery. All
+writes are atomic (temp file + rename) so no reader ever observes a partially-written file. Skip-if-done compares a recomputed idempotency key
 against the prior run's own artifacts (no new storage needed) and skips only on an exact
 match, (re)predicting otherwise. A `SIGTERM` (Argo preemption) stops the batch at the next
 scan boundary rather than mid-scan. See the `predict-container` OpenSpec spec
@@ -286,6 +288,7 @@ sleap_roots_predict/
 ├── warm_worker.py                  # WarmModelWorker: resident predictors across scans
 ├── output_contract.py              # Per-scan output artifacts (.slp + predictions.json)
 ├── batch.py                        # Warm-batch container runner (run_batch, discover_scans)
+├── run_manifest.py                 # Forward run_manifest.json input_dir -> output_dir
 ├── parity.py                       # A3-predict parity harness (ground truth + metrics)
 ├── __main__.py                     # `python -m sleap_roots_predict <in> <out>` CLI
 ├── video_utils.py                  # Core image processing utilities
@@ -300,6 +303,7 @@ tests/
 ├── test_warm_worker.py                 # Warm worker tests (real CPU inference)
 ├── test_output_contract.py             # Output-contract writer/batch tests (real CPU inference)
 ├── test_batch.py                       # Batch runner / CLI tests (real CPU inference)
+├── test_run_manifest.py                # Run-manifest forward-copy tests (offline)
 ├── test_parity.py                      # Parity harness tests (offline + gated `parity` marker)
 ├── test_predict_container_packaging.py # Console-script + docker-workflow guards
 ├── test_public_api.py                  # Public-surface import test
