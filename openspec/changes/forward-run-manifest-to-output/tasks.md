@@ -270,8 +270,8 @@
 
 ## 5. Verification gate
 
-- [ ] 5.1 `openspec validate forward-run-manifest-to-output --strict` passes.
-- [ ] 5.2 Run the full local gate via `/pre-merge`. Use **ci.yml's exact marker expression**
+- [x] 5.1 `openspec validate forward-run-manifest-to-output --strict` passes.
+- [x] 5.2 Run the full local gate via `/pre-merge`. Use **ci.yml's exact marker expression**
       (`-m "not gpu and not acceptance and not wandb"`), which deliberately differs from
       `pyproject.toml`'s `addopts` (that one also excludes `parity`); a plain `-m "not gpu"`
       pulls in flaky wandb tests. ruff lints `sleap_roots_predict/` and `scripts/` only, not
