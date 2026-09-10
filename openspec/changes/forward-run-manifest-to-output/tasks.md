@@ -165,7 +165,7 @@
 
 ## 2. Wire into `run_batch` + CLI (TDD)
 
-- [ ] 2.1 Add failing integration tests to `tests/test_batch.py`, before touching `batch.py`.
+- [x] 2.1 Add failing integration tests to `tests/test_batch.py`, before touching `batch.py`.
       **First extract `_RecordingSource` to a module-level `_recording_source()` factory** — it
       is currently function-local inside `test_empty_input_raises_before_worker_interaction`
       (:300), and five copy-pasted classes is not acceptable. Use the real `all_roots_source`
@@ -208,14 +208,14 @@
     unchanged and the WARNING fires. The spec attributes this to "the runner", so it needs
     integration coverage, not only the 1.1 unit test — stub source
   - Verify these FAIL first.
-- [ ] 2.2 Call `copy_run_manifest_forward(input_dir, output_dir)` in `run_batch` **immediately
+- [x] 2.2 Call `copy_run_manifest_forward(input_dir, output_dir)` in `run_batch` **immediately
       after the `if not scans: raise` guard and before `resolve_identity` /
       `WarmModelWorker(...)`** (insertion at `batch.py:313`-`314`; only the inert
       `result = BatchResult()` sits between). No `try`/`except`.
       The ordering relative to the empty-batch guard is behaviorally unobservable (a non-empty
       manifest always yields >=1 scan entry; an empty `scan_keys` fails validation in discovery),
       so do not write a test for it.
-- [ ] 2.3 Widen `__main__.py`'s handler from `except (FileNotFoundError, ValueError)` to
+- [x] 2.3 Widen `__main__.py`'s handler from `except (FileNotFoundError, ValueError)` to
       `except (OSError, ValueError)`. `FileNotFoundError` subclasses `OSError`, so existing
       coverage is preserved — verified: no existing test asserts the negative.
   - Add `test_cli_forward_copy_failure_propagates_as_default_exit_1`, mirroring
@@ -236,11 +236,11 @@
     guard and the test passes for the wrong reason), and pass **no** `source` — the raise at
     `batch.py:313` precedes `WarmModelWorker(source=source)` at `:316`, so no registry call is
     possible. Same applies to the copy-failure CLI test above.
-- [ ] 2.4 Update docstrings: `run_batch` (forward-copy + new `Raises:` condition), `batch.py`'s
+- [x] 2.4 Update docstrings: `run_batch` (forward-copy + new `Raises:` condition), `batch.py`'s
       module docstring, and **`__main__.py`'s module docstring and `main`'s `Returns:`**, both of
       which enumerate the staging-error causes and go stale, plus the inline comment describing
       the old catch.
-- [ ] 2.5 `pytest tests/test_batch.py` green; `black`/`ruff` clean. Commit.
+- [x] 2.5 `pytest tests/test_batch.py` green; `black`/`ruff` clean. Commit.
 
 ## 3. Public API
 

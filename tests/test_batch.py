@@ -1,6 +1,7 @@
 """Real, no-mock tests for the warm-batch predict runner."""
 
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -294,7 +295,15 @@ def test_empty_input_raises(tmp_path: Path):
         run_batch(empty, tmp_path / "out")
 
 
-def test_empty_input_raises_before_worker_interaction(tmp_path: Path):
+def _recording_source():
+    """A model source that records access; returns ``(source, calls)``.
+
+    ``list_cards()`` yields no cards, so every scan resolves to zero models and fails
+    at ``_predict_one``'s ``if not refs:`` guard -- *before* ``out_scan_dir.mkdir()``,
+    so a batch using this source writes nothing at all. That makes it the cheap stand-in
+    for tests about the forward-copy, which must hold independently of prediction, and
+    it doubles as a probe for "no model-source interaction happened".
+    """
     calls = {"n": 0}
 
     class _RecordingSource:
@@ -306,10 +315,15 @@ def test_empty_input_raises_before_worker_interaction(tmp_path: Path):
             calls["n"] += 1
             raise AssertionError("materialize should never be called")
 
+    return _RecordingSource(), calls
+
+
+def test_empty_input_raises_before_worker_interaction(tmp_path: Path):
+    source, calls = _recording_source()
     empty = tmp_path / "empty_in"
     empty.mkdir()
     with pytest.raises(ValueError):
-        run_batch(empty, tmp_path / "out", source=_RecordingSource())
+        run_batch(empty, tmp_path / "out", source=source)
     assert calls["n"] == 0
 
 
@@ -877,3 +891,216 @@ def test_scan_error_short_circuits_before_resolve(
     # called for an error'd scan" invariant and the documented call count together.
     assert len(calls) == 2
     assert all(params is not None for params in calls)
+
+
+# --- run-manifest forward-copy (predict #39) ---------------------------------------
+
+_MANIFEST = "run_manifest.json"
+# Bytes a RunManifest round-trip would not reproduce: non-canonical key order, an
+# undeclared extra field (dropped by re-serialization), interior whitespace, and no
+# trailing newline.
+_NON_CANONICAL = b'{"scan_keys": ["scanA"],  "pipeline_run_id": "run-1", "extra": 1}'
+
+
+def _stage_manifest(root: Path, body: bytes) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / _MANIFEST
+    path.write_bytes(body)
+    return path
+
+
+def test_run_batch_forwards_the_manifest_byte_identically(tmp_path: Path):
+    inp = tmp_path / "in"
+    _write_scan(inp, "scanA", _RICE)
+    src = _stage_manifest(inp, _NON_CANONICAL)
+    out = tmp_path / "out"
+    source, _ = _recording_source()
+
+    run_batch(inp, out, source=source)
+
+    assert (out / _MANIFEST).read_bytes() == src.read_bytes()
+    # forwarded to the TOP level, never into a per-scan subdirectory
+    assert not (out / "scanA" / _MANIFEST).exists()
+
+
+def test_run_batch_writes_no_manifest_when_none_is_staged(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path
+):
+    out = tmp_path / "out"
+    result = run_batch(scan_input_dir, out, source=all_roots_source)
+    assert not (out / _MANIFEST).exists()
+    # the batch is otherwise unaffected: outputs still written as usual
+    assert [s.status for s in result.scans] == ["ok"]
+    assert (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").is_file()
+
+
+def test_run_batch_forwards_the_manifest_even_when_stopped_immediately(tmp_path: Path):
+    """Pins the placement decision: a copy after the loop would be skipped exactly
+    when a preempted partial batch hands off to the downstream stage."""
+    inp = tmp_path / "in"
+    _write_scan(inp, "scanA", _RICE)
+    src = _stage_manifest(inp, _NON_CANONICAL)
+    out = tmp_path / "out"
+    source, _ = _recording_source()
+
+    result = run_batch(inp, out, source=source, should_stop=lambda: True)
+
+    assert result.scans == []  # nothing predicted at all
+    assert (out / _MANIFEST).read_bytes() == src.read_bytes()
+
+
+def test_run_batch_forwards_the_manifest_when_every_scan_fails(tmp_path: Path):
+    """The forward-copy is then the only thing that creates output_dir."""
+    inp = tmp_path / "in"
+    inp.mkdir()
+    src = _stage_manifest(inp, b'{"pipeline_run_id":"r","scan_keys":["scanMISSING"]}')
+    out = tmp_path / "out"
+    source, _ = _recording_source()
+
+    result = run_batch(inp, out, source=source)
+
+    assert [s.status for s in result.scans] == ["failed"]
+    assert {p.name for p in out.iterdir()} == {_MANIFEST}
+    assert (out / _MANIFEST).read_bytes() == src.read_bytes()
+
+
+def test_run_batch_copy_failure_raises_before_any_prediction(
+    tmp_path: Path, monkeypatch
+):
+    import sleap_roots_predict.batch as batch_mod
+
+    inp = tmp_path / "in"
+    _write_scan(inp, "scanA", _RICE)
+    _stage_manifest(inp, _NON_CANONICAL)
+    out = tmp_path / "out"
+    source, calls = _recording_source()
+
+    def _boom(_input_dir, _output_dir):
+        raise PermissionError("read-only mount")
+
+    monkeypatch.setattr(batch_mod, "copy_run_manifest_forward", _boom)
+    with pytest.raises(PermissionError):
+        run_batch(inp, out, source=source)
+
+    assert calls["n"] == 0  # no model-source interaction
+    assert not out.exists()  # no per-scan output directory either
+
+
+def test_run_batch_same_input_and_output_leaves_the_manifest_intact(tmp_path: Path):
+    inp = tmp_path / "in"
+    _write_scan(inp, "scanA", _RICE)
+    src = _stage_manifest(inp, _NON_CANONICAL)
+    before = src.read_bytes()
+    contents_before = {p.name for p in inp.iterdir()}
+    source, _ = _recording_source()
+
+    run_batch(inp, inp, source=source)
+
+    assert src.read_bytes() == before
+    assert {p.name for p in inp.iterdir()} == contents_before
+
+
+def test_run_batch_forward_leaves_neighbouring_scan_outputs_untouched(tmp_path: Path):
+    inp = tmp_path / "in"
+    _write_scan(inp, "scanA", _RICE)
+    _stage_manifest(inp, _NON_CANONICAL)
+    out = tmp_path / "out"
+    neighbour = out / "scanOTHER"
+    neighbour.mkdir(parents=True)
+    prior = neighbour / "scanOTHER.predictions.json"
+    prior.write_bytes(b'{"prior":"run"}')
+    prior_mtime = prior.stat().st_mtime_ns
+    source, _ = _recording_source()
+
+    run_batch(inp, out, source=source)
+
+    assert {p.name for p in out.iterdir()} == {"scanOTHER", _MANIFEST}
+    assert prior.read_bytes() == b'{"prior":"run"}'
+    assert prior.stat().st_mtime_ns == prior_mtime
+
+
+def test_run_batch_warns_and_keeps_a_stale_output_manifest(tmp_path: Path, caplog):
+    """No input manifest, but output_dir holds one from an earlier run: it is left in
+    place (a concurrent invocation may have written it) and the condition is logged."""
+    inp = tmp_path / "in"
+    _write_scan(inp, "scanA", _RICE)
+    stale = _stage_manifest(tmp_path / "out", b'{"pipeline_run_id":"old","x":0}')
+    before = stale.read_bytes()
+    source, _ = _recording_source()
+
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.run_manifest"):
+        run_batch(inp, tmp_path / "out", source=source)
+
+    assert stale.read_bytes() == before
+    assert [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_cli_forward_copy_failure_propagates_as_default_exit_1(
+    scan_input_dir: Path, tmp_path: Path, caplog, monkeypatch
+):
+    """The copy raises PermissionError -- a *sibling* of FileNotFoundError under
+    OSError, not a subclass -- so without the widened catch this would bypass the
+    mandated staging-error line and surface a bare traceback. `main()` re-raises, so
+    exit 1 is the interpreter's default and is not observable in-process."""
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+
+    def _boom(_input_dir, _output_dir):
+        raise PermissionError("read-only mount")
+
+    monkeypatch.setattr(batch_mod, "copy_run_manifest_forward", _boom)
+    with caplog.at_level("ERROR"):
+        with pytest.raises(PermissionError):
+            main([str(scan_input_dir), str(tmp_path / "out")])
+    assert any("Batch aborted" in r.message for r in caplog.records)
+
+
+def test_forward_copy_failure_during_requested_stop_propagates(
+    scan_input_dir: Path, tmp_path: Path, monkeypatch
+):
+    """A pre-flight staging error is not converted to the stop code: it raises before
+    main()'s stop_event check is reached, so 143 never wins over it."""
+    import signal
+
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+
+    def _boom(_input_dir, _output_dir):
+        raise PermissionError("read-only mount")
+
+    monkeypatch.setattr(batch_mod, "copy_run_manifest_forward", _boom)
+    real_run_batch = batch_mod.run_batch
+
+    def _fire_sigterm_then_run(*args, **kwargs):
+        signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _fire_sigterm_then_run)
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        with pytest.raises(PermissionError):
+            main([str(scan_input_dir), str(tmp_path / "out")])
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [b"{not valid json", b'{"pipeline_run_id":"r","scan_keys":[]}'],
+    ids=["invalid-json", "fails-model-validation"],
+)
+def test_run_batch_never_forwards_a_manifest_that_fails_validation(
+    tmp_path: Path, body: bytes
+):
+    """Pins Decision 2's strongest argument: discovery validates before the copy runs,
+    so a corrupt manifest is structurally unforwardable."""
+    inp = tmp_path / "in"
+    _write_scan(inp, "scanA", _RICE)
+    _stage_manifest(inp, body)
+    out = tmp_path / "out"
+    source, _ = _recording_source()
+
+    with pytest.raises(ValueError):
+        run_batch(inp, out, source=source)
+
+    assert not out.exists()
