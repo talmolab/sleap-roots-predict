@@ -276,22 +276,22 @@
       `pyproject.toml`'s `addopts` (that one also excludes `parity`); a plain `-m "not gpu"`
       pulls in flaky wandb tests. ruff lints `sleap_roots_predict/` and `scripts/` only, not
       `tests/`; black covers all three.
-- [ ] 5.3 File the follow-up issue: promote `bloomctl`'s union-merge + lockfile into
+- [x] 5.3 File the follow-up issue: promote `bloomctl`'s union-merge + lockfile into
       `sleap-roots-contracts` and switch predict *and* `sleap-roots` traits onto it (traits'
       copy has neither temp cleanup nor a unique temp name, so it carries the same truncation
       hazard fixed here). Include: `pipeline_run_id` is last-writer-wins by design; the
       `O_CREAT|O_EXCL` lock is already running on NFS in production but was never analyzed for
       it. **Frame it as a trip-wire, not a someday**: when concurrent chunked dispatch is enabled
       in the frontend, the union-merge becomes a blocker. Verified no equivalent issue exists in
-      `sleap-roots` today. Record the issue number here: ______
-- [ ] 5.4 File the deploy/verify tracking issue described under "Post-merge handoff" below and
-      record its number here: ______
-- [ ] 5.5 Make the Decision 3 trip-wire real, since a note in a doc that gets archived is not a
+      `sleap-roots` today. Filed: talmolab/sleap-roots-predict#40
+- [x] 5.4 File the deploy/verify tracking issue described under "Post-merge handoff" below and
+      recorded: talmolab/sleap-roots-predict#41
+- [x] 5.5 Make the Decision 3 trip-wire real, since a note in a doc that gets archived is not a
       mechanism and the trigger fires in another repo. Comment on `sleap-roots-pipeline#56`
       (or add a task-list item to its body) recording that when exit-code discrimination lands
       and trait-extraction can run after a partial predict, predict's forwarded-manifest
       semantics must change from "requested scope" to "delivered scope" (`ok ∪ skipped`).
-      Record the link here: ______
+      Recorded: talmolab/sleap-roots-pipeline#56 (issuecomment-5626571836)
 - [ ] 5.6 Open the PR referencing issue #39 and this change-id. State in the body: the
       naive-copy-vs-merge decision, the forward-unchanged semantics decision and its #56
       trip-wire, the sticky-manifest rollback hazard, and the deployment ordering constraint.
