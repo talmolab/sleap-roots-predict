@@ -328,7 +328,7 @@ tolerable to defer; it is a misattribution and a retry cost, not lost or wrong d
 The test plan lives in `tasks.md` §1.1/§2.1 and is not repeated here. Only the design-level
 points belong in this document — the ones where a plausible-looking test proves nothing:
 
-- **The byte-copy test needs an *unparseable* source.** Well-formed-but-non-canonical JSON does
+- **The byte-copy test needs an *unparsable* source.** Well-formed-but-non-canonical JSON does
   not discriminate reliably; `b"{not valid json"` does, because a re-serializing implementation
   raises where a byte copy succeeds.
 - **The temp-uniqueness and temp-placement tests are the only things pinning Decision 1's reason

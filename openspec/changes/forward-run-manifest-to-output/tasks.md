@@ -10,12 +10,12 @@
 
 ## 0. Proposal
 
-- [ ] 0.1 Commit the OpenSpec proposal (`proposal.md`, `design.md`, `tasks.md`, the
+- [x] 0.1 Commit the OpenSpec proposal (`proposal.md`, `design.md`, `tasks.md`, the
       `predict-container` delta) before any code.
 
 ## 1. Module: `copy_run_manifest_forward` (TDD)
 
-- [ ] 1.1 Write `tests/test_run_manifest.py` with failing unit tests, before any implementation.
+- [x] 1.1 Write `tests/test_run_manifest.py` with failing unit tests, before any implementation.
       Rules for all of them: assert with `read_bytes()` against the source's own bytes (never a
       byte literal — `write_text` emits `\r\n` on Windows); write fixtures with `write_bytes`;
       never use `chmod` to simulate unwritability; never use a symlink. Assert residue by the
@@ -51,7 +51,7 @@
     scenario: `b"{not valid json"` (invalid JSON) and
     `b'{"pipeline_run_id":"r","scan_keys":[]}'` (valid JSON, fails `RunManifest` validation).
     Stage in the input dir, then `run_batch`: assert it raises and `output_dir` was never
-    created. Paired with the unparseable-source unit test above, this is what pins Decision 2's
+    created. Paired with the unparsable-source unit test above, this is what pins Decision 2's
     strongest argument (discovery validates first); without it, moving the call above
     `discover_scans` passes every other test while regressing the decision the placement rests on.
   - **a file occupies the `output_dir` path** → `mkdir` raises `FileExistsError` (verified on
@@ -91,7 +91,7 @@
   - **failure logs at ERROR naming both directories before propagating** (same `.as_posix()` rule)
   - Verify these FAIL. Then add a no-op stub and re-run: the no-op cases pass trivially under a
     stub and are guard tests, not driver tests — do not count them as TDD coverage.
-- [ ] 1.2 Create `sleap_roots_predict/run_manifest.py` with `copy_run_manifest_forward(input_dir,
+- [x] 1.2 Create `sleap_roots_predict/run_manifest.py` with `copy_run_manifest_forward(input_dir,
       output_dir) -> None`. Import **only** `RUN_MANIFEST_FILENAME` from `sleap_roots_contracts`
       (not `RunManifest` — unused, and this module performs no validation). Order is load-bearing:
   1. `source.is_file()` → else: if `destination.is_file()`, `logger.warning` naming the stale
@@ -161,7 +161,7 @@
     deliberate divergences from `trait_extractor/run_manifest.py` — raises instead of
     best-effort, and adds temp cleanup — one sentence each, pointing at `design.md` rather than
     restating the reasoning. Keep lines <=88 by hand (ruff selects only `D`; no `E501`).
-- [ ] 1.3 `pytest tests/test_run_manifest.py` green; `black`/`ruff` clean. Commit.
+- [x] 1.3 `pytest tests/test_run_manifest.py` green; `black`/`ruff` clean. Commit.
 
 ## 2. Wire into `run_batch` + CLI (TDD)
 
