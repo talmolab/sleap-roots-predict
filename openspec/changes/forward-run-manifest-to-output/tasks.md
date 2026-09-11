@@ -386,7 +386,12 @@ revision as its dominant defect source):
   `design.md`'s "safe because the destination is namespaced by `scan_key`" argument does not
   hold: the input manifest grows by union, so two invocations sharing an `output_dir` overlap on
   `scan_key`. Pre-existing, but this PR is where that idiom's safety is newly asserted on the
-  record. **Needs an issue filed before merge** — not a fix in this PR.
+  record. Filed: talmolab/sleap-roots-predict#43 — not a fix in this PR. The issue carries the
+  concrete interleaving, why skip-if-done does not close it (nothing to skip for a key with no
+  prior artifacts), and the four non-obvious details any shared helper must preserve
+  (`os.close` before writing, temp in the destination directory, `copymode` before the replace,
+  dot-prefix) — plus the `tests/assets/scans/` landmine at `batch.py:409`, which a comment
+  cannot enforce.
 - The **double-read hole**: a manifest disappearing between discovery's read and the copy's read
   is a no-op, not a failure, so predict can scope its own work and forward nothing (#39
   recurring, exit `0`, nothing above DEBUG). This is Open Question 1; the fix is to forward the
