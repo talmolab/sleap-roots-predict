@@ -148,9 +148,81 @@ def test_same_file_via_a_different_path_spelling_is_a_noop(tmp_path: Path):
     src = _stage(inp)
     (inp / "sub").mkdir()  # POSIX resolves '..' component-wise; without this it ENOENTs
     before = src.read_bytes()
+    # Byte and name assertions alone cannot see a copy that round-tripped the file over
+    # itself -- they hold for an implementation with no identity check at all. The
+    # mtime is what discriminates: a replace publishes a *new* file at that path.
+    before_mtime = src.stat().st_mtime_ns
     copy_run_manifest_forward(inp, inp / "sub" / "..")
     assert src.read_bytes() == before
     assert _names(inp) == {RUN_MANIFEST_FILENAME, "sub"}
+    assert src.stat().st_mtime_ns == before_mtime
+
+
+def test_hard_linked_destination_in_another_directory_is_a_noop(tmp_path: Path):
+    """The discriminating identity case, and the one the production topology needs.
+
+    A hard link gives two path strings sharing no prefix that nonetheless name one
+    file -- so neither string comparison nor ``Path.resolve()`` can tell they are the
+    same, only ``(st_dev, st_ino)`` can. That is the same property a bind-mounted
+    ``output_dir`` has (design.md: one hostPath volume mounted at two container
+    paths), tested without the symlink privilege tasks.md 1.1 rules out. The inode
+    assertion is the discriminator: a copy that proceeded would ``os.replace`` a new
+    file over the destination and break the link.
+    """
+    inp = tmp_path / "in"
+    src = _stage(inp)
+    out = tmp_path / "out"
+    out.mkdir()
+    try:
+        os.link(src, out / RUN_MANIFEST_FILENAME)
+    except (OSError, NotImplementedError) as exc:  # e.g. a FAT/exFAT temp dir
+        pytest.skip(f"filesystem does not support hard links: {exc}")
+    before = src.read_bytes()
+    linked_ino = (out / RUN_MANIFEST_FILENAME).stat().st_ino
+
+    copy_run_manifest_forward(inp, out)
+
+    assert src.read_bytes() == before
+    assert _names(out) == {RUN_MANIFEST_FILENAME}
+    assert (out / RUN_MANIFEST_FILENAME).stat().st_ino == linked_ino
+
+
+def test_a_zero_inode_pair_is_not_treated_as_the_same_file(tmp_path: Path, monkeypatch):
+    """Identity compares ``(st_dev, st_ino)``, and on Windows ``os.stat`` falls back to
+    a path reporting both as ``0`` when a file cannot be opened (a sharing violation,
+    or an ACL permitting attribute reads but not opens). Two such stats compare *equal*,
+    which would make an unrelated pair look identical and skip the forward silently --
+    the one outcome this module exists to prevent. A zero inode must therefore mean
+    "not provably the same file": re-copying a file onto itself is harmless, silently
+    skipping a real forward is not.
+    """
+    src = _stage(tmp_path / "in")
+    out = tmp_path / "out"
+    _stage(out, b'{"pipeline_run_id":"previous"}')
+    real_stat = os.stat
+    # Compared as strings, not via resolve(): resolve() itself stats on some platforms,
+    # which would recurse through this wrapper.
+    degenerate = {
+        os.fspath(tmp_path / "in" / RUN_MANIFEST_FILENAME),
+        os.fspath(out / RUN_MANIFEST_FILENAME),
+    }
+
+    def _zero_inode_stat(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        try:
+            targeted = os.fspath(path) in degenerate
+        except TypeError:  # an open fd, not a path
+            targeted = False
+        if not targeted:
+            return result
+        fields = list(result)  # st_mode, st_ino, st_dev, ... (10 primary fields)
+        fields[1] = 0
+        fields[2] = 0
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(os, "stat", _zero_inode_stat)
+    copy_run_manifest_forward(tmp_path / "in", out)
+    assert (out / RUN_MANIFEST_FILENAME).read_bytes() == src.read_bytes()
 
 
 def test_stale_output_manifest_is_fully_replaced(tmp_path: Path):
@@ -183,6 +255,57 @@ def test_failed_replace_cleans_up_and_publishes_nothing(tmp_path: Path, monkeypa
     assert _names(out) == set()
 
 
+def test_failed_replace_leaves_a_prior_manifest_complete(tmp_path: Path, monkeypatch):
+    """The second arm of "either nothing, or the complete prior manifest".
+
+    The test above seeds an *empty* output directory, so it only ever exercises the
+    "nothing" arm. An implementation that unlinked the destination before replacing it
+    would let a reader observe no manifest at all -- the unscoped-discovery fallback
+    this change exists to prevent -- and, if the replace then failed, would leave the
+    shared output directory with none.
+    """
+    _stage(tmp_path / "in")
+    out = tmp_path / "out"
+    prior = b'{"pipeline_run_id":"the-previous-run","scan_keys":["s1"]}'
+    _stage(out, prior)
+    monkeypatch.setattr(
+        "os.replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
+    )
+    with pytest.raises(OSError):
+        copy_run_manifest_forward(tmp_path / "in", out)
+    assert (out / RUN_MANIFEST_FILENAME).read_bytes() == prior
+    assert _names(out) == {RUN_MANIFEST_FILENAME}
+
+
+def test_a_failing_cleanup_does_not_swallow_the_real_error(
+    tmp_path: Path, caplog, monkeypatch
+):
+    """Cleaning up *before* logging is a real bug, not a style preference: if the
+    unlink itself raises, the error log never fires and the secondary cleanup error
+    replaces the underlying filesystem one -- violating the spec's "the error raised
+    is the underlying filesystem error, not a secondary error from the cleanup path".
+
+    design.md recorded this as uncatchable ("no test in this plan can catch it, since
+    1.1 bans chmod"); it needs no chmod, only two injected failures. This is also the
+    only coverage of the "Could not remove temporary file" warning branch.
+    """
+    _stage(tmp_path / "in")
+    out = tmp_path / "out"
+    monkeypatch.setattr(
+        "os.replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("the underlying failure")),
+    )
+    monkeypatch.setattr(
+        Path, "unlink", lambda *a, **k: (_ for _ in ()).throw(OSError("secondary"))
+    )
+    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
+        with pytest.raises(OSError, match="the underlying failure"):
+            copy_run_manifest_forward(tmp_path / "in", out)
+    assert [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("Could not remove temporary file" in r.message for r in caplog.records)
+
+
 def test_failure_before_the_output_directory_is_prepared_reports_cleanly(
     tmp_path: Path, caplog
 ):
@@ -198,6 +321,35 @@ def test_failure_before_the_output_directory_is_prepared_reports_cleanly(
     assert not isinstance(excinfo.value, NameError)
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert errors, "no error logged before propagating"
+    assert (tmp_path / "in").as_posix() in errors[0].message
+    assert out.as_posix() in errors[0].message
+
+
+def test_permission_error_from_the_identity_check_is_reported_cleanly(
+    tmp_path: Path, caplog, monkeypatch
+):
+    """The other half of the scenario above: the spec's "or its parent denies
+    permission" case. A PermissionError from stat'ing the destination is deliberately
+    *not* caught -- but it must still take the logging path, since the spec requires
+    the forward-copy itself to name both directories before any OSError propagates.
+    Reachable on the shared NFS mount, where the next stage runs as a different uid
+    and can leave an output subtree this process cannot search.
+
+    Injected at the identity check rather than via chmod: tasks.md 1.1 bans chmod,
+    which is a no-op for the owner on Windows anyway.
+    """
+    _stage(tmp_path / "in")
+    out = tmp_path / "out"
+
+    def _denied(_left, _right):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("sleap_roots_predict.run_manifest._is_same_file", _denied)
+    with caplog.at_level(logging.ERROR, logger=_LOGGER):
+        with pytest.raises(PermissionError):
+            copy_run_manifest_forward(tmp_path / "in", out)
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors, "identity-check failure propagated without the mandated log"
     assert (tmp_path / "in").as_posix() in errors[0].message
     assert out.as_posix() in errors[0].message
 

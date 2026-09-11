@@ -143,8 +143,11 @@
      cleanup error, not the underlying filesystem one — violating the spec's "the error raised
      is the underlying filesystem error, not a secondary error from the cleanup path". It is
      reachable unmocked on Windows (a read-only source → `copymode` marks the temp read-only →
-     `os.replace` fails → `unlink` fails too), and no test in this plan can catch it, since 1.1
-     bans `chmod`. The bare `raise` still re-raises the original after the inner handler runs.
+     `os.replace` fails → `unlink` fails too). The bare `raise` still re-raises the original
+     after the inner handler runs. **Corrected in 6.4** — this was recorded here and in
+     `design.md` as uncatchable "since 1.1 bans `chmod`"; it needs no `chmod`, only two
+     injected failures, and is now pinned by
+     `test_a_failing_cleanup_does_not_swallow_the_real_error`.
   - Naming: the signature is `(input_dir, output_dir)`; derive **`source_dir = Path(input_dir)`**,
     `source = source_dir / RUN_MANIFEST_FILENAME`, `destination_dir = Path(output_dir)`,
     `destination = destination_dir / RUN_MANIFEST_FILENAME` up front. `source_dir` is
@@ -296,6 +299,109 @@
       naive-copy-vs-merge decision, the forward-unchanged semantics decision and its #56
       trip-wire, the sticky-manifest rollback hazard, and the deployment ordering constraint.
       Then present READY TO MERGE and stop — do not merge.
+
+## 6. Post-review fixes (adversarial `/review-pr`, 5-lens)
+
+Five lenses reviewed PR #42 with CI already green and no prior review comments. No lens found a
+shipped correctness defect in `copy_run_manifest_forward`; the required set below is one
+normative spec clause the code did not satisfy, plus four tests that documented guarantees they
+did not enforce — each *proven* vacuous by mutation rather than suspected. Everything else the
+review raised is parked (see "Deliberately not done" below), because `design.md` records
+revision as the dominant source of new defects in this change and the required set is kept
+minimal on purpose.
+
+**Each fix below was driven test-first.** For the guard tests (6.2–6.4) the red step is a
+mutation, not a failing assertion against the shipped code: the property already holds, so the
+only way to prove the test is load-bearing is to break the implementation and watch it fail.
+Mutations were applied to a copy, run, and reverted — never committed.
+
+- [x] 6.1 **Spec violation: a `PermissionError` from the identity check escaped the mandated
+      error log.** `spec.md`'s forward-copy requirement says the copy SHALL log both directories
+      before raising, and the scenario "A failure before the output directory can be prepared is
+      still reported cleanly" names "or its parent denies permission" as an example. The
+      identity check sat *outside* the `try` that logs, so that example raised with zero log
+      records — reachable on the shared NFS mount, where the next stage runs as a different uid
+      and can leave an output subtree this process cannot search. Fix: move the identity guard
+      inside the logging `try` (inner `except (FileNotFoundError, NotADirectoryError)` kept).
+      Red: `test_permission_error_from_the_identity_check_is_reported_cleanly` failed on
+      `assert []`. Injected at the identity seam, not via `chmod` — 1.1 bans it.
+- [x] 6.2 **The identity guarantee was untested, and the primitive had a fail-silent direction.**
+      Two mutations each passed the whole suite: replacing `os.path.samefile` with
+      `str(source) == str(destination)` — the one thing the spec forbids — and deleting the
+      identity block outright. Both tests were blind because with no check the function copies
+      to a temp in the same directory and replaces the file over itself: bytes and directory
+      contents unchanged, which is all either test asserted. The `sub/..` spelling is defeated
+      by `Path.resolve()`, so it never discriminated the normalization implementation the spec
+      singles out either. Fix, two halves:
+      (a) `test_hard_linked_destination_in_another_directory_is_a_noop` — a hard link gives two
+      path strings sharing no prefix that name one file, which is the same property a
+      bind-mounted `output_dir` has, testable without the symlink privilege 1.1 rules out; the
+      inode assertion is the discriminator. Both identity tests were also strengthened with an
+      mtime assertion (a replace publishes a *new* file), as was
+      `test_run_batch_same_input_and_output_leaves_the_manifest_intact` at the integration level.
+      (b) `_is_same_file` now open-codes the `(st_dev, st_ino)` comparison and rejects a
+      degenerate stat: on Windows `os.stat` falls back to reporting both as `0` when a file
+      cannot be opened, and two such stats compare *equal* — making an unrelated pair look
+      identical and skipping the forward silently, the one outcome this module exists to
+      prevent. A zero inode now means "not provably the same file"; re-copying a file onto
+      itself is harmless, silently skipping a real forward is not.
+      Red: `test_a_zero_inode_pair_is_not_treated_as_the_same_file` failed with the stale
+      destination manifest surviving; the two identity tests fail against the string-equality
+      mutant (they passed against it before).
+- [x] 6.3 **`test_forward_copy_failure_during_requested_stop_propagates` passed with its own
+      mechanism disabled.** 2.3 called the mechanism load-bearing, but replacing the spy's
+      `signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)` with `pass` still passed:
+      `PermissionError` propagates whether or not a stop was requested, so the test was a
+      duplicate of `test_cli_forward_copy_failure_propagates_as_default_exit_1` and the scenario
+      it claims ("A pre-flight staging error is not converted to the stop code") had no
+      coverage. Fix: assert the precondition inside the spy (`assert kwargs["should_stop"]()`)
+      and assert the stop warning is absent rather than implying it. Red: fails against the
+      `pass` mutant. Note the fragility this pins — it bites only because `__main__` imports
+      `run_batch` *inside* `main()`.
+- [x] 6.4 **Two invariants the plan argues at greatest length survived mutation.**
+      (a) Replace-atomicity over an *existing* manifest: `test_failed_replace_cleans_up_and_
+      publishes_nothing` seeds an empty output dir, so only the "nothing" arm of the spec's
+      "either nothing, or the complete prior manifest" was exercised — inserting
+      `destination.unlink(missing_ok=True)` before `os.replace` passed everything, yet that lets
+      a reader observe *no* manifest (the unscoped fallback this change prevents) and leaves the
+      shared dir with none if the replace then fails. Added
+      `test_failed_replace_leaves_a_prior_manifest_complete`.
+      (b) Log-before-cleanup: added `test_a_failing_cleanup_does_not_swallow_the_real_error`,
+      which also gives the only coverage of the "Could not remove temporary file" branch.
+      **The 1.2 note claiming this was uncatchable "since 1.1 bans `chmod`" was wrong and is
+      corrected in place** — it needs no `chmod`, only two injected failures. Worth recording
+      *why* it looked uncatchable: a bare block swap is not the bug, because the inner
+      `except OSError` absorbs the secondary error either way. The real mutant is cleanup before
+      logging *with the inner guard removed*, and the new test fails against exactly that.
+- [x] 6.5 Full local gate re-run: `black --check`, `ruff check`, `codespell`, the CPU suite
+      under ci.yml's exact marker expression, and `openspec validate
+      forward-run-manifest-to-output --strict`.
+
+**Deliberately not done** (raised by the review, parked on purpose — none is a correctness
+defect, and each would widen the diff at the end of a change whose own risk register names
+revision as its dominant defect source):
+
+- The **atomic-write idiom is duplicated at three sibling sites** (`output_contract.py:193`,
+  `:235`, `batch.py:413`) that still carry the fixed-temp-name truncation hazard fixed here, and
+  `design.md`'s "safe because the destination is namespaced by `scan_key`" argument does not
+  hold: the input manifest grows by union, so two invocations sharing an `output_dir` overlap on
+  `scan_key`. Pre-existing, but this PR is where that idiom's safety is newly asserted on the
+  record. **Needs an issue filed before merge** — not a fix in this PR.
+- The **double-read hole**: a manifest disappearing between discovery's read and the copy's read
+  is a no-op, not a failure, so predict can scope its own work and forward nothing (#39
+  recurring, exit `0`, nothing above DEBUG). This is Open Question 1; the fix is to forward the
+  bytes discovery already validated, which also makes `spec.md`'s "structurally impossible to
+  forward a corrupt manifest" true unconditionally rather than only given an atomic upstream
+  writer. Deferred as the Open Question already records.
+- **No `pipeline_run_id` in any log line**, leaving the disclosed sticky-rollback hazard
+  untriageable from pod logs; and the rollback instruction itself lives in `proposal.md`, which
+  is archived on merge, rather than in `README.md` and the pipeline template.
+- `exc_info=True` on the error log; orphaned-temp reclamation; narrowing `except Exception` to
+  `except OSError`; `read_bytes()` for the `batch.py` manifest read; `b1`'s unfalsifiable
+  per-scan-subdirectory assertion; the missing forward-plus-successful-prediction test; the
+  hardcoded `_MANIFEST` literal in `test_batch.py`; and the `design.md` wording corrections
+  (the CLI `OSError` over-capture that cannot actually occur, the content-regression harm label,
+  the NFS `O_EXCL` protocol-version overstatement, the missing Decision 4).
 
 ---
 

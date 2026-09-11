@@ -992,12 +992,18 @@ def test_run_batch_same_input_and_output_leaves_the_manifest_intact(tmp_path: Pa
     src = _stage_manifest(inp, _NON_CANONICAL)
     before = src.read_bytes()
     contents_before = {p.name for p in inp.iterdir()}
+    # Bytes and directory contents are both unchanged by a copy that round-tripped the
+    # file over itself, so they hold even with no identity check at all. The mtime is
+    # the discriminator -- see test_run_manifest.py's hard-link test for the unit-level
+    # version of this guarantee.
+    before_mtime = src.stat().st_mtime_ns
     source, _ = _recording_source()
 
     run_batch(inp, inp, source=source)
 
     assert src.read_bytes() == before
     assert {p.name for p in inp.iterdir()} == contents_before
+    assert src.stat().st_mtime_ns == before_mtime
 
 
 def test_run_batch_forward_leaves_neighbouring_scan_outputs_untouched(tmp_path: Path):
@@ -1056,10 +1062,19 @@ def test_cli_forward_copy_failure_propagates_as_default_exit_1(
 
 
 def test_forward_copy_failure_during_requested_stop_propagates(
-    scan_input_dir: Path, tmp_path: Path, monkeypatch
+    scan_input_dir: Path, tmp_path: Path, caplog, monkeypatch
 ):
     """A pre-flight staging error is not converted to the stop code: it raises before
-    main()'s stop_event check is reached, so 143 never wins over it."""
+    main()'s stop_event check is reached, so 143 never wins over it.
+
+    The spy asserts the precondition it exists to establish, and the absence of the
+    stop warning is asserted rather than implied. Without both, the test passes with
+    the signal never fired -- PermissionError propagates whether or not a stop was
+    requested -- which makes it a duplicate of the test above and leaves this
+    scenario uncovered. The precondition is genuinely fragile: it bites only because
+    __main__ imports run_batch *inside* main(), so hoisting that import to module
+    scope would silently neuter this test.
+    """
     import signal
 
     import sleap_roots_predict.batch as batch_mod
@@ -1073,15 +1088,18 @@ def test_forward_copy_failure_during_requested_stop_propagates(
 
     def _fire_sigterm_then_run(*args, **kwargs):
         signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+        assert kwargs["should_stop"](), "stop was not requested before run_batch ran"
         return real_run_batch(*args, **kwargs)
 
     monkeypatch.setattr(batch_mod, "run_batch", _fire_sigterm_then_run)
     prev_handler = signal.getsignal(signal.SIGTERM)
     try:
-        with pytest.raises(PermissionError):
-            main([str(scan_input_dir), str(tmp_path / "out")])
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(PermissionError):
+                main([str(scan_input_dir), str(tmp_path / "out")])
     finally:
         signal.signal(signal.SIGTERM, prev_handler)
+    assert not any("Terminated by SIGTERM" in r.message for r in caplog.records)
 
 
 @pytest.mark.parametrize(

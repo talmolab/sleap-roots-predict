@@ -24,6 +24,39 @@ from sleap_roots_contracts import RUN_MANIFEST_FILENAME
 logger = logging.getLogger(__name__)
 
 
+def _is_same_file(left: Path, right: Path) -> bool:
+    """Whether two paths provably refer to the same file, however they are spelled.
+
+    Compares ``(st_dev, st_ino)`` rather than path strings, so a symlinked or
+    bind-mounted ``output_dir`` is caught. Open-coded instead of calling
+    :func:`os.path.samefile` to reject a degenerate stat: on Windows ``os.stat`` falls
+    back to a path that reports ``st_ino`` and ``st_dev`` as ``0`` when the file cannot
+    be opened, and two such stats compare equal -- which would make an unrelated pair
+    look identical and skip the forward silently. A zero inode therefore means "not
+    provably the same file": re-copying a file onto itself is harmless, silently
+    skipping a real forward is the bug this module exists to prevent.
+
+    Args:
+        left: First path to compare.
+        right: Second path to compare.
+
+    Returns:
+        True only when both paths provably refer to one file.
+
+    Raises:
+        OSError: If either path cannot be stat'd -- including ``FileNotFoundError``
+            when the destination does not exist yet, which is the ordinary case.
+    """
+    left_stat = os.stat(left)
+    right_stat = os.stat(right)
+    if left_stat.st_ino == 0:
+        return False
+    return (left_stat.st_dev, left_stat.st_ino) == (
+        right_stat.st_dev,
+        right_stat.st_ino,
+    )
+
+
 def copy_run_manifest_forward(input_dir: str | Path, output_dir: str | Path) -> None:
     """Copy ``run_manifest.json`` from ``input_dir`` into ``output_dir``, if present.
 
@@ -78,19 +111,21 @@ def copy_run_manifest_forward(input_dir: str | Path, output_dir: str | Path) -> 
             )
         return
 
+    tmp: str | None = None
     try:
-        # samefile stats BOTH operands and raises FileNotFoundError when the
+        # The identity check stats BOTH operands and raises FileNotFoundError when the
         # destination does not exist yet -- the ordinary case -- so it can never be
         # called bare. NotADirectoryError covers a file occupying a path component
         # (POSIX; Windows reports FileNotFoundError there). A PermissionError from
-        # stat is a real staging error and is deliberately left to propagate.
-        if os.path.samefile(source, destination):
-            return
-    except (FileNotFoundError, NotADirectoryError):
-        pass
+        # stat is a real staging error and is deliberately left to propagate -- but it
+        # must do so from INSIDE this block, or it escapes without the log naming both
+        # directories that the spec requires before any OSError propagates.
+        try:
+            if _is_same_file(source, destination):
+                return
+        except (FileNotFoundError, NotADirectoryError):
+            pass
 
-    tmp: str | None = None
-    try:
         # mkdir must precede mkstemp: mkstemp does not create its dir= argument.
         destination_dir.mkdir(parents=True, exist_ok=True)
         # A name unique to this writer, inside output_dir. Unique because the
