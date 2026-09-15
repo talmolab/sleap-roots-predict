@@ -472,7 +472,21 @@ rest.
       presence/identity arm of the clean-reporting scenario, and a source changed after
       discovery). `design.md`'s Decision 6 and Open Question 1 both record the reversal and why.
 - [x] 7.5 Full local gate: `black`, `ruff`, `codespell`, the CPU suite under ci.yml's exact
-      marker expression, `pytest -m gpu`, and `openspec validate --strict`.
+      marker expression (365 passed, 2 skipped), and `openspec validate --strict`.
+- [x] 7.6 **`pytest -m gpu` genuinely executed — 3 passed**, including
+      `test_predict_on_video_runs_on_cuda` (real CUDA inference) on an RTX A5000.
+      **Recording a trap, because this box was ticked twice while the subset was
+      vacuous:** a worktree synced with the default/CPU extra installs `torch==…+cpu`, so
+      `torch.cuda.is_available()` is `False` and all three GPU tests **skip** — reporting
+      `3 skipped` and a green run that proves nothing about GPU behaviour, on a machine that
+      has a GPU. `openspec/project.md` calls this subset a required local `/pre-merge` step,
+      so the gate has to be run as it documents: `uv sync --extra dev --extra windows_cuda`
+      first, then `uv run pytest -m gpu`. Confirm `torch.version.cuda` is not `None` before
+      believing the result. The full CPU suite was then re-run under the CUDA build too
+      (`2.11.0+cu128`) and is unchanged at 365 passed — worth doing, since CI only ever
+      exercises the CPU wheels. Neither result is evidence *for this change* (it touches no
+      inference or device code), but "the required gate actually ran" and "the required gate
+      silently skipped" are different claims and were being conflated.
 
 **Raised by the second review and deliberately not acted on** — each checked against the code
 rather than argued from the diff:
