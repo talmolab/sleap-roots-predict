@@ -311,17 +311,24 @@ overlapping ordinary submissions suffice. Predict then exits `0`, forwards a str
 manifest, and trait-extraction appends one `result.failed` per extra key and exits `3`, burning
 retries under `retryPolicy: Always` and blocking write-back for scans that genuinely succeeded.
 
-**Not fixed in this change; the window is bounded and the fix has a cost.** Pre-loop placement
-already holds the window to the duration of discovery rather than the duration of inference
-(§Decision 2). Closing it properly means forwarding the bytes discovery already validated —
-which is the better design, and would upgrade "structurally impossible to forward a corrupt
-manifest" from an ordering property to an identity property — but it changes the shape of
-`discover_scans`, an exported function, and does so at the end of four review rounds in which
-revision has been the dominant source of new defects. Tracked as an Open Question and in the
-5.3 follow-up rather than taken on here.
+**Fixed in §7.3, after initially being deferred.** The original judgement was that the window is
+bounded (pre-loop placement already holds it to the duration of discovery rather than of
+inference, §Decision 2) and that closing it meant changing the shape of `discover_scans`, an
+exported function, at the end of four review rounds in which revision had been the dominant
+source of new defects. Two independent review passes then flagged it as worth doing now, and
+between them they surfaced the *other* direction of the same race — the source **disappearing**
+rather than growing, which makes the forward a silent no-op and reinstates #39 with a green
+step. That direction is not loud, which was the premise the deferral rested on.
 
-Note the failure mode is loud (a failed traits step), not silent corruption, which is why it is
-tolerable to defer; it is a misattribution and a retry cost, not lost or wrong data.
+The fix is the one described here as "the better design": `run_batch` takes one snapshot and
+both discovery and the forward-copy work from it, upgrading "structurally impossible to forward
+a corrupt manifest" from an ordering property to an identity property. `discover_scans` keeps
+its exported signature — the snapshot arrives through a new keyword-only argument defaulting to
+a sentinel that means "read it yourself", so every existing caller is unaffected.
+
+Note the grow direction's failure mode is loud (a failed traits step) — a misattribution and a
+retry cost, not lost or wrong data. The disappear direction is the silent one, and is why this
+stopped being tolerable to defer.
 
 ## Testing strategy
 
@@ -368,8 +375,11 @@ the currently pinned image), and any rollback **also deletes** `predictions/run_
 
 ## Open Questions
 
-1. **Whether the double read should become a single read.** `discover_scans` reads and validates
-   the manifest; the forward-copy independently re-reads it from disk. See §Decision 6.
+1. ~~**Whether the double read should become a single read.**~~ **Resolved in §7.3: it did.**
+   `run_batch` now takes one snapshot that both discovery and the forward-copy work from, so the
+   bytes validated are the bytes published. See §Decision 6 for why it was deferred first and
+   what changed the call — chiefly that the race's *disappear* direction is silent, where the
+   deferral had been argued on the grow direction being loud.
 2. **Whether "permissions match the source" should become "not more restrictive, and readable by
    the downstream user".** Equality is implementable and verified safe today only because
    bloomctl writes `0644`. If any future producer wrote `0600`, this spec would oblige predict

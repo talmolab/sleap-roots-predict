@@ -21,9 +21,17 @@ so the forwarded file is byte-identical to what the upstream producer wrote. (Th
 scoped to the forward-as-copy design: if this hop is later replaced by a union-merge — which
 must re-serialize by construction — that change repeals this sentence rather than violating it.) The copy SHALL
 perform **no validation** of the manifest's contents: within `run_batch` an invalid manifest has
-already been rejected by discovery (which parses and validates it before this copy is reached,
-making it structurally impossible to forward a corrupt manifest), and as a standalone public
-function the copy is content-agnostic by design.
+already been rejected by discovery, and as a standalone public function the copy is
+content-agnostic by design.
+
+Within `run_batch` the manifest SHALL be read **exactly once** per batch, and the bytes
+discovery validates SHALL be the bytes the forward-copy publishes. This makes forwarding a
+corrupt manifest structurally impossible rather than merely unlikely: with two independent
+reads the guarantee held only while the source was unchanged between them, and the upstream
+producer writes into a directory shared across invocations. A source that is modified or
+removed after discovery SHALL NOT change what is forwarded — in particular the forward SHALL
+NOT silently become a no-op because the source has since disappeared, which would return the
+downstream stage to the unscoped discovery this requirement exists to prevent.
 
 The copy SHALL be performed **atomically** (written to a temporary file **in the same
 directory**, then moved into place via `os.replace`), so no reader can ever observe a
@@ -159,12 +167,31 @@ callable independently of `run_batch`.
 - **THEN** the destination holds no partial manifest (either nothing, or the complete prior
   manifest), the output directory gains no leftover file of any name, and the error propagates
 
+#### Scenario: A failed forward leaves behind no output directory it created
+
+- **WHEN** the forward-copy creates the output directory (or any of its parents) and a later
+  step then fails
+- **THEN** the directories this call created are removed again, innermost first, so the failure
+  leaves no directory that did not exist beforehand
+- **AND WHEN** the output directory already existed — including when it is empty
+- **THEN** it is left in place, since it is not this call's to remove
+
 #### Scenario: A failure before the output directory can be prepared is still reported cleanly
 
 - **WHEN** the output directory cannot be created or written to at all (e.g. a file occupies its
   path, or its parent denies permission)
 - **THEN** the error raised is the underlying filesystem error — not a secondary error from the
   cleanup path — and it is logged with both directories named before it propagates
+- **AND WHEN** the failure comes from the presence or identity check rather than the write —
+  for example the source manifest exists but cannot be stat'd — the same log SHALL still name
+  both directories, since those checks are the first steps that can fail
+
+#### Scenario: A source changed after discovery does not change what is forwarded
+
+- **WHEN** the input manifest is rewritten with a wider `scan_keys` set, or removed entirely,
+  after discovery has read and validated it but before the forward-copy runs
+- **THEN** the manifest published to the output directory is byte-identical to the one
+  discovery scoped this batch against, and the forward does not become a no-op
 
 #### Scenario: A copy failure fails the batch before any prediction
 

@@ -975,7 +975,7 @@ def test_run_batch_copy_failure_raises_before_any_prediction(
     out = tmp_path / "out"
     source, calls = _recording_source()
 
-    def _boom(_input_dir, _output_dir):
+    def _boom(_input_dir, _output_dir, **_kwargs):
         raise PermissionError("read-only mount")
 
     monkeypatch.setattr(batch_mod, "copy_run_manifest_forward", _boom)
@@ -984,6 +984,70 @@ def test_run_batch_copy_failure_raises_before_any_prediction(
 
     assert calls["n"] == 0  # no model-source interaction
     assert not out.exists()  # no per-scan output directory either
+
+
+_SCOPED = b'{"scan_keys": ["scanA"], "pipeline_run_id": "run-1"}'
+
+
+def _run_batch_with_upstream_rewrite(tmp_path: Path, monkeypatch, rewrite):
+    """Run a batch where the upstream writer mutates the input manifest *after*
+    discovery has read and validated it, but before the forward-copy runs.
+
+    Patching `discover_scans` is how the window is opened deterministically: the real
+    race is a concurrent bloomctl unioning into the shared input manifest, which no
+    test can schedule reliably.
+    """
+    import sleap_roots_predict.batch as batch_mod
+
+    inp = tmp_path / "in"
+    _write_scan(inp, "scanA", _RICE)
+    _stage_manifest(inp, _SCOPED)
+    out = tmp_path / "out"
+    source, _ = _recording_source()
+    real_discover = batch_mod.discover_scans
+
+    def _discover_then_rewrite(*args, **kwargs):
+        scans = real_discover(*args, **kwargs)
+        rewrite(inp / _MANIFEST)
+        return scans
+
+    monkeypatch.setattr(batch_mod, "discover_scans", _discover_then_rewrite)
+    run_batch(inp, out, source=source)
+    return out
+
+
+def test_run_batch_forwards_what_discovery_validated_not_a_later_rewrite(
+    tmp_path: Path, monkeypatch
+):
+    """The manifest was read twice with no shared snapshot, so an upstream writer
+    unioning a new `scan_key` in between made the forwarded file describe a *wider*
+    scope than predict actually predicted. Trait-extraction then reports a spurious
+    `result.failed` for the extra key, exits 3, and burns retries under
+    `retryPolicy: Always`, blocking write-back for scans that genuinely succeeded.
+    """
+    out = _run_batch_with_upstream_rewrite(
+        tmp_path,
+        monkeypatch,
+        lambda path: path.write_bytes(
+            b'{"scan_keys": ["scanA", "scanLATER"], "pipeline_run_id": "run-1"}'
+        ),
+    )
+    assert (out / _MANIFEST).read_bytes() == _SCOPED
+
+
+def test_run_batch_forwards_the_validated_manifest_even_if_the_source_vanishes(
+    tmp_path: Path, monkeypatch
+):
+    """The other direction of the same race, and the worse one. If the source is gone
+    by the time the copy re-reads it, the absent branch makes the forward a silent
+    no-op -- predict scopes its own work to a manifest, exits 0, and forwards nothing,
+    so the downstream stage falls back to unscoped discovery. That is #39 recurring,
+    with a green step and nothing logged above DEBUG.
+    """
+    out = _run_batch_with_upstream_rewrite(
+        tmp_path, monkeypatch, lambda path: path.unlink()
+    )
+    assert (out / _MANIFEST).read_bytes() == _SCOPED
 
 
 def test_run_batch_same_input_and_output_leaves_the_manifest_intact(tmp_path: Path):
@@ -1051,7 +1115,7 @@ def test_cli_forward_copy_failure_propagates_as_default_exit_1(
     import sleap_roots_predict.batch as batch_mod
     from sleap_roots_predict.__main__ import main
 
-    def _boom(_input_dir, _output_dir):
+    def _boom(_input_dir, _output_dir, **_kwargs):
         raise PermissionError("read-only mount")
 
     monkeypatch.setattr(batch_mod, "copy_run_manifest_forward", _boom)
@@ -1080,7 +1144,7 @@ def test_forward_copy_failure_during_requested_stop_propagates(
     import sleap_roots_predict.batch as batch_mod
     from sleap_roots_predict.__main__ import main
 
-    def _boom(_input_dir, _output_dir):
+    def _boom(_input_dir, _output_dir, **_kwargs):
         raise PermissionError("read-only mount")
 
     monkeypatch.setattr(batch_mod, "copy_run_manifest_forward", _boom)

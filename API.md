@@ -243,12 +243,20 @@ output directory can never publish one another's partially-written bytes. Permis
 carried over from the source, since the downstream stage reads as a different user.
 
 No-op when no manifest is staged (preserving the unscoped fallback for local runs), or when
-source and destination are the same file. When no manifest is staged but `output_dir` already
-holds one from an earlier run, that file is **left in place with a warning** — it cannot be
-distinguished from a concurrent invocation's file, but left silent it would scope the
-downstream stage to an earlier run's `scan_keys`. A copy failure raises `OSError` rather than
-being best-effort: a silently missing forwarded manifest is what makes the downstream stage
-fall back to unscoped discovery.
+source and destination are the same file — identity decided by what the paths refer to, so a
+bind-mounted `output_dir` is caught, never by comparing them as strings. When no manifest is
+staged but `output_dir` already holds one from an earlier run, that file is **left in place with
+a warning** — it cannot be distinguished from a concurrent invocation's file, but left silent it
+would scope the downstream stage to an earlier run's `scan_keys`. A copy failure raises
+`OSError` rather than being best-effort: a silently missing forwarded manifest is what makes the
+downstream stage fall back to unscoped discovery. `output_dir` is created if missing, and
+removed again if the copy then fails, so a failed forward leaves behind no directory that did
+not exist before it.
+
+Inside `run_batch` the manifest is read **once** per batch and that snapshot is what both
+discovery and this copy use, so the bytes scoped against are the bytes published even if the
+upstream producer rewrites or removes the source in between. Called standalone, it reads the
+manifest itself.
 
 ---
 

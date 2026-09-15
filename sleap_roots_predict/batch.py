@@ -35,7 +35,11 @@ from sleap_roots_predict.output_contract import (
     resolve_identity,
     write_prediction_outputs,
 )
-from sleap_roots_predict.run_manifest import copy_run_manifest_forward
+from sleap_roots_predict.run_manifest import (
+    _UNREAD,
+    _read_manifest_snapshot,
+    copy_run_manifest_forward,
+)
 from sleap_roots_predict.video_utils import make_video_from_images, natural_sort
 from sleap_roots_predict.warm_worker import WarmModelWorker
 
@@ -83,7 +87,7 @@ class BatchResult:
         return all(s.status != "failed" for s in self.scans)
 
 
-def discover_scans(input_dir: str | Path) -> list[ScanInput]:
+def discover_scans(input_dir: str | Path, *, manifest_bytes=_UNREAD) -> list[ScanInput]:
     """Discover scans under ``input_dir`` by their scan-metadata sidecars.
 
     Recursively finds ``*.scan_metadata.json`` files; each sidecar's parent
@@ -100,6 +104,11 @@ def discover_scans(input_dir: str | Path) -> list[ScanInput]:
 
     Args:
         input_dir: Directory of staged scans (must exist).
+        manifest_bytes: Package-internal. The raw bytes of a ``run_manifest.json``
+            already read from ``input_dir``, or ``None`` to assert it was already
+            found absent. Omit it and the manifest is read here. ``run_batch`` passes
+            one snapshot so that discovery scopes against exactly the bytes the
+            forward-copy publishes.
 
     Returns:
         One :class:`ScanInput` per discovered (or manifest-expected-but-missing)
@@ -118,10 +127,15 @@ def discover_scans(input_dir: str | Path) -> list[ScanInput]:
             f"input scan directory does not exist: {input_dir.as_posix()}"
         )
 
-    manifest_path = input_dir / RUN_MANIFEST_FILENAME
     scoped_keys: set[str] | None = None
-    if manifest_path.exists():
-        manifest = RunManifest.model_validate_json(manifest_path.read_text())
+    if manifest_bytes is _UNREAD:
+        manifest_path = input_dir / RUN_MANIFEST_FILENAME
+        # read_bytes, not read_text: model_validate_json accepts bytes, and decoding
+        # with the platform locale would reject a manifest on the Windows leg that the
+        # sibling stages -- which read these same bytes as UTF-8 -- accept.
+        manifest_bytes = manifest_path.read_bytes() if manifest_path.is_file() else None
+    if manifest_bytes is not None:
+        manifest = RunManifest.model_validate_json(manifest_bytes)
         scoped_keys = set(manifest.scan_keys)
 
     scans: list[ScanInput] = []
@@ -317,16 +331,24 @@ def run_batch(
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
-    scans = discover_scans(input_dir)
+    # ONE read of run_manifest.json for the whole batch. Discovery validates exactly
+    # these bytes and the forward-copy publishes exactly these bytes, so the two can
+    # never disagree about the run's scope. Re-reading the path for the copy left a
+    # window in which a concurrent upstream writer (bloomctl unions scan_keys into the
+    # shared input manifest) could widen it -- forwarding a scope predict never
+    # predicted -- or remove it, making the forward a silent no-op that reinstates #39.
+    snapshot = _read_manifest_snapshot(input_dir)
+    scans = discover_scans(
+        input_dir, manifest_bytes=None if snapshot is None else snapshot.data
+    )
     if not scans:
         raise ValueError(f"no scans discovered under {input_dir.as_posix()}")
-    # Forward the run manifest BEFORE the loop, and before any model-source
-    # interaction. discover_scans has already parsed and validated it, so a corrupt
-    # manifest can never reach the shared output tree; a failure here costs no
-    # prediction work; and a batch stopped early (Argo preemption) still hands the
-    # downstream stage a scoped tree. Deliberately not wrapped in try/except -- see
-    # the forward-run-manifest-to-output change's design.md.
-    copy_run_manifest_forward(input_dir, output_dir)
+    # Forward BEFORE the loop and before any model-source interaction: discovery has
+    # already validated these exact bytes, so a corrupt manifest cannot reach the
+    # shared output tree; a failure here costs no prediction work; and a batch stopped
+    # early (Argo preemption) still hands the downstream stage a scoped tree.
+    # Deliberately not wrapped in try/except -- see the change's design.md.
+    copy_run_manifest_forward(input_dir, output_dir, snapshot=snapshot)
     result = BatchResult()
 
     resolved_code_sha = resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA")
@@ -406,8 +428,9 @@ def _predict_one(
     # would reject a manifest with no sidecar. The copy itself is atomic (temp file +
     # os.replace), so no reader ever observes a partially-written sidecar.
     # Note for test authors: tests/test_batch.py's sidecar-atomicity tests patch the
-    # *global* shutil.copyfile / os.replace, so they also intercept the run-manifest
-    # forward-copy that now runs first in run_batch. They stay pointed at this copy
+    # *global* os.replace, which the run-manifest forward-copy that now runs first in
+    # run_batch also calls. (Its shutil.copyfile no longer collides -- the forward
+    # writes its bytes through the fd mkstemp opened.) They stay pointed at this copy
     # only because tests/assets/scans/ stages no run_manifest.json -- never add one.
     sidecar_dst = out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
     tmp_sidecar_dst = sidecar_dst.with_name(sidecar_dst.name + ".tmp")

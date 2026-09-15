@@ -5,6 +5,7 @@ Assertions on residue use the output directory's *exact* contents rather than a
 happens not to match it would pass against an implementation with no cleanup at all.
 """
 
+import errno
 import logging
 import os
 from pathlib import Path
@@ -86,7 +87,9 @@ def test_temp_name_is_unique_per_writer(tmp_path: Path, monkeypatch):
 
     assert len(seen) == 2, "implementation never reached os.replace"
     assert seen[0] != seen[1]
-    assert _names(out) == set()
+    # Stronger than "no residue in out": a failed forward also removes the output
+    # directory when it was this call that created it.
+    assert not out.exists()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
@@ -252,7 +255,97 @@ def test_failed_replace_cleans_up_and_publishes_nothing(tmp_path: Path, monkeypa
     )
     with pytest.raises(OSError):
         copy_run_manifest_forward(tmp_path / "in", out)
-    assert _names(out) == set()
+    assert not out.exists()
+
+
+def test_a_failed_forward_removes_an_output_directory_it_created(
+    tmp_path: Path, monkeypatch
+):
+    """`mkdir` runs before the temp/replace sequence, so a later failure used to leave
+    a newly-created, empty ``output_dir`` standing even though the batch raised. That
+    is a state that could not occur before this change: orchestration that reads
+    "output_dir does not exist" as "predict never ran" would now see an empty
+    directory instead. Created parents are removed too, innermost first.
+    """
+    _stage(tmp_path / "in")
+    out = tmp_path / "out" / "nested"
+    monkeypatch.setattr(
+        "os.replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
+    )
+    with pytest.raises(OSError):
+        copy_run_manifest_forward(tmp_path / "in", out)
+    assert not out.exists()
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_failed_forward_keeps_a_pre_existing_output_directory(
+    tmp_path: Path, monkeypatch
+):
+    """Only directories this call created are removed. A shared output tree that was
+    already there must survive untouched -- deleting it would be far worse than the
+    empty directory the fix above removes.
+
+    Deliberately a *pre-existing and empty* directory: that is the discriminating
+    case. A non-empty one is protected by ``rmdir``'s own semantics, so it would
+    survive even an implementation that tried to remove the destination
+    unconditionally, and would prove nothing about tracking what this call created.
+    """
+    _stage(tmp_path / "in")
+    out = tmp_path / "out"
+    out.mkdir()
+    monkeypatch.setattr(
+        "os.replace",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
+    )
+    with pytest.raises(OSError):
+        copy_run_manifest_forward(tmp_path / "in", out)
+    assert out.is_dir(), "removed an output directory it did not create"
+
+
+def _raise_eacces_for(monkeypatch, target: Path):
+    """Make stat'ing exactly ``target`` fail with EACCES, delegating everything else.
+
+    ``Path.is_file()`` only swallows the errnos in ``pathlib._IGNORED_ERRNOS``
+    (ENOENT, ENOTDIR, EBADF, WSAENOTSOCK) -- ``EACCES`` is not among them, so a
+    permission problem propagates rather than reading as "absent". Injected at
+    ``os.stat`` rather than via ``chmod``: 1.1 bans chmod, and it is a no-op for the
+    owner on Windows anyway.
+    """
+    real_stat = os.stat
+    wanted = os.fspath(target)
+
+    def _stat(path, *args, **kwargs):
+        try:
+            hit = os.fspath(path) == wanted
+        except TypeError:  # an open fd, not a path
+            hit = False
+        if hit:
+            raise PermissionError(errno.EACCES, "Permission denied", wanted)
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", _stat)
+
+
+def test_permission_error_from_the_presence_check_is_reported_cleanly(
+    tmp_path: Path, caplog, monkeypatch
+):
+    """The presence check is the *first* thing that touches the filesystem, so it is
+    the first thing that can fail -- and it was the one step left outside the block
+    that satisfies the spec's "log both directories before raising". An unreadable
+    source manifest (an NFS ACL misconfiguration, or a race narrowing the mode) skipped
+    the mandated diagnostic entirely and surfaced only as the CLI's generic line.
+    """
+    _stage(tmp_path / "in")
+    out = tmp_path / "out"
+    _raise_eacces_for(monkeypatch, tmp_path / "in" / RUN_MANIFEST_FILENAME)
+    with caplog.at_level(logging.ERROR, logger=_LOGGER):
+        with pytest.raises(PermissionError):
+            copy_run_manifest_forward(tmp_path / "in", out)
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors, "presence-check failure propagated without the mandated log"
+    assert (tmp_path / "in").as_posix() in errors[0].message
+    assert out.as_posix() in errors[0].message
 
 
 def test_failed_replace_leaves_a_prior_manifest_complete(tmp_path: Path, monkeypatch):

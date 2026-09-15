@@ -46,9 +46,12 @@ All notable changes to this project are documented here. The format is based on
   never reached that stage and it silently fell back to unscoped recursive discovery on every
   run, rewriting results for unrelated scans sharing the output tree (#39). A copy failure
   raises as a batch-level staging error rather than being swallowed — a silently skipped copy
-  is that bug recurring undetected. The copy is naive (overwrite, no union-merge or lock),
-  matching the sibling traits hop; concurrency-safe merging across all three hops is a filed
-  follow-up. Per scan, skip-if-done now compares a
+  is that bug recurring undetected. The manifest is read **once** per batch: discovery scopes
+  against exactly the bytes the forward publishes, so an upstream writer rewriting or removing
+  the source mid-batch can neither widen the forwarded scope beyond what was predicted nor turn
+  the forward into a silent no-op. The copy is otherwise naive (overwrite, no union-merge or
+  lock), matching the sibling traits hop; concurrency-safe merging across all three hops is a
+  filed follow-up. Per scan, skip-if-done now compares a
   recomputed idempotency key (`compute_idempotency_key`) against the prior run's own artifacts,
   skipping only on an exact match and otherwise (re)predicting — no new storage. Note:
   `resolve()` (and its one-time model-registry fetch) now runs once per batch invocation even

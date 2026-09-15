@@ -408,6 +408,99 @@ revision as its dominant defect source):
   (the CLI `OSError` over-capture that cannot actually occur, the content-regression harm label,
   the NFS `O_EXCL` protocol-version overstatement, the missing Decision 4).
 
+## 7. Second-round review fixes (cross-repo 8-angle pass)
+
+A second, independent review ran from another repo after §6 landed. It found one real gap in
+§6's own fix, one new failure-path state, and corroborated the deferred double read — from the
+opposite direction to the first review, which is what changed the call on it. Two of its
+findings were checked and **not** acted on; both are recorded below with the evidence, because
+"a reviewer raised it and we did nothing" is exactly what a later reader needs explained.
+
+Same red-step discipline as §6: mutations for the guard tests, real failing assertions for the
+rest.
+
+- [x] 7.1 **§6.1 fixed the identity check but not the presence check two lines above it.**
+      `source.is_file()` / `destination.is_file()` still ran outside the block that satisfies
+      "log both directories before raising". Verified against this repo's Python:
+      `pathlib._IGNORED_ERRNOS` is `(ENOENT, ENOTDIR, EBADF, WSAENOTSOCK)` — `EACCES` is absent,
+      so `Path.is_file()` **re-raises** `PermissionError` rather than reading as "absent". An
+      unreadable source manifest (an NFS ACL misconfiguration, or a race narrowing the mode)
+      therefore skipped the mandated diagnostic entirely. Fix: move the presence check inside
+      the same `try`. Red: `test_permission_error_from_the_presence_check_is_reported_cleanly`
+      failed on `assert []`. Injected at `os.stat` for one specific path, so the test survives
+      any later restructuring of how presence is determined — as 7.3 immediately proved.
+- [x] 7.2 **A failed forward left behind an output directory it had created.** `mkdir` runs
+      before the temp/replace sequence, and the failure path only unlinked the temp — so a
+      failure left a newly-created, empty `output_dir` standing even though the batch raised.
+      A state that could not occur before this hop existed, and orchestration reading "no
+      output_dir" as "predict never ran" would misread it. Fix: record which directories this
+      call creates (innermost first) and remove them on failure, stopping at the first that is
+      not ours. Two tests, and note which is which: the "removes" one is a true red (it failed
+      against the shipped code); the "keeps a pre-existing directory" one is a guard, and it
+      deliberately uses a pre-existing **empty** directory — a non-empty one is protected by
+      `rmdir`'s own semantics and would survive even an implementation that removed the
+      destination unconditionally, proving nothing. Both fail against that mutant.
+      Two pre-existing tests asserted `_names(out) == set()`; the guarantee is now stronger
+      (`not out.exists()`), so they were updated rather than left asserting the weaker thing.
+- [x] 7.3 **The double read became a single read** — Open Question 1, resolved rather than
+      carried into the archive. `run_batch` takes one snapshot and passes it to both
+      `discover_scans` and the forward-copy, so the bytes validated are the bytes published.
+      Both directions of the race are now covered by tests that were genuinely red:
+      the source **growing** between the two reads (forwarded a wider scope than predict
+      predicted → spurious `result.failed` downstream, exit `3`, burned retries) and the source
+      **disappearing** (forward silently became a no-op → #39 recurring with a green step and
+      nothing above DEBUG). The second direction is the one that changed the call: §Decision 6
+      had argued the deferral on the grow direction being loud, and the disappear direction is
+      not loud.
+      Shape: `discover_scans` and `copy_run_manifest_forward` each gain a keyword-only argument
+      defaulting to a `_UNREAD` sentinel meaning "read it yourself", so **no existing caller or
+      signature changes** — the objection that deferred this originally. The snapshot carries
+      the source's mode alongside its bytes, which keeps "permissions match the source" true
+      even when the source is gone by publish time, without a second stat that could observe a
+      different file. `shutil.copyfile`/`copymode` give way to writing through the fd `mkstemp`
+      already opened plus an explicit `chmod`; the `os.close`-before-replace constraint is
+      preserved (the `with os.fdopen(...)` closes before the replace).
+      Two incidental fixes fall out: `discover_scans` now reads the manifest as **bytes**, so
+      the Windows leg no longer decodes it under the platform locale while the sibling stages
+      read the same bytes as UTF-8; and the `tests/assets/scans/` landmine narrows, since the
+      forward no longer calls `shutil.copyfile` at all (the comment at `batch.py` is corrected
+      rather than deleted — the global `os.replace` patch still collides).
+- [x] 7.4 Spec delta updated: the "structurally impossible to forward a corrupt manifest"
+      clause no longer depends on the source being unchanged between two reads (it was true
+      only given an atomic upstream writer, which §Decision 6 already contradicted); a
+      single-read requirement and three scenarios added (created-directory cleanup, the
+      presence/identity arm of the clean-reporting scenario, and a source changed after
+      discovery). `design.md`'s Decision 6 and Open Question 1 both record the reversal and why.
+- [x] 7.5 Full local gate: `black`, `ruff`, `codespell`, the CPU suite under ci.yml's exact
+      marker expression, `pytest -m gpu`, and `openspec validate --strict`.
+
+**Raised by the second review and deliberately not acted on** — each checked against the code
+rather than argued from the diff:
+
+- **"Widening the CLI catch to `OSError` is a log-triage regression, because a wandb failure
+  during `WarmModelWorker`'s eager model resolution would now log as a staging error."** The
+  premise is false: there is no eager resolution. `WarmModelWorker.__init__` does no network I/O
+  (its own docstring says so — wandb access is deferred to first use), and every registry call
+  (`worker.resolve`, `worker.predict`) sits inside the per-scan `except Exception`, so it is
+  isolated as a per-scan failure and cannot reach `main()`'s handler. The widened catch is
+  *exactly* the staging set. What is actually wrong is the code comment claiming otherwise,
+  already noted in §6's parked list. (Five of eight passes converging on this is agreement, not
+  evidence — they shared the comment's premise.)
+- **"A copy failure racing an in-flight SIGTERM should exit `143`, not `1`."** Exit `1` is
+  normative in this change's own spec, with the rationale stated there: the exception is raised
+  before the driver's stop-requested check, this is how every pre-flight staging error already
+  behaves, and `1` is retryable in Argo just as `143` is. The finding's premise — that a retry
+  policy keyed on `143` vs `1` would misclassify — has no consumer: the deployed templates are
+  `retryPolicy: Always` with no exit-code discrimination, which is what
+  `sleap-roots-pipeline#56` is open to add. §6.3's test pins the specified behaviour.
+
+Also raised and already tracked, not re-litigated: the atomic-copy duplication (issue #43, filed
+from §6); `pipeline_run_id` absent from the logs and the rollback instruction living in a
+document that is archived on merge (§6 parked list); redundant stats per call; and the question
+of whether `_is_same_file` earns its keep — it does, because the spec requires the no-op to
+"leave that file intact", and a self-copy through a temp file republishes the file with a new
+inode and mtime, which §6.2's hard-link and mtime assertions now pin.
+
 ---
 
 ## Post-merge handoff (not an archive gate)

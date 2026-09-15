@@ -15,13 +15,52 @@ re-reading that rationale.
 
 import logging
 import os
-import shutil
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 from sleap_roots_contracts import RUN_MANIFEST_FILENAME
 
 logger = logging.getLogger(__name__)
+
+# "No snapshot supplied -- read the file yourself." Distinct from None, which is a
+# caller asserting it already looked and the manifest is absent.
+_UNREAD = object()
+
+
+class _ManifestSnapshot(NamedTuple):
+    """One read of a run manifest: the bytes to publish, and the mode to publish at.
+
+    Carrying the mode alongside the bytes keeps "the forwarded file's permissions
+    match the source" true even when the source is gone by publish time, without a
+    second stat that could observe a different file.
+    """
+
+    data: bytes
+    mode: int
+
+
+def _read_manifest_snapshot(input_dir: str | Path) -> _ManifestSnapshot | None:
+    """Read a run manifest's bytes and mode in a single pass.
+
+    Private to the package: `run_batch` uses it to take one snapshot that both
+    discovery and the forward-copy work from. Not part of the public API -- standalone
+    callers want :func:`copy_run_manifest_forward`, which reads for them.
+
+    Args:
+        input_dir: Directory to look for ``RUN_MANIFEST_FILENAME`` in.
+
+    Returns:
+        The snapshot, or ``None`` when no manifest is present. A non-regular file at
+        that path (a directory, say) reads as absent.
+
+    Raises:
+        OSError: If the manifest exists but cannot be stat'd or read.
+    """
+    source = Path(input_dir) / RUN_MANIFEST_FILENAME
+    if not source.is_file():
+        return None
+    return _ManifestSnapshot(source.read_bytes(), source.stat().st_mode & 0o777)
 
 
 def _is_same_file(left: Path, right: Path) -> bool:
@@ -57,7 +96,9 @@ def _is_same_file(left: Path, right: Path) -> bool:
     )
 
 
-def copy_run_manifest_forward(input_dir: str | Path, output_dir: str | Path) -> None:
+def copy_run_manifest_forward(
+    input_dir: str | Path, output_dir: str | Path, *, snapshot=_UNREAD
+) -> None:
     """Copy ``run_manifest.json`` from ``input_dir`` into ``output_dir``, if present.
 
     A raw byte copy -- never a re-serialization through ``RunManifest`` -- and no
@@ -70,7 +111,14 @@ def copy_run_manifest_forward(input_dir: str | Path, output_dir: str | Path) -> 
     Args:
         input_dir: Directory to look for ``RUN_MANIFEST_FILENAME`` in (top level only;
             never searched recursively).
-        output_dir: Directory to copy the manifest into (created if missing).
+        output_dir: Directory to copy the manifest into. Created if missing, and
+            removed again if the copy then fails, so a failed forward never leaves a
+            directory that did not exist before.
+        snapshot: Package-internal. A manifest already read from ``input_dir`` (as
+            :func:`_read_manifest_snapshot` returns), or ``None`` to assert it was
+            already found absent. Omit it and the manifest is read here. ``run_batch``
+            passes the snapshot discovery validated, so the bytes published are the
+            bytes scoped against even if the source changes in between.
 
     Returns:
         None. A no-op when no manifest is present under ``input_dir``, or when source
@@ -92,27 +140,34 @@ def copy_run_manifest_forward(input_dir: str | Path, output_dir: str | Path) -> 
     destination_dir = Path(output_dir)
     destination = destination_dir / RUN_MANIFEST_FILENAME
 
-    # Presence before identity: os.path.samefile stats both operands, so an identity
-    # check first would raise on a nonexistent source.
-    if not source.is_file():
-        if destination.is_file():
-            logger.warning(
-                "No %s under %s, but %s already holds one from an earlier run; "
-                "leaving it in place -- the downstream stage will be scoped to it",
-                RUN_MANIFEST_FILENAME,
-                source_dir.as_posix(),
-                destination_dir.as_posix(),
-            )
-        else:
-            logger.debug(
-                "No %s under %s; nothing to forward",
-                RUN_MANIFEST_FILENAME,
-                source_dir.as_posix(),
-            )
-        return
-
     tmp: str | None = None
+    created: list[Path] = []
     try:
+        # Presence before identity: the identity check stats both operands, so running
+        # it first would raise on a nonexistent source. Both live INSIDE this block --
+        # Path.is_file() only swallows the errnos in pathlib._IGNORED_ERRNOS (ENOENT,
+        # ENOTDIR, EBADF, WSAENOTSOCK), so EACCES on the source (an NFS ACL
+        # misconfiguration, or a race narrowing the mode) propagates from here and must
+        # still get the log naming both directories that the spec requires.
+        if snapshot is _UNREAD:
+            snapshot = _read_manifest_snapshot(source_dir)
+        if snapshot is None:
+            if destination.is_file():
+                logger.warning(
+                    "No %s under %s, but %s already holds one from an earlier run; "
+                    "leaving it in place -- the downstream stage will be scoped to it",
+                    RUN_MANIFEST_FILENAME,
+                    source_dir.as_posix(),
+                    destination_dir.as_posix(),
+                )
+            else:
+                logger.debug(
+                    "No %s under %s; nothing to forward",
+                    RUN_MANIFEST_FILENAME,
+                    source_dir.as_posix(),
+                )
+            return
+
         # The identity check stats BOTH operands and raises FileNotFoundError when the
         # destination does not exist yet -- the ordinary case -- so it can never be
         # called bare. NotADirectoryError covers a file occupying a path component
@@ -127,6 +182,16 @@ def copy_run_manifest_forward(input_dir: str | Path, output_dir: str | Path) -> 
             pass
 
         # mkdir must precede mkstemp: mkstemp does not create its dir= argument.
+        # Record what this call creates, innermost first, so a later failure can undo
+        # it. Leaving a newly-created empty output_dir behind is a state that could not
+        # occur before this hop existed, and orchestration that reads "no output_dir"
+        # as "predict never ran, safe to retry into a clean mount" would misread it.
+        probe = destination_dir
+        while not probe.exists():
+            created.append(probe)
+            if probe.parent == probe:
+                break
+            probe = probe.parent
         destination_dir.mkdir(parents=True, exist_ok=True)
         # A name unique to this writer, inside output_dir. Unique because the
         # destination is shared across concurrent invocations, so a fixed name would
@@ -139,17 +204,18 @@ def copy_run_manifest_forward(input_dir: str | Path, output_dir: str | Path) -> 
             prefix=f".{RUN_MANIFEST_FILENAME}.",
             suffix=".tmp",
         )
-        # Close before copying: mkstemp hands back an OPEN fd, and on Windows an open
-        # handle makes os.replace fail with WinError 32 -- while copyfile succeeds, so
-        # the bug would surface only at the replace, and only on the Windows leg.
-        os.close(fd)
-        shutil.copyfile(source, tmp)
-        # mkstemp creates at 0600 regardless of umask and copyfile does not alter an
-        # existing file's mode, so without this the forwarded manifest is the one file
-        # predict writes that the downstream container -- a different uid on the same
-        # shared NFS mount -- cannot read. Before the replace, never after: after would
-        # briefly publish the destination at the private temp mode. No-op on Windows.
-        shutil.copymode(source, tmp)
+        # The fd must be closed before the replace: on Windows an open handle makes
+        # os.replace fail with WinError 32, and the write itself would succeed, so the
+        # bug would surface only at the replace and only on the Windows leg. Writing
+        # through the fd mkstemp already opened avoids reopening the path by name.
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(snapshot.data)
+        # mkstemp creates at 0600 regardless of umask, so without this the forwarded
+        # manifest is the one file predict writes that the downstream container -- a
+        # different uid on the same shared NFS mount -- cannot read. Before the
+        # replace, never after: after would briefly publish the destination at the
+        # private temp mode. Largely a no-op on Windows.
+        os.chmod(tmp, snapshot.mode)
         os.replace(tmp, destination)
     except Exception:
         # Log BEFORE cleaning up: if the unlink itself raises, logging afterwards would
@@ -167,6 +233,14 @@ def copy_run_manifest_forward(input_dir: str | Path, output_dir: str | Path) -> 
                 logger.warning(
                     "Could not remove temporary file %s", Path(tmp).as_posix()
                 )
+        for path in created:
+            try:
+                path.rmdir()
+            except OSError:
+                # Non-empty (a concurrent invocation is already writing into it) or
+                # already gone. Stop at the first directory that is not ours to
+                # remove, rather than reaching further up the tree.
+                break
         raise
 
     logger.info(
