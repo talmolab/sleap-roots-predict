@@ -9,6 +9,10 @@ This package provides:
   registry or a local dir (``ModelCardSource`` / ``WandbRegistrySource`` /
   ``LocalCardSource``), and keep sleap-nn predictors resident across scans
   (``WarmModelWorker``)
+- Run scoping: forward a staged ``run_manifest.json`` from the input directory to
+  the output directory (``copy_run_manifest_forward``), so the downstream traits
+  stage — whose input directory is predict's output directory — stays scoped to the
+  same run instead of falling back to unscoped discovery
 - Output contract: write the per-scan artifacts the downstream traits stage reads
   (named per-root ``.slp`` + a combined ``{scan}.predictions.json`` manifest) via
   ``write_prediction_outputs`` / ``predict_and_write_batch`` (see the
@@ -56,6 +60,8 @@ from sleap_roots_predict.batch import (  # noqa: F401
     run_batch,
 )
 
+from sleap_roots_predict.run_manifest import copy_run_manifest_forward  # noqa: F401
+
 __all__ = [
     "process_timelapse_experiment",
     "make_predictor",
@@ -73,6 +79,7 @@ __all__ = [
     "predict_and_write_batch",
     "run_batch",
     "discover_scans",
+    "copy_run_manifest_forward",
     "BatchResult",
     "ScanResult",
 ]

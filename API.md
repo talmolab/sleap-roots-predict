@@ -197,8 +197,6 @@ run_batch(
     output_dir: Union[str, Path],
     *,
     source: Optional[ModelCardSource] = None,
-    peak_threshold: float = 0.2,
-    batch_size: int = 4,
     predict_code_sha: Optional[str] = None,
     predict_container_digest: Optional[str] = None,
     should_stop: Callable[[], bool] = lambda: False,
@@ -209,7 +207,11 @@ The container-oriented batch runner — also the `sleap-roots-predict` /
 image's `ENTRYPOINT`). Discovers scans under `input_dir` (each a directory of image frames
 with a co-located `{scan_key}.scan_metadata.json` sidecar); when a `run_manifest.json`
 (`RunManifest`, `sleap-roots-contracts==0.1.0a7`) is staged in `input_dir`, discovery is
-scoped to exactly its `scan_keys` (an out-of-scope sidecar is silently excluded). Loads
+scoped to exactly its `scan_keys` (an out-of-scope sidecar is silently excluded); that
+manifest is then **forwarded byte-identically to the top level of `output_dir`** — before
+any scan is predicted, so it survives a `should_stop` early exit — since `output_dir` is the
+downstream traits stage's `input_dir`. A copy failure raises as a batch-level staging error
+rather than being swallowed as best-effort. Loads
 models **once** via a single resident `WarmModelWorker` (`source=None` → the production
 `WandbRegistrySource`), and per scan: compares a recomputed idempotency key
 (`compute_idempotency_key`) against the prior run's own artifacts (no new storage — the key
@@ -223,6 +225,38 @@ raises rather than silently succeeding. Per-scan failures are isolated; `BatchRe
 `False` iff any scan failed, which maps to CLI exit `3` — distinct from a staging-error or
 crash, which surfaces exit `1`. See the `predict-container` OpenSpec spec for the full
 exit-code contract.
+
+#### `copy_run_manifest_forward`
+
+```python
+copy_run_manifest_forward(
+    input_dir: Union[str, Path],
+    output_dir: Union[str, Path],
+) -> None
+```
+Copies a `run_manifest.json` (`RunManifest`, `sleap-roots-contracts`) from the top level of
+`input_dir` to the top level of `output_dir`. Called by `run_batch` before the per-scan loop;
+exported for callers driving the hop independently. A raw byte copy with **no validation** —
+byte-identical to what the upstream producer wrote — written atomically via a temp file in
+`output_dir` under a name unique to the writing process, so concurrent invocations sharing an
+output directory can never publish one another's partially-written bytes. Permissions are
+carried over from the source, since the downstream stage reads as a different user.
+
+No-op when no manifest is staged (preserving the unscoped fallback for local runs), or when
+source and destination are the same file — identity decided by what the paths refer to, so a
+bind-mounted `output_dir` is caught, never by comparing them as strings. When no manifest is
+staged but `output_dir` already holds one from an earlier run, that file is **left in place with
+a warning** — it cannot be distinguished from a concurrent invocation's file, but left silent it
+would scope the downstream stage to an earlier run's `scan_keys`. A copy failure raises
+`OSError` rather than being best-effort: a silently missing forwarded manifest is what makes the
+downstream stage fall back to unscoped discovery. `output_dir` is created if missing, and
+removed again if the copy then fails, so a failed forward leaves behind no directory that did
+not exist before it.
+
+Inside `run_batch` the manifest is read **once** per batch and that snapshot is what both
+discovery and this copy use, so the bytes scoped against are the bytes published even if the
+upstream producer rewrites or removes the source in between. Called standalone, it reads the
+manifest itself.
 
 ---
 

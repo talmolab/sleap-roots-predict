@@ -37,9 +37,21 @@ All notable changes to this project are documented here. The format is based on
   entrypoint — `sleap-roots-predict <input_scan_dir> <output_dir>` (also
   `python -m sleap_roots_predict`) and the `run_batch(...)` library function. Discovers scans
   (a `{scan_key}.scan_metadata.json` sidecar co-located with its frames), loads models once
-  via a resident `WarmModelWorker`, and per scan, when a `run_manifest.json` (`RunManifest`,
-  `sleap-roots-contracts==0.1.0a7`) is staged in `input_dir`, scopes discovery to exactly its
-  `scan_keys` (an out-of-scope sidecar is silently excluded); skip-if-done now compares a
+  via a resident `WarmModelWorker`. When a `run_manifest.json` (`RunManifest`,
+  `sleap-roots-contracts==0.1.0a7`) is staged in `input_dir`, discovery is scoped to exactly
+  its `scan_keys` (an out-of-scope sidecar is silently excluded), and that manifest is
+  **forwarded byte-identically to the top level of `output_dir`** (`copy_run_manifest_forward`,
+  a new public export) before any scan is predicted, so it survives a `SIGTERM` early exit.
+  Because `output_dir` is the downstream traits stage's `input_dir`, without this the manifest
+  never reached that stage and it silently fell back to unscoped recursive discovery on every
+  run, rewriting results for unrelated scans sharing the output tree (#39). A copy failure
+  raises as a batch-level staging error rather than being swallowed — a silently skipped copy
+  is that bug recurring undetected. The manifest is read **once** per batch: discovery scopes
+  against exactly the bytes the forward publishes, so an upstream writer rewriting or removing
+  the source mid-batch can neither widen the forwarded scope beyond what was predicted nor turn
+  the forward into a silent no-op. The copy is otherwise naive (overwrite, no union-merge or
+  lock), matching the sibling traits hop; concurrency-safe merging across all three hops is a
+  filed follow-up. Per scan, skip-if-done now compares a
   recomputed idempotency key (`compute_idempotency_key`) against the prior run's own artifacts,
   skipping only on an exact match and otherwise (re)predicting — no new storage. Note:
   `resolve()` (and its one-time model-registry fetch) now runs once per batch invocation even

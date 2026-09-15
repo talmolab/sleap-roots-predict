@@ -212,8 +212,10 @@ sidecar from a prior run is silently excluded rather than reprocessed. An empty 
 input directory raises rather than silently succeeding, so a misconfigured stage-in mount
 never looks like a completed batch. The container loads models once, predicts every scan,
 and writes per scan `out/{scan_key}/{scan_key}.predictions.json` + named per-root `.slp` +
-a copy of the sidecar, all written atomically (temp file + rename) so no reader ever
-observes a partially-written file. Skip-if-done compares a recomputed idempotency key
+a copy of the sidecar; a staged `run_manifest.json` is also forwarded to the top level of
+`out/`, so the downstream trait-extraction stage — whose input directory *is* this output
+directory — stays scoped to the same run instead of falling back to unscoped discovery. All
+writes are atomic (temp file + rename) so no reader ever observes a partially-written file. Skip-if-done compares a recomputed idempotency key
 against the prior run's own artifacts (no new storage needed) and skips only on an exact
 match, (re)predicting otherwise. A `SIGTERM` (Argo preemption) stops the batch at the next
 scan boundary rather than mid-scan. See the `predict-container` OpenSpec spec
@@ -222,6 +224,25 @@ success / `3` partial / default `1` staging-error-or-crash / `143` `SIGTERM`-ter
 `2` is reserved for a CLI usage error). GPU is used when available (`nvidia.com/gpu`); it
 also runs CPU-only. The same entrypoint is available as a library:
 `from sleap_roots_predict import run_batch`, or `python -m sleap_roots_predict <in> <out>`.
+
+### Rolling the image back: delete the forwarded run manifest
+
+> **A rollback MUST also delete `run_manifest.json` from the output directory.**
+
+The forwarded manifest is **sticky**. It lives on the shared output mount, so rolling the
+predict image back to a version that never wrote it does *not* remove the copy already
+there. Trait-extraction reads that file to scope itself, so a leftover one pins every
+subsequent traits run to a frozen `scan_keys` set: newly staged scans are silently skipped,
+with no error and a green pipeline.
+
+That is the mirror image of the bug this forwarding fixes ([#39](https://github.com/talmolab/sleap-roots-predict/issues/39)) —
+which over-processed, and was therefore noticeable. Under-processing is not. Predict itself
+is unaffected either way; it only ever reads the manifest from its *input* directory.
+
+```bash
+# on the shared mount, as part of any predict rollback
+rm -f <output_dir>/run_manifest.json
+```
 
 ## CI/CD
 
@@ -286,6 +307,7 @@ sleap_roots_predict/
 ├── warm_worker.py                  # WarmModelWorker: resident predictors across scans
 ├── output_contract.py              # Per-scan output artifacts (.slp + predictions.json)
 ├── batch.py                        # Warm-batch container runner (run_batch, discover_scans)
+├── run_manifest.py                 # Forward run_manifest.json input_dir -> output_dir
 ├── parity.py                       # A3-predict parity harness (ground truth + metrics)
 ├── __main__.py                     # `python -m sleap_roots_predict <in> <out>` CLI
 ├── video_utils.py                  # Core image processing utilities
@@ -300,6 +322,7 @@ tests/
 ├── test_warm_worker.py                 # Warm worker tests (real CPU inference)
 ├── test_output_contract.py             # Output-contract writer/batch tests (real CPU inference)
 ├── test_batch.py                       # Batch runner / CLI tests (real CPU inference)
+├── test_run_manifest.py                # Run-manifest forward-copy tests (offline)
 ├── test_parity.py                      # Parity harness tests (offline + gated `parity` marker)
 ├── test_predict_container_packaging.py # Console-script + docker-workflow guards
 ├── test_public_api.py                  # Public-surface import test

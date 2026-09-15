@@ -4,7 +4,8 @@ Warm-batch predict over a directory of staged scans. Exit codes: ``0`` success (
 scan failed); ``3`` partial (the batch ran to completion but one or more scans
 isolated-failed); Python's default ``1`` for every other failure (a pre-flight
 staging error — missing input directory, duplicate ``scan_key``, malformed
-``run_manifest.json``, or zero scans discovered — or a genuine crash); ``143``
+``run_manifest.json``, a failed run-manifest forward-copy, or zero scans
+discovered — or a genuine crash); ``143``
 (``128 + SIGTERM``) if the process was asked to stop early (Argo preemption),
 overriding whatever the completed-so-far scans would otherwise produce. ``2`` is
 reserved by ``argparse`` for a CLI usage error and is never returned by this
@@ -82,12 +83,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             result = run_batch(
                 args.input_dir, args.output_dir, should_stop=stop_event.is_set
             )
-        except (FileNotFoundError, ValueError) as exc:
+        except (OSError, ValueError) as exc:
             # A pre-flight staging error (missing input mount, duplicate scan_key,
-            # malformed run_manifest.json, or zero scans discovered — the latter two
-            # also raise ValueError, so they land here too). Log a clean message,
-            # then re-raise so the process still exits via Python's default
-            # unhandled-exception code (1), identical to any other crash.
+            # malformed run_manifest.json, a failed run-manifest forward-copy, or zero
+            # scans discovered — all but the first raise ValueError or an OSError
+            # subclass, so they land here too). `OSError` rather than
+            # `FileNotFoundError` because the forward-copy raises PermissionError and
+            # friends, which are *siblings* of FileNotFoundError, not subclasses. It is
+            # deliberately a superset of the staging set: a few genuine crashes (a
+            # registry network error, since requests' base subclasses OSError) now get
+            # this line too. Accepted — the exit code is 1 either way and the traceback
+            # still surfaces. Log a clean message, then re-raise so the process still
+            # exits via Python's default unhandled-exception code (1).
             logging.getLogger(__name__).error("Batch aborted: %s", exc)
             raise
 
