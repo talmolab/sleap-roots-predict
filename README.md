@@ -225,6 +225,25 @@ success / `3` partial / default `1` staging-error-or-crash / `143` `SIGTERM`-ter
 also runs CPU-only. The same entrypoint is available as a library:
 `from sleap_roots_predict import run_batch`, or `python -m sleap_roots_predict <in> <out>`.
 
+### Rolling the image back: delete the forwarded run manifest
+
+> **A rollback MUST also delete `run_manifest.json` from the output directory.**
+
+The forwarded manifest is **sticky**. It lives on the shared output mount, so rolling the
+predict image back to a version that never wrote it does *not* remove the copy already
+there. Trait-extraction reads that file to scope itself, so a leftover one pins every
+subsequent traits run to a frozen `scan_keys` set: newly staged scans are silently skipped,
+with no error and a green pipeline.
+
+That is the mirror image of the bug this forwarding fixes ([#39](https://github.com/talmolab/sleap-roots-predict/issues/39)) —
+which over-processed, and was therefore noticeable. Under-processing is not. Predict itself
+is unaffected either way; it only ever reads the manifest from its *input* directory.
+
+```bash
+# on the shared mount, as part of any predict rollback
+rm -f <output_dir>/run_manifest.json
+```
+
 ## CI/CD
 
 The project uses GitHub Actions for continuous integration and deployment:

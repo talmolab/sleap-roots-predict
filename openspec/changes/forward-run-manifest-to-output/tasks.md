@@ -399,8 +399,9 @@ revision as its dominant defect source):
   forward a corrupt manifest" true unconditionally rather than only given an atomic upstream
   writer. Deferred as the Open Question already records.
 - **No `pipeline_run_id` in any log line**, leaving the disclosed sticky-rollback hazard
-  untriageable from pod logs; and the rollback instruction itself lives in `proposal.md`, which
-  is archived on merge, rather than in `README.md` and the pipeline template.
+  untriageable from pod logs. (The instruction's own homelessness — it lived only in
+  `proposal.md`, which is archived on merge — **was fixed in 7.7**; this bullet is now only
+  about the missing log field.)
 - `exc_info=True` on the error log; orphaned-temp reclamation; narrowing `except Exception` to
   `except OSError`; `read_bytes()` for the `batch.py` manifest read; `b1`'s unfalsifiable
   per-scan-subdirectory assertion; the missing forward-plus-successful-prediction test; the
@@ -488,6 +489,22 @@ rest.
       inference or device code), but "the required gate actually ran" and "the required gate
       silently skipped" are different claims and were being conflated.
 
+- [x] 7.7 **Moved the sticky-rollback instruction out of this change directory.** It was the
+      only operational control for a silent-data-loss hazard, and it lived solely in
+      `proposal.md` — which `/cleanup-merged` moves into `openspec/changes/archive/` minutes
+      after merge, i.e. not where an operator performing an emergency rollback will look. Now a
+      dedicated `README.md` subsection under "Running the predict container" ("Rolling the image
+      back: delete the forwarded run manifest"), with the `rm -f` and the reason it matters:
+      the forwarded manifest is sticky, so a rollback that leaves it behind pins every later
+      traits run to a frozen `scan_keys` set — under-processing, which unlike #39's
+      over-processing produces no error and a green pipeline. `proposal.md` now points at the
+      README rather than being the source of truth. Matches this repo's own convention that
+      durable docs live in `openspec/` + `README`, not in a change proposal.
+      **Still outstanding, different repo:** the same note belongs beside the predict image pin
+      in `sleap-roots-pipeline`'s `sleap-roots-predictor-template.yaml`, where the rollback is
+      actually performed. That rides along with the post-#42 predictor pin bump tracked in
+      predict#41, not this PR.
+
 **Raised by the second review and deliberately not acted on** — each checked against the code
 rather than argued from the diff:
 
@@ -509,8 +526,8 @@ rather than argued from the diff:
   `sleap-roots-pipeline#56` is open to add. §6.3's test pins the specified behaviour.
 
 Also raised and already tracked, not re-litigated: the atomic-copy duplication (issue #43, filed
-from §6); `pipeline_run_id` absent from the logs and the rollback instruction living in a
-document that is archived on merge (§6 parked list); redundant stats per call; and the question
+from §6); `pipeline_run_id` absent from the logs (§6 parked list — the rollback instruction's
+archive problem is fixed in 7.7); redundant stats per call; and the question
 of whether `_is_same_file` earns its keep — it does, because the spec requires the no-op to
 "leave that file intact", and a self-copy through a temp file republishes the file with a new
 inode and mtime, which §6.2's hard-link and mtime assertions now pin.

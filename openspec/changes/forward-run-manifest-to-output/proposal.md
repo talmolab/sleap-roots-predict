@@ -77,6 +77,10 @@ production tables. Evidence and history are in `design.md` (§Context).
   remove `predictions/run_manifest.json`; a stale one left in place would scope every subsequent
   traits run to a frozen `scan_keys` set — silent *under*-processing, the mirror image of #39 and
   harder to detect. Any rollback MUST also delete that file.
+  **Durable home: `README.md` → "Rolling the image back: delete the forwarded run manifest".**
+  This document is archived on merge, so it is not where an operator performing a rollback will
+  look; the README carries the instruction, and the `sleap-roots-pipeline` predictor template
+  should carry it beside the image pin, where the rollback is actually performed (task 7.7).
 - **Deployment ordering matters, and the fix is inert against the currently pinned image.**
   `sleap-roots-pipeline` main pins trait-extraction to an image that predates `sleap-roots#263`
   — the change that added manifest reading. Against that pin, this forward-copy is a complete
