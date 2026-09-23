@@ -82,19 +82,19 @@ report-entry shape) in the body.
 
 ## 3. Registry guard + batch-level catalog load (commit: `feat(registry): ...`)
 
-- [ ] 3.1 *Characterization* (red means #34 fact 1 is false — stop and revisit the plan): fake
+- [x] 3.1 *Characterization* (red means #34 fact 1 is false — stop and revisit the plan): fake
       artifacts under `production` mixing flat- and selector-shaped metadata → each flat one skipped
       with a warning naming it and mentioning `selectors`; the selector-shaped ones returned. No
       `@pytest.mark.wandb`, so CI runs it.
-- [ ] 3.2 Tests first: **invert** `test_collect_cards_all_malformed_returns_empty`
+- [x] 3.2 Tests first: **invert** `test_collect_cards_all_malformed_returns_empty`
       (`test_model_registry.py:200`, which pins #32's "empty, not an exception") into
       `pytest.raises(<GuardError>)` matching the registry, alias and count `1` — an intentional
       assertion change, named in the commit body; keep `test_collect_cards_alias_filtered_is_silent`
       as the zero-alias case (empty list, no raise).
-- [ ] 3.3 Tests first for `WarmModelWorker.load_catalog()`: `load_catalog(); load_catalog();
+- [x] 3.3 Tests first for `WarmModelWorker.load_catalog()`: `load_catalog(); load_catalog();
       resolve(); resolve()` → one `list_cards` call; with no `WANDB_API_KEY`, `load_catalog()`
       raises naming it.
-- [ ] 3.4 Tests first (`test_batch.py`):
+- [x] 3.4 Tests first (`test_batch.py`):
       - (a) the **real** guard: `WandbRegistrySource` with `WANDB_API_KEY=dummy` and
         `wandb.Api` monkeypatched to `FakeApi` holding only flat artifacts, passed into `run_batch`
         and (via the `kwargs.setdefault("source", …)` spy) into `main()` → raises a `ValueError`
@@ -107,7 +107,7 @@ report-entry shape) in the body.
       - (d) stop requested before the loop → `list_cards` not called, exit `143`;
       - (e) a manifest listing only missing sidecars → `list_cards` not called, exit `3`;
       - (f) the forward-copy-failure test (`calls["n"] == 0`) still passes unchanged.
-- [ ] 3.5 Implement: the guard in `WandbRegistrySource._collect_cards` (a `ValueError` subclass
+- [x] 3.5 Implement: the guard in `WandbRegistrySource._collect_cards` (a `ValueError` subclass
       naming the full registry path, the alias, the failed count, and a hint "this consumer
       requires selector-shaped cards; has the registry been re-seeded?"); `WarmModelWorker.load_catalog()`;
       in `run_batch`'s loop, after the `should_stop()` check and the `scan.error` skip and before the

@@ -328,6 +328,10 @@ def run_batch(
             forwarded to ``output_dir``. Also a batch-level staging error, raised
             before any prediction: a silently missing forwarded manifest would make
             the downstream stage fall back to unscoped discovery.
+        NoReadableModelCardsError: (a ``ValueError``) If the registry holds
+            production artifacts none of which validates. Raised, along with
+            ``RuntimeError`` for missing registry credentials, before the first
+            processable scan is predicted.
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -353,6 +357,7 @@ def run_batch(
 
     resolved_code_sha = resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA")
     worker = WarmModelWorker(source=source)
+    catalog_loaded = False
     for scan in scans:
         if should_stop():
             logger.warning(
@@ -365,6 +370,15 @@ def run_batch(
             logger.error("Scan %s failed: %s", scan.scan_key, scan.error)
             result.scans.append(ScanResult(scan.scan_key, "failed", scan.error))
             continue
+
+        if not catalog_loaded:
+            # Once, outside per-scan isolation: an unreadable or unreachable catalog is
+            # a batch-level error (exit 1), not one isolated failure per scan (exit 3,
+            # which the pipeline's exit gate passes). Placed after this iteration's stop
+            # check so it adds no should_stop() call, and skipped entirely when no scan
+            # is processable.
+            worker.load_catalog()
+            catalog_loaded = True
 
         out_scan_dir = output_dir / scan.scan_key
         try:

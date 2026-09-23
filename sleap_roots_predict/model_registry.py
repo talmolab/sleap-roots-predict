@@ -11,6 +11,7 @@ network access to itself.
 
 import logging
 import os
+from importlib.metadata import version as _package_version
 from pathlib import Path
 from typing import (
     Dict,
@@ -32,6 +33,13 @@ logger = logging.getLogger(__name__)
 _DEFAULT_ENTITY = "eberrigan-salk-institute-for-biological-studies"
 _DEFAULT_REGISTRY = "sleap-roots-models"
 _DEFAULT_ALIAS = "production"
+
+
+class NoReadableModelCardsError(ValueError):
+    """Every artifact carrying the production alias failed card validation.
+
+    A ``ValueError`` so the CLI's one-line staging-error path logs it (``__main__.py``).
+    """
 
 
 @runtime_checkable
@@ -169,6 +177,8 @@ class WandbRegistrySource:
         Raises:
             RuntimeError: If ``WANDB_API_KEY`` is unset (raised before any network
                 call) or no registry is configured.
+            NoReadableModelCardsError: If at least one alias-carrying artifact exists
+                and none of them validates as a ``ModelCard``.
         """
         self._require_key()
         import wandb
@@ -197,20 +207,26 @@ class WandbRegistrySource:
 
         Applies the alias filter, then builds one card per surviving artifact. A
         single artifact whose metadata cannot be validated into a ``ModelCard`` is
-        skipped with a logged warning (naming it and the underlying error) rather
-        than aborting the listing. The ``try`` wraps *only* per-artifact card
-        construction; the ``for`` loop that advances ``artifacts`` sits outside it,
-        so credential errors (raised by ``_require_key`` before this method) and
-        errors raised while traversing the registry propagate fail-loud — only a
-        single non-conforming artifact's card build is isolated here.
+        skipped with a logged warning (naming it and the underlying error) — unless
+        none validates, which raises ``NoReadableModelCardsError``; zero
+        alias-carrying artifacts still return ``[]``. The ``try`` wraps *only*
+        per-artifact card construction; the ``for`` loop that advances ``artifacts``
+        sits outside it, so credential errors (raised by ``_require_key`` before this
+        method) and errors raised while traversing the registry propagate fail-loud —
+        only a single non-conforming artifact's card build is isolated here.
 
         Args:
             artifacts: An iterable of wandb-artifact-like objects.
 
         Returns:
             The conforming cards, in input order.
+
+        Raises:
+            NoReadableModelCardsError: If at least one alias-carrying artifact exists
+                and every one of them failed card validation.
         """
         cards: List[ModelCard] = []
+        failed = 0
         for artifact in artifacts:
             if self._alias and self._alias not in (
                 getattr(artifact, "aliases", None) or []
@@ -220,13 +236,23 @@ class WandbRegistrySource:
                 cards.append(self._card_from_artifact(artifact))
             except Exception as e:
                 # Isolate one non-conforming artifact: skip it (with a warning) so a
-                # single bad card never aborts the whole listing.
+                # single bad card never aborts the whole listing, unless it turns out
+                # to be every alias-carrying artifact (see the guard below).
+                failed += 1
                 label = getattr(artifact, "qualified_name", None) or getattr(
                     artifact, "name", "<unknown>"
                 )
                 logger.warning(
                     "Skipping non-conforming model artifact %r: %s", label, e
                 )
+        if failed and not cards:
+            raise NoReadableModelCardsError(
+                f"none of the {failed} model artifact(s) carrying alias "
+                f"{self._alias!r} in {self._registry_project()} validated as a "
+                f"ModelCard (this consumer requires sleap-roots-contracts "
+                f"{_package_version('sleap-roots-contracts')} selector-shaped "
+                "cards; has the registry been re-seeded?)"
+            )
         return cards
 
     @staticmethod

@@ -190,3 +190,41 @@ def test_output_defining_subset_excludes_hardware_knobs():
     out = worker.output_params()
     assert out == {"peak_threshold": 0.3}
     assert "device" not in out and "batch_size" not in out
+
+
+# --- load_catalog (group: registry guard + batch-level catalog load) ---------
+
+
+class _CountingSource:
+    def __init__(self, inner):
+        self.inner, self.n = inner, 0
+
+    def list_cards(self):
+        self.n += 1
+        return self.inner.list_cards()
+
+    def materialize(self, ref):
+        return self.inner.materialize(ref)
+
+
+def test_load_catalog_lists_once_and_resolve_reuses_it(rice_source):
+    source = _CountingSource(rice_source)
+    worker = WarmModelWorker(source=source)
+    worker.load_catalog()
+    worker.load_catalog()
+    worker.resolve(_params())
+    worker.resolve(_params())
+    assert source.n == 1
+
+
+def test_load_catalog_after_resolve_does_not_list_again(rice_source):
+    source = _CountingSource(rice_source)
+    worker = WarmModelWorker(source=source)
+    worker.resolve(_params())
+    worker.load_catalog()
+    assert source.n == 1
+
+
+def test_load_catalog_without_key_names_it(clean_wandb_env):
+    with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        WarmModelWorker().load_catalog()

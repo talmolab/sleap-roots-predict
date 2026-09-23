@@ -1178,3 +1178,110 @@ def test_run_batch_never_forwards_a_manifest_that_fails_validation(
         run_batch(inp, out, source=source)
 
     assert not out.exists()
+
+
+# --- batch-level catalog load (registry guard + load_catalog) ----------------
+
+
+def _counting(inner):
+    calls = {"list": 0, "order": []}
+
+    class _Counting:
+        def list_cards(self):
+            calls["list"] += 1
+            calls["order"].append("list")
+            return inner.list_cards()
+
+        def materialize(self, ref):
+            return inner.materialize(ref)
+
+    return _Counting(), calls
+
+
+def test_catalog_loaded_once_before_the_first_resolve(
+    all_roots_source, tmp_path, monkeypatch
+):
+    from sleap_roots_predict import warm_worker as ww
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    _real_scan(inp, "scanB", _RICE)
+    source, calls = _counting(all_roots_source)
+    real_resolve = ww.WarmModelWorker.resolve
+
+    def spy_resolve(self, *a, **k):
+        calls["order"].append("resolve")
+        return real_resolve(self, *a, **k)
+
+    monkeypatch.setattr(ww.WarmModelWorker, "resolve", spy_resolve)
+    run_batch(inp, tmp_path / "out", source=source)
+    assert calls["list"] == 1
+    assert calls["order"][0] == "list"
+
+
+def test_unreadable_registry_aborts_the_batch_with_exit_1(
+    tmp_path, monkeypatch, caplog
+):
+    import wandb
+
+    from sleap_roots_predict import batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+    from sleap_roots_predict.model_registry import (
+        NoReadableModelCardsError,
+        WandbRegistrySource,
+    )
+    from test_model_registry import FakeApi, FakeArtifact, _flat_meta
+
+    monkeypatch.setenv("WANDB_API_KEY", "dummy")
+    monkeypatch.setattr(
+        wandb,
+        "Api",
+        lambda: FakeApi({"col": [FakeArtifact("reg/flat", metadata=_flat_meta())]}),
+    )
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    out = tmp_path / "out"
+    with pytest.raises(NoReadableModelCardsError):
+        run_batch(inp, out, source=WandbRegistrySource(entity="ent", registry="reg"))
+    assert not out.exists() or {p.name for p in out.iterdir()} <= {"run_manifest.json"}
+
+    real_run_batch = batch_mod.run_batch
+
+    def _with_source(*args, **kwargs):
+        kwargs.setdefault("source", WandbRegistrySource(entity="ent", registry="reg"))
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _with_source)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(NoReadableModelCardsError):
+            main([str(inp), str(tmp_path / "out2")])
+    assert "Batch aborted" in caplog.text
+
+
+def test_missing_key_fails_the_batch_not_each_scan(tmp_path, clean_wandb_env):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        run_batch(inp, tmp_path / "out")
+
+
+def test_stop_before_first_scan_skips_the_catalog(tmp_path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    source, calls = _recording_source()
+    run_batch(inp, tmp_path / "out", source=source, should_stop=lambda: True)
+    assert calls["n"] == 0
+
+
+def test_only_errored_scans_skip_the_catalog(tmp_path):
+    inp = tmp_path / "in"
+    inp.mkdir()
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {"schema_version": "1", "pipeline_run_id": "r", "scan_keys": ["ghost"]}
+        )
+    )
+    source, calls = _recording_source()
+    result = run_batch(inp, tmp_path / "out", source=source)
+    assert [s.status for s in result.scans] == ["failed"]
+    assert calls["n"] == 0

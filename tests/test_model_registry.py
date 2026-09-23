@@ -8,6 +8,7 @@ a later task (``@pytest.mark.wandb``).
 
 import logging
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from card_builders import make_card, raw_card_meta
 from sleap_roots_predict.model_registry import (
     LocalCardSource,
     ModelCardSource,
+    NoReadableModelCardsError,
     WandbRegistrySource,
 )
 from sleap_roots_predict.predict import make_predictor
@@ -182,13 +184,42 @@ def test_collect_cards_skips_malformed_and_warns(caplog):
     assert "species" in caplog.text
 
 
-def test_collect_cards_all_malformed_returns_empty(caplog):
-    """An all-malformed listing is empty, not an exception."""
+def _flat_meta():
+    return {
+        "species": "rice",
+        "mode": "cylinder",
+        "age_min": 2,
+        "age_max": 5,
+        "root_type": "primary",
+    }
+
+
+def test_collect_cards_skips_flat_cards_alongside_readable_ones(caplog):
+    """Pins #34 fact 1 against a9: flat cards are skipped, selector-shaped ones returned."""
     source = WandbRegistrySource(alias="production")
+    flat = FakeArtifact("reg/flat", metadata=_flat_meta())
+    good = _good_artifact("reg/good")
     with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
-        cards = source._collect_cards([_malformed_artifact()])
-    assert cards == []
-    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+        cards = source._collect_cards([flat, good])
+    assert [c.registry_id for c in cards] == ["reg/good"]
+    assert "reg/flat" in caplog.text and "selectors" in caplog.text
+
+
+def test_collect_cards_all_invalid_raises(caplog):
+    """Every alias-carrying artifact unreadable is a deployment fault, not an empty catalog.
+
+    Reverses #32's "empty, not an exception" for this one case (predict#34): an empty catalog
+    fails every scan and exits 3, which the pipeline's exit gate passes.
+    """
+    source = WandbRegistrySource(entity="ent", registry="reg", alias="production")
+    with pytest.raises(NoReadableModelCardsError) as exc:
+        source._collect_cards(
+            [_malformed_artifact("reg/a"), FakeArtifact("reg/b", metadata=None)]
+        )
+    assert "ent-org/wandb-registry-reg" in str(exc.value)
+    assert "production" in str(exc.value)
+    assert re.search(r"\b2\b", str(exc.value))
+    assert issubclass(NoReadableModelCardsError, ValueError)
 
 
 def test_collect_cards_drops_only_the_bad_one_preserving_order(caplog):
