@@ -98,6 +98,15 @@ All notable changes to this project are documented here. The format is based on
   report when every card gapped. Driven by the committed `scripts/run_parity_harness.py`
   (`uv run python scripts/run_parity_harness.py`; lab-only — Windows + a `Z:` mapped network
   share, real registry credentials — manual/on-demand, no CI wiring).
+- **Registry guard**: `WandbRegistrySource.list_cards()` now raises `NoReadableModelCardsError`
+  (a `ValueError` naming the registry path, alias and failed-card count) when production-aliased
+  artifacts exist but **none** validates. A mixed listing (some valid, some malformed) still skips
+  the malformed ones with a logged warning and returns the rest, unchanged.
+- **`WarmModelWorker.load_catalog()`**: lists the model-card source once (idempotent — later
+  `resolve()`/`get_predictors()` calls reuse the cached listing). `run_batch` calls it once,
+  after the per-iteration stop check and before the first processable scan's `try`, so a registry
+  with no readable production card (or a listing failure) is a batch-level error rather than a
+  per-scan one.
 
 ### Changed
 
@@ -124,6 +133,24 @@ All notable changes to this project are documented here. The format is based on
   and `SRP_WANDB_ALIAS` → `SRP_WANDB_MODEL_ALIAS` (old names are no longer read), matching
   the `sleap-roots-training` producer. `list_cards()` now skips a single non-conforming
   registry artifact with a logged warning instead of aborting the whole listing.
+- **Pinned `sleap-roots-contracts==0.1.0a9`** (from `0.1.0a7`). `ModelCard.selectors` replaces
+  the flat `species`/`mode`/`age_min`/`age_max` fields; predict now reads exclusively from
+  `selectors` on every card-reading path (selection, parity ground-truth resolution, parity
+  report entries).
+- `choose_models` now matches a card when **some single selector** matches species, mode and
+  age, the age compared against **that selector's own window** — never a card-level envelope
+  spanning a card's selectors, and never the cross product across them. The collect-then-raise
+  ambiguity behavior (more than one matching card raises) is unchanged.
+- Parity report entries now carry `selectors: [{species, mode, age_min, age_max}, ...]` in place
+  of the four flat top-level fields.
+- `scripts/run_parity_harness.py`'s `--out` is now required, so a run can never overwrite the
+  committed `2026-08-04-define-parity-tolerance-results.json` (now a pre-selectors snapshot).
+- **Batch exit code**: a missing `WANDB_API_KEY`, a registry/network error while listing model
+  cards, and an unreadable catalog (the guard above) now exit `1` instead of `3` with every scan
+  failed.
+- **Note:** immediately after this change deploys, the `:latest`/`:main` registry aliases
+  resolve only the canary collection's re-seeded `ModelCard` until the remaining production
+  collections are re-seeded (`sleap-roots-training` 6.2).
 
 ### Removed (BREAKING)
 

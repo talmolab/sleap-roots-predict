@@ -273,10 +273,10 @@ the full measured results across all 13 production models are in
 [`2026-08-03-define-parity-tolerance-design.md`](docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md)).
 
 Regenerate that report (needs `WANDB_API_KEY` and `SRP_PARITY_DATA_DIR`; lab-only — Windows +
-a `Z:` mapped network share): `uv run python scripts/run_parity_harness.py`. It re-runs all
-13 production models and overwrites the JSON above in place; pass `--share-root` if your
-mapped-share letter/path differs from the lab default, and `--out` to write elsewhere. Commit
-the regenerated JSON as its own standalone commit.
+a `Z:` mapped network share): `uv run python scripts/run_parity_harness.py --out <path>`.
+`--out` is required — write to a new dated path; the 2026-08-04 JSON above is a pre-selectors
+snapshot and must not be overwritten. Pass `--share-root` if your mapped-share letter/path
+differs from the lab default. Commit the regenerated JSON as its own standalone commit.
 
 Set `SRP_PARITY_DATA_DIR=Z:/users/eberrigan/SLEAP` (same tree as `--share-root`'s default —
 `build_basename_index` walks it recursively, and it contains both the `SLEAP_Rice` and

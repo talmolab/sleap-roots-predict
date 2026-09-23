@@ -206,14 +206,17 @@ The container-oriented batch runner — also the `sleap-roots-predict` /
 `python -m sleap_roots_predict <input_dir> <output_dir>` entrypoint (the predict service
 image's `ENTRYPOINT`). Discovers scans under `input_dir` (each a directory of image frames
 with a co-located `{scan_key}.scan_metadata.json` sidecar); when a `run_manifest.json`
-(`RunManifest`, `sleap-roots-contracts==0.1.0a7`) is staged in `input_dir`, discovery is
+(`RunManifest`, `sleap-roots-contracts`) is staged in `input_dir`, discovery is
 scoped to exactly its `scan_keys` (an out-of-scope sidecar is silently excluded); that
 manifest is then **forwarded byte-identically to the top level of `output_dir`** — before
 any scan is predicted, so it survives a `should_stop` early exit — since `output_dir` is the
 downstream traits stage's `input_dir`. A copy failure raises as a batch-level staging error
 rather than being swallowed as best-effort. Loads
 models **once** via a single resident `WarmModelWorker` (`source=None` → the production
-`WandbRegistrySource`), and per scan: compares a recomputed idempotency key
+`WandbRegistrySource`); the model-card catalog is loaded once, before the first processable
+scan, so a registry with no readable production card raises `NoReadableModelCardsError`
+(exit `1`) as a batch-level error rather than failing every scan individually. Per scan:
+compares a recomputed idempotency key
 (`compute_idempotency_key`) against the prior run's own artifacts (no new storage — the key
 is recovered from the previously-copied sidecar and previously-written manifest), skipping
 only on an exact match and otherwise (re)predicting; writes the output-contract artifacts

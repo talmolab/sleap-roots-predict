@@ -88,7 +88,7 @@ report-entry shape) in the body.
       `@pytest.mark.wandb`, so CI runs it.
 - [x] 3.2 Tests first: **invert** `test_collect_cards_all_malformed_returns_empty`
       (`test_model_registry.py:200`, which pins #32's "empty, not an exception") into
-      `pytest.raises(<GuardError>)` matching the registry, alias and count `1` — an intentional
+      `pytest.raises(<GuardError>)` matching the registry, alias and count `2` — an intentional
       assertion change, named in the commit body; keep `test_collect_cards_alias_filtered_is_silent`
       as the zero-alias case (empty list, no raise).
 - [x] 3.3 Tests first for `WarmModelWorker.load_catalog()`: `load_catalog(); load_catalog();
@@ -154,7 +154,7 @@ report-entry shape) in the body.
 
 ## 5. Docs (commit: `docs: ...`)
 
-- [ ] 5.1 Update `openspec/project.md:23-24,129` (pin; "13 production `ModelCard`s" → the dated
+- [x] 5.1 Update `openspec/project.md:23-24,129` (pin; "13 production `ModelCard`s" → the dated
       2026-08-04 measurement), `API.md:209` and the `run_batch` paragraph (`:214-227`), the
       `CLAUDE.md:93` parenthetical (point to the spec; add no content), README's parity-regenerate
       paragraph (`README.md:270-277`: `--out` is required; the 2026-08-04 JSON is a pre-selectors
@@ -162,11 +162,11 @@ report-entry shape) in the body.
       report-entry shape; the guard; **exit `3` → `1`** for missing credentials, registry/network
       errors and an unreadable catalog; and that after merge `:latest`/`:main` read only the
       canary's card until the full re-seed.
-- [ ] 5.2 Repo-wide claim grep with `git grep` (skips ignored `htmlcov/`, `dist/`, `artifacts/`),
+- [x] 5.2 Repo-wide claim grep with `git grep` (skips ignored `htmlcov/`, `dist/`, `artifacts/`),
       excluding `openspec/changes/archive` and dated `docs/superpowers/` snapshots, comments
       included: `0\.1\.0a7`, `13 production`, `card's age`, `card's \[age_min`, `species/root-type`,
       `species ==`, `age_min <=`, `card-level`, `lazily once`.
-- [ ] 5.3 Re-grep for persisted state keyed on `registry_id` beyond design §4's list; record the
+- [x] 5.3 Re-grep for persisted state keyed on `registry_id` beyond design §4's list; record the
       result in the PR.
 
 ## 6. PR and merge gates
