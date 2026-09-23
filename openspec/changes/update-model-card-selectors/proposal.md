@@ -21,7 +21,7 @@ the flat fields on its runtime selection path, so it cannot read the re-seeded r
   production artifacts exist but **none** validates. This is the one deliberate exception to #34's
   fact 1, and it reverses #32's pinned "all-malformed listing is empty, not an exception". Mixed
   skips still continue, as the canary requires.
-- **Catalog loaded once per batch, before the per-scan loop** (new `WarmModelWorker.load_catalog()`),
+- **Catalog loaded once per batch, before the first processable scan** (new `WarmModelWorker.load_catalog()`),
   so catalog failures are batch-level. **Exit-code change:** missing `WANDB_API_KEY`, a
   registry/network error while listing, and an unreadable catalog now exit `1` (retried by Argo)
   instead of `3` with every scan failed (passed by the exit gate) — which also makes the existing

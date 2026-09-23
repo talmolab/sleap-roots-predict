@@ -110,8 +110,9 @@ report-entry shape) in the body.
 - [ ] 3.5 Implement: the guard in `WandbRegistrySource._collect_cards` (a `ValueError` subclass
       naming the full registry path, the alias, the failed count, and a hint "this consumer
       requires selector-shaped cards; has the registry been re-seeded?"); `WarmModelWorker.load_catalog()`;
-      in `run_batch`, after `WarmModelWorker(source=source)` (`batch.py:355`) and before the loop,
-      call it unless `should_stop()` or every scan has `error`. Update the `run_batch` `Raises:`
+      in `run_batch`'s loop, after the `should_stop()` check and the `scan.error` skip and before the
+      per-scan `try`, call it once (guarded by a loaded flag); add no extra `should_stop()` call —
+      `test_should_stop_stops_after_first_scan` and the SIGTERM compose test count them. Update the `run_batch` `Raises:`
       docstring (`batch.py:322-330`), `__main__.py`'s module docstring and staging-error comment
       (`:1-12`, `:86-90`), and the `_collect_cards` docstring (`model_registry.py:196-214`).
 - [ ] 3.6 Draft (for the user to approve before posting) a #34 comment: fact 1 now has one

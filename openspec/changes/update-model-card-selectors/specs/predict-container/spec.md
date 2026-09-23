@@ -10,15 +10,18 @@ types SHALL be treated as `failed` (rather than emitting an empty-artifacts mani
 downstream trait-extractor would reject).
 
 `run_batch` SHALL load the model-card catalog once, via `WarmModelWorker.load_catalog()`, **after**
-scan discovery, the zero-scans check and the run-manifest forward-copy, **after** constructing the
-worker, and **before** the per-scan loop, outside its per-scan isolation. A catalog that cannot be
+scan discovery, the zero-scans check and the run-manifest forward-copy, and **immediately before
+the first scan that has no discovery error is processed** — after that iteration's stop check,
+outside the per-scan isolation. The load SHALL NOT add a stop check of its own, so the number and
+order of stop checks is unchanged. A catalog that cannot be
 listed — missing credentials, a registry/network error, or a registry with production artifacts
 none of which is readable (per the `model-management` "Wandb Registry Source With Version Pinning"
 requirement) — is therefore a batch-level error (exit `1`) rather than one isolated failure per
-scan (exit `3`, which these conditions produced before this change). `run_batch` SHALL NOT load the
-catalog when a stop has already been requested before the first scan, nor when every discovered
-scan already carries a discovery error (no scan could use it); in both cases the batch proceeds
-exactly as without the load.
+scan (exit `3`, which these conditions produced before this change). It follows that the catalog
+is not loaded when a stop is requested before the first processable scan, nor when every
+discovered scan already carries a discovery error (no scan could use it); in both cases the batch
+proceeds exactly as without the load. Scans recorded `failed` for a discovery error before the
+first processable scan do not prevent a catalog failure from aborting the batch.
 
 The process SHALL exit with one of three driver-owned codes so an Argo step can distinguish an
 isolated per-scan failure from a genuine crash:
@@ -131,7 +134,8 @@ way; the mechanism differs, the outcome doesn't.
 #### Scenario: A stop requested before the first scan skips the catalog load
 
 - **WHEN** a stop has been requested before the per-scan loop begins
-- **THEN** the catalog is not loaded and the stop is honored exactly as without the load
+- **THEN** the catalog is not loaded, the stop is honored exactly as without the load, and the stop
+  callback is called the same number of times as before this change
 
 #### Scenario: A batch of only errored scans does not load the catalog
 

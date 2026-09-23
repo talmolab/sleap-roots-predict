@@ -25,7 +25,7 @@ This file records only the decisions that shape the spec deltas; the validation 
    where alias-matching artifacts exist and none validates (a `ValueError`, so the CLI's one-line
    staging log names it). The catalog was loaded lazily inside `run_batch`'s per-scan `try`, where
    a raise would be isolated per scan, so a public `WarmModelWorker.load_catalog()` now runs once
-   after the forward-copy and before the loop — skipped when a stop is already requested or no
+   before the first processable scan (after that iteration's stop check, adding none) — skipped when a stop is already requested or no
    scan is processable. A deploy against a registry with **zero** readable cards therefore exits
    `1`. It cannot detect a readable but **incomplete** catalog (between the canary and the full
    re-seed); deploy ordering covers that window.

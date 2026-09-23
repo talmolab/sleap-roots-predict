@@ -57,7 +57,7 @@ ordering alone is not enough — every card skipped → every scan raises `no mo
 (`batch.py:414-418`) → `main()` returns `3` even at 100% failure (`__main__.py:113`) → the
 pipeline's exit gate passes `3` by design (`sleap-roots-exit-gate-template.yaml:132-135,141`). Because
 `WarmModelWorker.resolve` loads the catalog lazily inside `run_batch`'s per-scan `try`
-(`warm_worker.py:85-86`, `batch.py:370-396`), `run_batch` also loads it once before the loop, so
+(`warm_worker.py:85-86`, `batch.py:370-396`), `run_batch` also loads it once, just before the first processable scan's `try`, so
 the raise is a batch-level staging error (exit `1`), not one isolated failure per scan. It loads
 through a new public `WarmModelWorker.load_catalog()`, skipped when a stop is already requested or
 no scan is processable. Side effect, recorded as a change: missing credentials and registry/network
@@ -89,7 +89,7 @@ against `card.selectors` before any work, else `ValueError`), else the card's on
   no cross product; ambiguity raise unchanged); MODIFIED Wandb Registry Source With Version
   Pinning (the all-invalid guard).
 - `predict-container`: MODIFIED Per-scan failure isolation and batch exit code (catalog loaded once
-  before the loop; no readable card → exit `1`).
+  before the first processable scan; no readable card → exit `1`).
 - `prediction-parity`: MODIFIED Ground Truth Resolution Per Model, Basename Search Disambiguation,
   LabelCard-Shaped Ground Truth Manifest; ADDED Parity Report Entry Selection Fields (no existing
   requirement lists the entry fields, so the Runner requirement is left unchanged).
