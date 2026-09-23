@@ -83,9 +83,9 @@ def choose_models(
             card
             for card in cards
             if card.root_type == root_type
-            and card.species == species
-            and card.mode == mode
-            and card.age_min <= age <= card.age_max
+            and card.selectors[0].species == species
+            and card.selectors[0].mode == mode
+            and card.selectors[0].age_min <= age <= card.selectors[0].age_max
         ]
         if not matches:
             continue

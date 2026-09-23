@@ -49,9 +49,9 @@ Atomic by necessity: after the bump, `model_selection.py:86-88` and `parity.py:9
 fail on flat reads, so neither lands separately green. Put a `BREAKING CHANGE:` footer (parity
 report-entry shape) in the body.
 
-- [ ] 2.1 Contract-assumption tests **before** the bump (red on a7, where a flat dict validates):
+- [x] 2.1 Contract-assumption tests **before** the bump (red on a7, where a flat dict validates):
       `ModelCard.model_validate(<flat dict>)` raises; `selectors=[]` raises.
-- [ ] 2.2 Edit `pyproject.toml:24` to `sleap-roots-contracts==0.1.0a9`, then
+- [x] 2.2 Edit `pyproject.toml:24` to `sleap-roots-contracts==0.1.0a9`, then
       `uv lock --upgrade-package sleap-roots-contracts`. Verify `git diff uv.lock` changes only
       that package's block and the project's `requires-dist` specifier. Switch the builders to emit
       `Selector`s / JSON `"selectors": [{...}]` (`drop=("species",)` drops it from selector 0; the
@@ -71,14 +71,14 @@ report-entry shape) in the body.
 - [ ] 2.5 **Mutation check** (not committed): temporarily substitute (a) a card-level min/max
       envelope, (b) any-species ∧ any-mode ∧ any-window, (c) `selectors[0]` only; confirm 2.3's
       tests fail against each. Record the results in the commit body.
-- [ ] 2.6 `build_report_entry` emits `selectors` (tests first: two-selector card → two dicts in
+- [x] 2.6 `build_report_entry` emits `selectors` (tests first: two-selector card → two dicts in
       order, no top-level flat keys, `json.dumps` succeeds; one-selector card → one-element list).
-- [ ] 2.7 Flat reads nothing in CI exercises:
+- [x] 2.7 Flat reads nothing in CI exercises:
       `rg -n --type py "\.(species|mode|age_min|age_max)\b|\[[\"'](species|mode|age_min|age_max)[\"']\]" tests/ scripts/ sleap_roots_predict/`
       until only the allowed residue remains — params reads (`model_selection.py:56-57`), `LabelCard`
       reads (`test_parity.py:635`), `snapshot.mode` (`run_manifest.py:218`) — including the
       wandb-gated `test_model_registry.py:315`.
-- [ ] 2.8 The gate is green.
+- [x] 2.8 The gate is green.
 
 ## 3. Registry guard + batch-level catalog load (commit: `feat(registry): ...`)
 

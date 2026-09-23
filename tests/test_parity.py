@@ -799,6 +799,29 @@ def test_build_report_entry_handles_missing_reference(tmp_path):
     assert entry["visibility_recall_delta"] is None
 
 
+def _entry_for(card, tmp_path):
+    resolved = _resolved(card, tmp_path / "gt.slp", tmp_path)
+    return build_report_entry(resolved, 1, _metrics(), None)
+
+
+def test_report_entry_lists_every_selector_in_card_order(tmp_path):
+    card = _card(
+        selectors=[("canola", "cylinder", 2, 13), ("pennycress", "cylinder", 2, 14)]
+    )
+    entry = _entry_for(card, tmp_path)
+    assert entry["selectors"] == [
+        {"species": "canola", "mode": "cylinder", "age_min": 2, "age_max": 13},
+        {"species": "pennycress", "mode": "cylinder", "age_min": 2, "age_max": 14},
+    ]
+    assert not {"species", "mode", "age_min", "age_max"} & set(entry)
+    json.dumps(entry)
+
+
+def test_report_entry_single_selector_is_a_one_element_list(tmp_path):
+    entry = _entry_for(_card(), tmp_path)
+    assert len(entry["selectors"]) == 1
+
+
 def test_write_parity_report_round_trips_via_json(tmp_path):
     import json
 

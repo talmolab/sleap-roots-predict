@@ -297,7 +297,8 @@ def test_wandb_source_lists_and_materializes(tmp_path, monkeypatch):
     # and carry the selection metadata the matcher needs.
     assert all(c.version and c.version != source._alias for c in cards)
     assert all(c.weights_checksum for c in cards)
-    assert all(c.species and c.mode and c.root_type for c in cards)
+    assert all(c.selectors and c.root_type for c in cards)
+    assert all(s.species and s.mode for c in cards for s in c.selectors)
     ref = cards[0].to_model_ref("runtime")
     first = source.materialize(ref)
     assert Path(first).exists() and any(Path(first).iterdir())

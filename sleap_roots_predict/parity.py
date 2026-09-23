@@ -372,10 +372,12 @@ def _pick_best_candidate(
         return parent_matches[0]
 
     pool = parent_matches if parent_matches else candidates
+    window = card.selectors[0]
     age_matches = [
         c
         for c in pool
-        if (hint := _age_hint(c)) is not None and card.age_min <= hint <= card.age_max
+        if (hint := _age_hint(c)) is not None
+        and window.age_min <= hint <= window.age_max
     ]
     if len(age_matches) == 1:
         return age_matches[0]
@@ -900,13 +902,14 @@ def build_label_card(
     node_names = tuple(n.name for n in labels.skeleton.nodes)
     n_instances = sum(len(lf.instances) for lf in labels)
     n_videos = len(labels.videos)
+    selector = card.selectors[0]
     return LabelCard(
-        species=card.species,
-        mode=card.mode,
+        species=selector.species,
+        mode=selector.mode,
         root_type=card.root_type,
-        age_min=card.age_min,
-        age_max=card.age_max,
-        skeleton_name=labels.skeleton.name or f"{card.species}_{card.root_type}",
+        age_min=selector.age_min,
+        age_max=selector.age_max,
+        skeleton_name=labels.skeleton.name or f"{selector.species}_{card.root_type}",
         node_count=len(node_names),
         node_names=node_names,
         n_frames=len(labels),
@@ -1003,9 +1006,10 @@ def build_report_entry(
     itself produce, and cross-reference here for the full-entry shape.
 
     Fields:
-        ``registry_id``/``version``/``species``/``mode``/``root_type``/
-            ``age_min``/``age_max``: the evaluated ``ModelCard``'s own
-            identity/selection fields, carried through unchanged.
+        ``registry_id``/``version``/``root_type``: the evaluated ``ModelCard``'s own
+            identity fields, carried through unchanged.
+        ``selectors``: the card's selection contexts, one
+            ``{species, mode, age_min, age_max}`` object per selector in card order.
         ``weights_checksum``: identifies the *physical* trained weights.
             Several ``registry_id``s can share one checksum (e.g. a primary
             and lateral alias pointing at the same export) — **dedupe by
@@ -1068,11 +1072,8 @@ def build_report_entry(
     entry = {
         "registry_id": resolved.card.registry_id,
         "version": resolved.card.version,
-        "species": resolved.card.species,
-        "mode": resolved.card.mode,
+        "selectors": [s.model_dump(mode="json") for s in resolved.card.selectors],
         "root_type": resolved.card.root_type,
-        "age_min": resolved.card.age_min,
-        "age_max": resolved.card.age_max,
         "weights_checksum": resolved.card.weights_checksum,
         "ground_truth_source": resolved.source,
         "n_frames_resolved": resolved.n_frames_resolved,
