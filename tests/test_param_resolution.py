@@ -48,3 +48,16 @@ def test_round_trip_unknown_species_selects_nothing():
     cards = [_card("primary"), _card("crown")]
     row = _row(species_name="Sorghum", plant_age_days=3)
     assert choose_models(resolve_params(row), cards) == {}
+
+
+def test_round_trip_selects_a_multi_selector_card():
+    from card_builders import make_card
+
+    card = make_card(
+        "primary",
+        "reg/shared-primary",
+        selectors=[("canola", "cylinder", 2, 13), ("pennycress", "cylinder", 2, 14)],
+        weights_checksum="sha",
+    )
+    row = _row(species_name="Pennycress", plant_age_days=14)
+    assert set(choose_models(resolve_params(row), [card])) == {"primary"}

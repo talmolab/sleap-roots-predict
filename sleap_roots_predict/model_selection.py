@@ -2,9 +2,10 @@
 
 Maps resolved scan params (species/mode/age) and a list of production
 ``ModelCard``s to a ``ModelRef`` per root type, mirroring the proven
-models-downloader selection semantics: explicit override wins; otherwise filter
-by ``species``/``mode``/inclusive age window; exactly one match selects, zero
-skips, more than one is an ambiguity error.
+models-downloader selection semantics: explicit override wins; otherwise a
+card matches when some single one of its ``selectors`` matches
+``species``/``mode``/inclusive age window together; exactly one match selects,
+zero skips, more than one is an ambiguity error.
 
 The matcher is pure: no network and no per-call filesystem I/O. The runtime
 sleap-nn version stamped into each ``ModelRef`` is resolved once at import.
@@ -19,6 +20,18 @@ from sleap_roots_contracts import ModelCard, ModelRef, ResolvedParams, RootType
 _RUNTIME_SLEAP_NN_VERSION = version("sleap-nn")
 
 _REQUIRED_PARAMS = ("species", "mode", "age")
+
+
+def _card_matches(card: ModelCard, species: str, mode: str, age: int) -> bool:
+    """Whether some single selector on ``card`` matches species, mode and age together.
+
+    The age is compared against the *matching* selector's own window, never a window taken
+    across the card's selectors, and selectors are never combined (no cross product).
+    """
+    return any(
+        s.species == species and s.mode == mode and s.age_min <= age <= s.age_max
+        for s in card.selectors
+    )
 
 
 def choose_models(
@@ -82,10 +95,7 @@ def choose_models(
         matches = [
             card
             for card in cards
-            if card.root_type == root_type
-            and card.selectors[0].species == species
-            and card.selectors[0].mode == mode
-            and card.selectors[0].age_min <= age <= card.selectors[0].age_max
+            if card.root_type == root_type and _card_matches(card, species, mode, age)
         ]
         if not matches:
             continue

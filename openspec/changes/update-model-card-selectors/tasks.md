@@ -57,7 +57,7 @@ report-entry shape) in the body.
       `Selector`s / JSON `"selectors": [{...}]` (`drop=("species",)` drops it from selector 0; the
       pydantic location `selectors.0.species` still satisfies `test_model_registry.py:197`). 2.1 is
       now green; record the suite's red count.
-- [ ] 2.3 Interim: make `choose_models` and the two parity reads use `card.selectors[0]`; get the
+- [x] 2.3 Interim: make `choose_models` and the two parity reads use `card.selectors[0]`; get the
       gate green. Then write the selection tests (`test_model_selection.py`) and watch the
       any-selector, per-selector-age and disjoint-window ones go red for the stated reason:
       any-selector (pennycress/14 on canola 2–13 + pennycress 2–14); per-selector age (canola/14
@@ -66,9 +66,9 @@ report-entry shape) in the body.
       13 → no match); overlapping selectors on one card → selected, no raise; two cards each
       matching through a different selector → `ValueError("Ambiguous...")`; inclusive boundaries
       per selector; a multi-selector variant of the Bloom round trip in `test_param_resolution.py`.
-- [ ] 2.4 Implement the any-selector predicate; update the module docstring. Verify `git diff`
+- [x] 2.4 Implement the any-selector predicate; update the module docstring. Verify `git diff`
       leaves the `len(matches) > 1` raise and the override/skip logic untouched.
-- [ ] 2.5 **Mutation check** (not committed): temporarily substitute (a) a card-level min/max
+- [x] 2.5 **Mutation check** (not committed): temporarily substitute (a) a card-level min/max
       envelope, (b) any-species ∧ any-mode ∧ any-window, (c) `selectors[0]` only; confirm 2.3's
       tests fail against each. Record the results in the commit body.
 - [x] 2.6 `build_report_entry` emits `selectors` (tests first: two-selector card → two dicts in
