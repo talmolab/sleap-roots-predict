@@ -1258,6 +1258,58 @@ def test_unreadable_registry_aborts_the_batch_with_exit_1(
     assert "Batch aborted" in caplog.text
 
 
+def test_discovery_error_before_first_processable_scan_still_aborts_on_catalog_failure(
+    tmp_path, monkeypatch
+):
+    """A `failed` discovery-error scan ahead of the first processable one doesn't block a catalog-failure abort."""
+    import wandb
+
+    from sleap_roots_predict.model_registry import (
+        NoReadableModelCardsError,
+        WandbRegistrySource,
+    )
+    from test_model_registry import FakeApi, FakeArtifact, _flat_meta
+
+    monkeypatch.setenv("WANDB_API_KEY", "dummy")
+    monkeypatch.setattr(
+        wandb,
+        "Api",
+        lambda: FakeApi({"col": [FakeArtifact("reg/flat", metadata=_flat_meta())]}),
+    )
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    # A present-but-invalid sidecar sorts alongside scanA's in discover_scans' single
+    # found-sidecars pass (unlike a manifest-scoped-but-*missing* scan_key, which is
+    # always appended in a second pass *after* every found sidecar regardless of its
+    # name -- verified empirically; that shape can never precede scanA). Naming it
+    # "aaa-ghost" sorts it first, landing it in scans[0] as the discovery-error entry
+    # ahead of the processable scanA in scans[1].
+    ghost_dir = inp / "aaa-ghost"
+    ghost_dir.mkdir(parents=True)
+    (ghost_dir / "aaa-ghost.scan_metadata.json").write_text(
+        json.dumps(
+            {"scan_key": "aaa-ghost", "image_ids": ["a"], "images_checksum": "sha256:x"}
+        )
+    )
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1",
+                "pipeline_run_id": "r",
+                "scan_keys": ["aaa-ghost", "scanA"],
+            }
+        )
+    )
+    scans = discover_scans(inp)
+    assert [s.scan_key for s in scans] == ["aaa-ghost", "scanA"]
+    assert scans[0].error is not None
+    assert scans[1].error is None
+
+    out = tmp_path / "out"
+    with pytest.raises(NoReadableModelCardsError):
+        run_batch(inp, out, source=WandbRegistrySource(entity="ent", registry="reg"))
+
+
 def test_missing_key_fails_the_batch_not_each_scan(tmp_path, clean_wandb_env):
     inp = tmp_path / "in"
     _real_scan(inp, "scanA", _RICE)

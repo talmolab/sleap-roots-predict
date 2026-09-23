@@ -959,14 +959,13 @@ def build_label_card(
     node_names = tuple(n.name for n in labels.skeleton.nodes)
     n_instances = sum(len(lf.instances) for lf in labels)
     n_videos = len(labels.videos)
-    selector = resolved
     return LabelCard(
-        species=selector.species,
-        mode=selector.mode,
+        species=resolved.species,
+        mode=resolved.mode,
         root_type=card.root_type,
-        age_min=selector.age_min,
-        age_max=selector.age_max,
-        skeleton_name=labels.skeleton.name or f"{selector.species}_{card.root_type}",
+        age_min=resolved.age_min,
+        age_max=resolved.age_max,
+        skeleton_name=labels.skeleton.name or f"{resolved.species}_{card.root_type}",
         node_count=len(node_names),
         node_names=node_names,
         n_frames=len(labels),

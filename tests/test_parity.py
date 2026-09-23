@@ -1414,7 +1414,7 @@ def test_run_parity_harness_with_no_cards_does_not_clobber_an_existing_report(tm
 
 
 def test_run_parity_harness_script_requires_out():
-    """The lab-only harness script's --out is required, refusing the committed baseline path."""
+    """The lab-only harness script requires --out (no default that could overwrite the committed baseline)."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(

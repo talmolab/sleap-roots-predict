@@ -124,9 +124,9 @@ All notable changes to this project are documented here. The format is based on
 - **Batch exit code**: a missing `WANDB_API_KEY`, a registry/network error while listing model
   cards, and an unreadable catalog (the guard above) now exit `1` instead of `3` with every scan
   failed.
-- **Note:** immediately after this change deploys, the `:latest`/`:main` registry aliases
-  resolve only the canary collection's re-seeded `ModelCard` until the remaining production
-  collections are re-seeded (`sleap-roots-training` 6.2).
+- **Note:** immediately after this change deploys, the `:latest`/`:main` images read only
+  the canary collection's re-seeded `ModelCard` until the full re-seed (`sleap-roots-training`
+  6.2).
 
 ### Changed (BREAKING)
 
