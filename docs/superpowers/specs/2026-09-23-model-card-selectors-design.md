@@ -12,9 +12,10 @@ change bumps the pin `==0.1.0a7` → `==0.1.0a9` and migrates every reader of th
 The live registry is 13 flat / 0 selector-shaped (verified 2026-09-22). A deployed upgrade today
 would validate zero cards, and because `WandbRegistrySource.list_cards` skips an unvalidatable card
 with a warning (predict#32), the failure is an **empty catalog** — "cannot select a model", never an
-error naming the registry. Merging is ungated; **deploying is gated on the W&B re-seed**
-(sleap-roots-training `update-model-card-selectors` group 6), and the re-seed's canary (6.1) is in
-turn gated on this code existing.
+error naming the registry (§3.2 adds a guard that turns this into a startup error). **Deploying is
+gated on the W&B re-seed** (sleap-roots-training `update-model-card-selectors` group 6), and the
+re-seed's canary (6.1) is in turn gated on this code existing. By decision, the PR itself merges
+only after that canary passes from this branch, so `main` stays deployable in the meantime.
 
 ## 2. Scope decisions
 
@@ -45,85 +46,85 @@ Matching stays per card: two overlapping selectors on one card that both match c
 The collect-then-raise structure (`if len(matches) > 1: raise ValueError("Ambiguous model
 selection...")`), override-wins and zero-match-skips are unchanged.
 
-### 3.2 Registry listing (`model_registry.py`)
+### 3.2 Registry listing (`model_registry.py`) and batch catalog load (`batch.py`)
 
-No code change. A test pins #34 fact 1 against the a9 contract: a flat-shaped artifact under the
-`production` alias is skipped with a warning naming it, and the listing continues with the rest.
+Per-card isolation stays (#34 fact 1), and a characterization test pins it against the a9
+contract: a flat-shaped artifact under `production` is skipped with a warning naming it while the
+selector-shaped ones are returned. **One deliberate exception, added after review:** when
+alias-matching artifacts exist and **none** validates, `list_cards()` raises. Review traced why
+ordering alone is not enough — every card skipped → every scan raises `no models resolved`
+(`batch.py:414-418`) → `main()` returns `3` even at 100% failure (`__main__.py:113`) → the
+pipeline's exit gate passes `3` by design (`sleap-roots-exit-gate-template.yaml:141`). Because
+`WarmModelWorker.resolve` loads the catalog lazily inside `run_batch`'s per-scan `try`
+(`warm_worker.py:85-86`, `batch.py:370-396`), `run_batch` also loads it once before the loop, so
+the raise is a batch-level staging error (exit `1`), not one isolated failure per scan.
 
 ### 3.3 Parity harness (`parity.py`)
 
-A shared private helper resolves "which selector": the given one (must be in `card.selectors`,
-else `ValueError`), else the card's only selector, else `None`.
+A shared private helper resolves "which selector": the given one (validated by value equality
+against `card.selectors` before any work, else `ValueError`), else the card's only selector, else
+`None`.
 
-- `build_label_card(..., selector=None)`: `None` from the helper on a multi-selector card raises
-  `ValueError` naming the card.
+- `build_label_card(..., selector=None)`: `None` on a multi-selector card raises `ValueError`
+  naming the card; the unnamed-skeleton fallback uses the resolved selector's species.
 - `resolve_ground_truth(..., selector=None)` → `relink_ground_truth_by_basename_search` →
   `_pick_best_candidate`: the age step uses the resolved selector's window, and is skipped when
   it is `None`.
 - `run_parity_harness` passes no selector.
 - `build_report_entry` emits `selectors` as a list of dicts in card order.
-- The `labels_registry_lookup` callable is caller-injected and receives the card; its contract
-  wording moves from "the card's species" to "one of the card's selectors' species".
+- The `labels_registry_lookup` callable is caller-injected and receives the card; its join
+  criterion is the caller's.
+- `scripts/run_parity_harness.py` stops defaulting `--out` to the committed 2026-08-04 report,
+  which a default re-run would otherwise overwrite in the new shape.
 
 ### 3.4 Specs
 
-- `model-management`: MODIFIED model-selection requirement (any-selector, per-selector age, no
-  cross product; ambiguity raise unchanged).
-- `prediction-parity`: MODIFIED Ground Truth Resolution (lookup join), Basename Search
-  Disambiguation (selector window / skip), LabelCard-Shaped Ground Truth Manifest (explicit
-  selector), Reusable Multi-Model Harness Runner (entry shape).
+- `model-management`: MODIFIED Model Selection From Scan Params (any-selector, per-selector age,
+  no cross product; ambiguity raise unchanged); MODIFIED Wandb Registry Source With Version
+  Pinning (the all-invalid guard).
+- `predict-container`: MODIFIED Per-scan failure isolation and batch exit code (catalog loaded once
+  before the loop; no readable card → exit `1`).
+- `prediction-parity`: MODIFIED Ground Truth Resolution Per Model, Basename Search Disambiguation,
+  LabelCard-Shaped Ground Truth Manifest; ADDED Parity Report Entry Selection Fields (no existing
+  requirement lists the entry fields, so the Runner requirement is left unchanged).
 
 ## 4. Idempotency and other `registry_id`-keyed state
 
 `registry_id` changes for all 8 models under the producer's new collection-id scheme, and
 `compute_idempotency_key` hashes `(registry_id, version, weights_checksum)`, so every key changes
-once: the first post-migration run recomputes every scan (predict's own skip-if-done compares the
-same tuples, `batch.py:244`). Expected, not a regression. The A4 batch oracle ("re-run a done
-batch → 0 GPU pods") is re-baselined **after** the migration, never compared across it.
+once: the first post-migration run recomputes every scan (predict's skip-if-done builds the same
+tuples at `batch.py:244` and compares them at `batch.py:380-383`). Expected, not a regression. The
+A4 batch oracle ("re-run a done batch → 0 GPU pods") is re-baselined **after** the migration,
+never compared across it.
 
 Other `registry_id`-keyed state in this repo (grepped 2026-09-23):
 
 - **Per-root `.slp` filenames** embed `slugify_model_id(ref)` = `registry_id` + `version`
-  (`output_contract.py:66`), so every output file is renamed once. The writer already removes a
-  prior `.slp` left by a changed model slug, and only after every new file and the manifest are
-  written (`output_contract.py:257-263`), so no orphans remain and a failed write never deletes a
-  still-valid prior artifact. Traits reads the manifest's explicit paths, not a glob.
+  (`output_contract.py:66`), so every output file is renamed once. The writer removes a prior
+  `.slp` left by a changed model slug only after every new file and the manifest are written
+  (`output_contract.py:245-263`), so no orphans remain and a failed write never deletes a
+  still-valid prior artifact.
 - **Warm-worker predictor cache** `(registry_id, version)` (`warm_worker.py:118`) and
   **`LocalCardSource`'s path map** (`model_registry.py:65`) are in-process only; nothing persists.
 
-## 5. Validation against real models and the real pipeline
+## 5. Validation against real models and the live registry
 
-Unit tests cannot see the dominant failure (a silent empty catalog), so validation is staged by
-risk. A1 and A2 gate the merge; B and C are post-merge gates recorded in `tasks.md`,
-unticked until actually run.
+Unit tests cannot see the dominant failure — a registry this code cannot read — so validation is
+staged by risk. The procedure is single-sourced in the OpenSpec change's `tasks.md` §6–§7; this
+section records only why each stage exists.
 
-**A1 — selection-equivalence oracle (offline, read-only).** Over species × mode × age 0–20 × root
-type: the *old* side is `main`'s flat `choose_models` over the 13 live flat cards (read-only
-registry listing); the *new* side is this branch's `choose_models` over the 8 selector cards
-training's card builder would write (built in-process, no `--execute`). Pass iff every cell selects
-the same `weights_checksum`, the same cells skip, and nothing raises. `registry_id` is expected to
-differ. This is the only check that exercises the canola-2–13 / pennycress-2–14 boundary on real
-card data.
-
-**A2 — real-inference equivalence (offline).** Copy `scan_289`, `scan_577`, `scan_1009` (real
-canola cylinder, ages 2/7/9, 72 frames) from
-`Z:\users\eberrigan\pipeline_orchestration_tests\a4_poc\input` to scratch; run
-`python -m sleap_roots_predict` from `main` (flat `LocalCardSource`) and from this branch (selector
-`LocalCardSource`) over the same real weights from the models-downloader snapshot, same device.
-Pass iff, per scan and **per root type** (filenames differ by model slug, §4), predictions are
-numerically identical and the manifests differ only in model identity fields. Never
-write into `a4_poc/predictions` — it is production's working tree.
-
-**B — live canary (training 6.1).** `seed-registry --execute --only <one collection>` —
-irreversible and single-operator, **run only on explicit user confirmation**. Then: this branch
-against the live registry resolves the new collection's `registry_id` without raising; `main`
-still resolves the old flat card; the expected skip warnings appear on both sides.
-
-**C — full re-seed, deploy, real run (training 6.2 → pipeline 0c).** Re-run A1 with the new side
-read from the live selector registry. Bump the predictor pin; run a small real Argo batch; assert
-selection resolves for every scan, exit 0, predictions match the pre-migration outputs, and the
-one-time recompute occurs. Re-run the parity harness (`-m parity`) against the re-seeded registry.
-Only then is training 6.3 (retiring the flat collections) eligible.
+- **A1, selection-equivalence oracle** (merge gate): the only check that exercises the real cards'
+  species/mode/age boundaries — canola 2–13 against pennycress 2–14 on one card — before anything
+  irreversible happens. It runs as three environments exchanging JSON, because training pins
+  contracts a8 and `sleap-nn<0.3.0`, and the old side needs contracts a7.
+- **A2, real-inference equivalence** (merge gate): same weights, so predictions must not change;
+  run on copies of real canola scans (`a4_poc` `scan_289`/`577`/`1009`), never in `a4_poc`, which
+  is production's working tree.
+- **B, live canary** (merge gate, by decision: the PR merges only after it passes, so `main` stays
+  deployable until then): the first check against live selector-shaped data, and the only one
+  that can prove both consumer generations are cleanly partitioned.
+- **C1–C3** (tracked on #34): the full re-seed, the deploy with a real Argo run, and a parity
+  re-run to a new report path.
 
 **Coverage gap.** Real staged scans are canola only; rice `scan_6791737`'s input is gone, and no
 pennycress/arabidopsis/soybean scans are staged in `a4_poc`. A1 covers every species' selection;
@@ -136,4 +137,4 @@ A2 covers inference for canola only.
 - A per-card selector mapping for `run_parity_harness` — until someone needs it.
 - A generalist bundle's `labels_gt.val.slp` possibly mixing species, against the one-species label
   rule — training#46 / #11.
-- The correcting comment owed on predict#40 — drafted separately for the user to post.
+- The correcting comment on predict#40 — already posted 2026-09-23 (not by this change).
