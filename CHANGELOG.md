@@ -121,6 +121,12 @@ All notable changes to this project are documented here. The format is based on
   fixed the `linux_cuda` extra and added PyTorch index routing so CUDA extras
   resolve CUDA wheels.
 - Added `SRP_DEVICE` env override (used by `"auto"` device resolution).
+- **Batch exit code**: a missing `WANDB_API_KEY`, a registry/network error while listing model
+  cards, and an unreadable catalog (the guard above) now exit `1` instead of `3` with every scan
+  failed.
+- **Note:** immediately after this change deploys, the `:latest`/`:main` registry aliases
+  resolve only the canary collection's re-seeded `ModelCard` until the remaining production
+  collections are re-seeded (`sleap-roots-training` 6.2).
 
 ### Changed (BREAKING)
 
@@ -145,12 +151,6 @@ All notable changes to this project are documented here. The format is based on
   of the four flat top-level fields.
 - `scripts/run_parity_harness.py`'s `--out` is now required, so a run can never overwrite the
   committed `2026-08-04-define-parity-tolerance-results.json` (now a pre-selectors snapshot).
-- **Batch exit code**: a missing `WANDB_API_KEY`, a registry/network error while listing model
-  cards, and an unreadable catalog (the guard above) now exit `1` instead of `3` with every scan
-  failed.
-- **Note:** immediately after this change deploys, the `:latest`/`:main` registry aliases
-  resolve only the canary collection's re-seeded `ModelCard` until the remaining production
-  collections are re-seeded (`sleap-roots-training` 6.2).
 
 ### Removed (BREAKING)
 
