@@ -9,11 +9,16 @@ continues the batch, and still produces outputs for the other scans. `run_batch`
 types SHALL be treated as `failed` (rather than emitting an empty-artifacts manifest that the
 downstream trait-extractor would reject).
 
-`run_batch` SHALL load the model-card catalog (`ModelCardSource.list_cards()`) **once, before the
-per-scan loop** and outside its per-scan isolation, so that a catalog that cannot be listed — or a
-registry with production artifacts none of which is readable (per the `model-management` "Wandb
-Registry Source With Version Pinning" requirement) — is a batch-level error rather than one
-isolated failure per scan.
+`run_batch` SHALL load the model-card catalog once, via `WarmModelWorker.load_catalog()`, **after**
+scan discovery, the zero-scans check and the run-manifest forward-copy, **after** constructing the
+worker, and **before** the per-scan loop, outside its per-scan isolation. A catalog that cannot be
+listed — missing credentials, a registry/network error, or a registry with production artifacts
+none of which is readable (per the `model-management` "Wandb Registry Source With Version Pinning"
+requirement) — is therefore a batch-level error (exit `1`) rather than one isolated failure per
+scan (exit `3`, which these conditions produced before this change). `run_batch` SHALL NOT load the
+catalog when a stop has already been requested before the first scan, nor when every discovered
+scan already carries a discovery error (no scan could use it); in both cases the batch proceeds
+exactly as without the load.
 
 The process SHALL exit with one of three driver-owned codes so an Argo step can distinguish an
 isolated per-scan failure from a genuine crash:
@@ -111,10 +116,28 @@ way; the mechanism differs, the outcome doesn't.
   logs its one-line staging-error message, and the process exits `1` — not `3` with every scan
   failed
 
-#### Scenario: The catalog is loaded once per batch
+#### Scenario: The catalog is loaded once per batch, before the first scan
 
-- **WHEN** a multi-scan batch runs against a model-card source
-- **THEN** `list_cards()` is called exactly once, before the first scan is resolved
+- **WHEN** a multi-scan batch with processable scans runs against a model-card source
+- **THEN** `list_cards()` is called exactly once, and that call precedes the first scan's model
+  resolution
+
+#### Scenario: Missing registry credentials fail the batch, not each scan
+
+- **WHEN** a batch with processable scans runs with the default registry source and no
+  `WANDB_API_KEY`
+- **THEN** `run_batch` raises before any scan is attempted and the process exits `1`, not `3`
+
+#### Scenario: A stop requested before the first scan skips the catalog load
+
+- **WHEN** a stop has been requested before the per-scan loop begins
+- **THEN** the catalog is not loaded and the stop is honored exactly as without the load
+
+#### Scenario: A batch of only errored scans does not load the catalog
+
+- **WHEN** every discovered scan carries a discovery error (e.g. a manifest listing only
+  `scan_keys` with no sidecar)
+- **THEN** the catalog is not loaded, each scan is recorded `failed`, and the process exits `3`
 
 #### Scenario: A manifest scoped to missing sidecars ends partial, not a crash
 

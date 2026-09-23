@@ -12,7 +12,10 @@ configurable search root, for bundles whose video paths were reorganized rather 
 under a new prefix; (4) an explicit, logged gap when none resolve. Resolution SHALL accept an
 optional `Selector` naming which of the card's selection contexts the ground truth belongs to, and
 SHALL validate it against the card **before any tier is attempted**: a selector not equal to one of
-the card's `selectors` SHALL raise a `ValueError` naming the card. Resolution SHALL be tracked at
+the card's `selectors` SHALL raise a `ValueError` naming the card. The supplied selector SHALL be
+used only for that validation and for tier (3)'s age step; tiers (1) and (2) do not consult it, so a
+caller needing a selector-specific labels-registry join SHALL bind it into the lookup it supplies.
+Resolution SHALL be tracked at
 the **frame level**, not only per model: tiers (2) and (3) SHALL keep whichever labeled frames
 actually resolve and SHALL NOT require every frame in a model's ground truth to resolve for that
 model to count as resolved. A model whose ground truth cannot be resolved at all SHALL be recorded
@@ -97,7 +100,8 @@ arbitrarily.
 #### Scenario: A supplied selector chooses the window on a multi-selector card
 
 - **WHEN** a card carries selectors with windows 2–5 and 10–13, candidates lie under `Day3` and
-  `Day11` folders, and the selector with window 10–13 is supplied
+  `Day11` folders, parent-folder-name matching leaves both candidates, and the selector with window
+  10–13 is supplied
 - **THEN** the `Day11` candidate is used
 
 #### Scenario: No resolved selector skips the age step

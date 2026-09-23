@@ -11,8 +11,9 @@ change bumps the pin `==0.1.0a7` → `==0.1.0a9` and migrates every reader of th
 
 The live registry is 13 flat / 0 selector-shaped (verified 2026-09-22). A deployed upgrade today
 would validate zero cards, and because `WandbRegistrySource.list_cards` skips an unvalidatable card
-with a warning (predict#32), the failure is an **empty catalog** — "cannot select a model", never an
-error naming the registry (§3.2 adds a guard that turns this into a startup error). **Deploying is
+with a warning (predict#32), the failure is an **empty catalog** — every scan fails with
+`no models resolved for params …` (`batch.py:418`), never an error naming the registry (§3.2 adds a
+guard that turns the zero-readable-card case into a startup error). **Deploying is
 gated on the W&B re-seed** (sleap-roots-training `update-model-card-selectors` group 6), and the
 re-seed's canary (6.1) is in turn gated on this code existing. By decision, the PR itself merges
 only after that canary passes from this branch, so `main` stays deployable in the meantime.
@@ -54,10 +55,15 @@ selector-shaped ones are returned. **One deliberate exception, added after revie
 alias-matching artifacts exist and **none** validates, `list_cards()` raises. Review traced why
 ordering alone is not enough — every card skipped → every scan raises `no models resolved`
 (`batch.py:414-418`) → `main()` returns `3` even at 100% failure (`__main__.py:113`) → the
-pipeline's exit gate passes `3` by design (`sleap-roots-exit-gate-template.yaml:141`). Because
+pipeline's exit gate passes `3` by design (`sleap-roots-exit-gate-template.yaml:132-135,141`). Because
 `WarmModelWorker.resolve` loads the catalog lazily inside `run_batch`'s per-scan `try`
 (`warm_worker.py:85-86`, `batch.py:370-396`), `run_batch` also loads it once before the loop, so
-the raise is a batch-level staging error (exit `1`), not one isolated failure per scan.
+the raise is a batch-level staging error (exit `1`), not one isolated failure per scan. It loads
+through a new public `WarmModelWorker.load_catalog()`, skipped when a stop is already requested or
+no scan is processable. Side effect, recorded as a change: missing credentials and registry/network
+errors also move from exit `3` to `1`. Limit: the guard sees only a catalog with **zero** readable
+cards; between the canary and the full re-seed, one readable card defeats it and only deploy
+ordering protects.
 
 ### 3.3 Parity harness (`parity.py`)
 
@@ -102,8 +108,8 @@ Other `registry_id`-keyed state in this repo (grepped 2026-09-23):
 - **Per-root `.slp` filenames** embed `slugify_model_id(ref)` = `registry_id` + `version`
   (`output_contract.py:66`), so every output file is renamed once. The writer removes a prior
   `.slp` left by a changed model slug only after every new file and the manifest are written
-  (`output_contract.py:245-263`), so no orphans remain and a failed write never deletes a
-  still-valid prior artifact.
+  (`output_contract.py:245-263`), so a failed write never deletes a still-valid prior
+  artifact; a failed sweep can leave inert clutter, never a wrong manifest.
 - **Warm-worker predictor cache** `(registry_id, version)` (`warm_worker.py:118`) and
   **`LocalCardSource`'s path map** (`model_registry.py:65`) are in-process only; nothing persists.
 
@@ -123,8 +129,8 @@ section records only why each stage exists.
 - **B, live canary** (merge gate, by decision: the PR merges only after it passes, so `main` stays
   deployable until then): the first check against live selector-shaped data, and the only one
   that can prove both consumer generations are cleanly partitioned.
-- **C1–C3** (tracked on #34): the full re-seed, the deploy with a real Argo run, and a parity
-  re-run to a new report path.
+- **C1–C3** (tracked on #34): A1 re-run against the live selector registry after the full
+  re-seed, the deploy with a real Argo run, and a parity re-run to a new report path.
 
 **Coverage gap.** Real staged scans are canola only; rice `scan_6791737`'s input is gone, and no
 pennycress/arabidopsis/soybean scans are staged in `a4_poc`. A1 covers every species' selection;

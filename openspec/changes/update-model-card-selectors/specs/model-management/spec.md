@@ -88,6 +88,13 @@ predict/contracts repo boundary.
 - **WHEN** more than one card matches the same root type for the given params
 - **THEN** `choose_models` raises an error identifying the ambiguous root type
 
+#### Scenario: Two cards matching through different selectors are ambiguous
+
+- **WHEN** two different cards of one root type each match the params through one of their
+  selectors
+- **THEN** `choose_models` raises the ambiguity error (the raise is not relaxed for selector-shaped
+  cards)
+
 #### Scenario: Explicit override bypasses matching
 
 - **WHEN** an explicit override `ModelRef` is provided for a root type
@@ -127,15 +134,19 @@ names `SRP_WANDB_REGISTRY` and `SRP_WANDB_ALIAS` SHALL NOT be read. When `WANDB_
 the source SHALL raise a clear error naming the missing variable before any network call, rather than
 returning an empty result. `list_cards()` SHALL isolate per-artifact failures: when a single
 artifact's metadata cannot be validated into a `ModelCard`, that artifact SHALL be skipped with a
-logged warning that names it and includes the underlying error, no exception SHALL be raised, and the
-remaining conforming artifacts SHALL still be returned (one malformed artifact SHALL NOT abort the
-listing). This isolation SHALL be scoped to per-artifact card construction only; genuine failures
-(missing credentials, registry/network errors) SHALL still propagate fail-loud rather than being
-swallowed per artifact. When at least one artifact carries the configured alias and **none** of
-them validates into a `ModelCard`, `list_cards()` SHALL raise an error naming the registry, the
-alias and the number of artifacts skipped, rather than returning an empty catalog: a registry whose
-every production card is unreadable (for example, flat-shaped cards read by a consumer pinned to a
-selector-shaped contract) is a deployment fault, not a set of per-artifact defects.
+logged warning that names it and includes the underlying error, no exception SHALL be raised for
+that artifact alone, and the remaining conforming artifacts SHALL still be returned (one malformed
+artifact SHALL NOT abort the listing), subject to the all-invalid rule below. This isolation SHALL
+be scoped to per-artifact card construction only; genuine failures (missing credentials,
+registry/network errors) SHALL still propagate fail-loud rather than being swallowed per artifact.
+When at least one artifact carries the configured alias and **none** of them validates into a
+`ModelCard`, `list_cards()` SHALL raise a `ValueError` (or subclass) naming the registry, the alias
+and the number of alias-carrying artifacts that failed validation, rather than returning an empty
+catalog: a registry whose every production card is unreadable (for example, flat-shaped cards read
+by a consumer pinned to a selector-shaped contract) is a deployment fault, not a set of
+per-artifact defects. A registry in which **no** artifact carries the configured alias SHALL still
+return an empty list without raising. This rule guards only a catalog with zero readable cards; it
+does not detect a catalog that is readable but incomplete.
 
 #### Scenario: Registry defaults to the live production registry
 
@@ -188,8 +199,13 @@ selector-shaped contract) is a deployment fault, not a set of per-artifact defec
 
 - **WHEN** one or more artifacts carry the configured alias and none of them validates into a
   `ModelCard`
-- **THEN** `list_cards()` raises an error naming the registry, the alias and the skipped count, and
-  does not return an empty card list
+- **THEN** `list_cards()` raises a `ValueError` naming the registry, the alias and the number of
+  alias-carrying artifacts that failed validation, and does not return an empty card list
+
+#### Scenario: A registry with no artifact carrying the alias is empty, not an error
+
+- **WHEN** no artifact in the registry carries the configured alias
+- **THEN** `list_cards()` returns an empty list and does not raise
 
 #### Scenario: A materialized artifact is cached and reused
 
@@ -201,3 +217,77 @@ selector-shaped contract) is a deployment fault, not a set of per-artifact defec
 - **WHEN** `WandbRegistrySource` is used with no `WANDB_API_KEY` set
 - **THEN** it raises an error whose message names `WANDB_API_KEY`, before any network call, and does
   not return an empty card list
+
+### Requirement: Warm Model Residency
+
+The system SHALL provide a `WarmModelWorker(source=None, ...)` that keeps `Predictor`s resident across
+scans. When `source` is omitted (or `None`), the worker SHALL default to a `WandbRegistrySource`
+reading the live production registry — the default source is the registry, not an offline/stub source,
+and there SHALL be no silent `LocalCardSource` fallback. Constructing the worker SHALL perform no
+network access; a missing `WANDB_API_KEY` SHALL surface fail-loud on the first call that lists cards —
+`load_catalog()`, or the first `resolve()` / `get_predictors()` when `load_catalog()` has not been
+called — not at construction. `load_catalog()` SHALL list the source's cards and cache them, and
+SHALL be idempotent: repeat calls, and every later `resolve()` / `get_predictors()`, SHALL reuse the
+cached cards without listing again. `resolve(params)` SHALL return `dict[RootType, ModelRef]`
+without loading weights. `get_predictors(params)` SHALL resolve, `materialize` each `ModelRef`,
+build a `Predictor` via `make_predictor`, and cache it keyed by `(registry_id, version)` so a model
+is fetched at most once and loaded at most once and reused across scans. Cards SHALL be loaded at
+most once per worker, lazily unless `load_catalog()` is called first. If any resolved root type
+cannot be materialized or loaded, `get_predictors` SHALL raise an error identifying the root type
+and `registry_id:version` and SHALL NOT return partial results (fail-loud). A thin
+`predict(params, video, save_dir=None)` convenience SHALL compose `get_predictors` with
+`predict_on_video` and return per-root-type results in memory. When `save_dir` is given, it SHALL
+write one raw `.slp` per root type via `predict_on_video`'s `save_path` (e.g. `save_dir/<root_type>.slp`)
+and SHALL NOT write a `predictions.csv` manifest or apply the
+`{scan}.model{id}.root{type}.slp` naming — that naming and manifest are deferred to the
+output-contract slice.
+
+#### Scenario: Default source is the live registry
+
+- **WHEN** a `WarmModelWorker` is constructed with no `source` argument
+- **THEN** its source is a `WandbRegistrySource` (the live production registry) and construction performs
+  no network access
+
+#### Scenario: Missing credentials fail loud on first use
+
+- **WHEN** a `WarmModelWorker` constructed with the default source is used with no `WANDB_API_KEY` set
+- **THEN** the first call that lists cards (`load_catalog()`, `resolve()` or `get_predictors()`)
+  raises an error naming `WANDB_API_KEY` (construction itself does not raise), and there is no
+  offline fallback
+
+#### Scenario: load_catalog lists once and resolve reuses it
+
+- **WHEN** `load_catalog()` is called, then `load_catalog()` again, then `resolve(params)` twice
+- **THEN** the source's `list_cards()` has been called exactly once
+
+#### Scenario: resolve does not load weights
+
+- **WHEN** `resolve(params)` is called
+- **THEN** it returns the selected `ModelRef`s per root type and the worker's predictor cache remains
+  empty (no model materialized or loaded)
+
+#### Scenario: A model is loaded once and reused (warm)
+
+- **WHEN** `get_predictors` is called twice for params that resolve to the same model version
+- **THEN** the second call returns the same cached `Predictor` instance without re-fetching or reloading
+
+#### Scenario: Different params sharing a model version hit the cache
+
+- **WHEN** two different param sets resolve a root type to the same `(registry_id, version)`
+- **THEN** both use the same resident `Predictor` (keyed by model identity, not by scan or root type)
+
+#### Scenario: Unmaterializable root type fails loud
+
+- **WHEN** a resolved root type's model cannot be materialized or loaded
+- **THEN** `get_predictors` raises an error naming the root type and `registry_id:version`, and returns no predictors
+
+#### Scenario: predict returns labels per root type
+
+- **WHEN** `predict(params, video)` is called with no `save_dir`
+- **THEN** it returns a `dict[RootType, sio.Labels]` with real predicted instances for each resolved root type
+
+#### Scenario: predict with save_dir writes raw per-root .slp only
+
+- **WHEN** `predict(params, video, save_dir=…)` is called
+- **THEN** it writes one reloadable `.slp` per root type under `save_dir` and writes no
+  `predictions.csv` and applies no `{scan}.model{id}.root{type}.slp` naming (deferred)
