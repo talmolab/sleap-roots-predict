@@ -122,33 +122,33 @@ report-entry shape) in the body.
 
 ## 4. Parity selector rule (commit: `feat(parity): ...`)
 
-- [ ] 4.1 Tests first for `_resolve_selector(card, selector)`: explicit on card → returned;
+- [x] 4.1 Tests first for `_resolve_selector(card, selector)`: explicit on card → returned;
       value-equal fresh `Selector` → accepted; not on card → `ValueError` naming the card; none +
       one → that selector; none + several → `None`.
-- [ ] 4.2 Tests first for `build_label_card(..., selector=None)`: single-selector, no selector →
+- [x] 4.2 Tests first for `build_label_card(..., selector=None)`: single-selector, no selector →
       that selector's fields; multi-selector, no selector → `ValueError`; not on card →
       `ValueError`; value-equal selector → accepted; explicit → its fields; unnamed skeleton →
       fallback name uses the resolved selector's species.
-- [ ] 4.3 Tests first for `_pick_best_candidate`, with discriminating fixtures: multi-selector
+- [x] 4.3 Tests first for `_pick_best_candidate`, with discriminating fixtures: multi-selector
       card, no selector, where an envelope window would pick A but segment scoring picks B → B;
       a variant where segment scoring ties → `None`; explicit selector on a multi-selector card
       (Day3 vs Day11, windows 2–5 and 10–13, parent matching leaving both) → each selector picks
       its day. Name the existing single-selector age-hint tests (e.g. `test_parity.py:295`) as the
       sole-selector scenario's coverage.
-- [ ] 4.4 Tests first for `resolve_ground_truth`: a selector not on the card raises before any
+- [x] 4.4 Tests first for `resolve_ground_truth`: a selector not on the card raises before any
       tier — the lookup spy is never called and `workdir` stays empty — even when the lookup would
       resolve; a supplied selector reaches the basename tier (the Day3/Day11 fixture via
       `basename_index=` and `selector=`).
-- [ ] 4.5 Test first: `run_parity_harness` end to end with a two-selector card (`LocalCardSource`
+- [x] 4.5 Test first: `run_parity_harness` end to end with a two-selector card (`LocalCardSource`
       + `labels_registry_lookup`) → a full entry (no `gap_stage`), `selectors` of two objects in
       order, file round-trips through `json.loads`. Its broad `except` (`parity.py:1306`) would
       otherwise hide a leftover flat read as an evaluation gap.
-- [ ] 4.6 Implement 4.1–4.5; thread `selector` through `resolve_ground_truth` →
+- [x] 4.6 Implement 4.1–4.5; thread `selector` through `resolve_ground_truth` →
       `relink_ground_truth_by_basename_search` → `_pick_best_candidate` (only direct callers can
       pass one; `evaluate_model_card`/`run_parity_harness` pass none). Update the comments and
       docstrings describing the flat fields: `parity.py:67-69`, `:346-348`, `:423-424`, `:480`,
       `:1006-1008`.
-- [ ] 4.7 `scripts/run_parity_harness.py`: make `--out` required, so a run can never overwrite the
+- [x] 4.7 `scripts/run_parity_harness.py`: make `--out` required, so a run can never overwrite the
       committed `2026-08-04-define-parity-tolerance-results.json`. Test via
       `importlib.util.spec_from_file_location` + `main([])` → `SystemExit(2)`.
 

@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 import sleap_io as sio
 from PIL import Image
+from sleap_roots_contracts import Selector
 
 from sleap_roots_predict.model_registry import LocalCardSource
 from sleap_roots_predict.parity import (
@@ -39,7 +40,7 @@ from sleap_roots_predict.parity import (
     within_tolerance,
     write_parity_report,
 )
-from sleap_roots_predict.parity import _pick_best_candidate
+from sleap_roots_predict.parity import _pick_best_candidate, _resolve_selector
 from sleap_roots_predict.video_utils import save_array_as_h5
 
 ASSETS_DIR = Path(__file__).parent / "assets"
@@ -96,6 +97,32 @@ def image_files():
 @pytest.fixture
 def skeleton():
     return sio.Skeleton(nodes=["A", "B"])
+
+
+# --- _resolve_selector ---------------------------------------------------------
+
+_TWO = [("canola", "cylinder", 2, 5), ("pennycress", "cylinder", 10, 13)]
+
+
+def test_resolve_selector_explicit_on_card_and_value_equal():
+    """A supplied selector that value-equals one of the card's own selectors wins."""
+    card = _card(selectors=_TWO)
+    fresh = Selector(species="pennycress", mode="cylinder", age_min=10, age_max=13)
+    assert _resolve_selector(card, fresh) == card.selectors[1]
+
+
+def test_resolve_selector_not_on_card_raises_naming_card():
+    """A selector not value-equal to any of the card's own raises, naming the card."""
+    card = _card(selectors=_TWO)
+    foreign = Selector(species="rice", mode="cylinder", age_min=2, age_max=5)
+    with pytest.raises(ValueError, match="reg/arabidopsis-primary"):
+        _resolve_selector(card, foreign)
+
+
+def test_resolve_selector_defaults():
+    """With no selector supplied: the card's only selector, else None for multi-selector."""
+    assert _resolve_selector(_card(), None) == _card().selectors[0]
+    assert _resolve_selector(_card(selectors=_TWO), None) is None
 
 
 # --- relink_ground_truth -----------------------------------------------------
@@ -339,6 +366,44 @@ def test_pick_best_candidate_returns_none_when_genuinely_tied():
     assert winner is None
 
 
+_DAY_CANDIDATES = [
+    "Z:/share/expA/Day3/plant.h5",
+    "Z:/share/expB/Day11/plant.h5",
+]
+_BROKEN = "D:/old/plants/plant.h5"  # parent 'plants' matches neither candidate
+
+
+@pytest.mark.parametrize("which,expected", [(0, 0), (1, 1)])
+def test_pick_best_candidate_supplied_selector_chooses_the_window(which, expected):
+    """A supplied selector picks the age window it names, not the card's first."""
+    card = _card(
+        selectors=[("canola", "cylinder", 2, 5), ("pennycress", "cylinder", 10, 13)]
+    )
+    winner = _pick_best_candidate(_BROKEN, _DAY_CANDIDATES, card, card.selectors[which])
+    assert winner == _DAY_CANDIDATES[expected]
+
+
+def test_pick_best_candidate_no_selector_skips_the_age_step():
+    """A multi-selector card with no selector supplied skips the age step entirely."""
+    # Day15 lies outside every window, Day11 inside one. A card-level 2..13 envelope would keep
+    # only Day11; path-segment scoring prefers Day15 (it shares 'expA' with the broken path).
+    # Skipping the age step must therefore pick Day15.
+    card = _card(
+        selectors=[("canola", "cylinder", 2, 5), ("pennycress", "cylinder", 10, 13)]
+    )
+    broken = "D:/old/expA/plants/plant.h5"
+    candidates = ["Z:/share/expA/Day15/plant.h5", "Z:/share/other/Day11/plant.h5"]
+    assert _pick_best_candidate(broken, candidates, card) == candidates[0]
+
+
+def test_pick_best_candidate_no_selector_tie_is_none():
+    """A multi-selector card with no selector supplied and a genuine tie returns None."""
+    card = _card(
+        selectors=[("canola", "cylinder", 2, 5), ("pennycress", "cylinder", 10, 13)]
+    )
+    assert _pick_best_candidate(_BROKEN, _DAY_CANDIDATES, card) is None
+
+
 def test_build_basename_index_finds_files_by_lowercase_basename(tmp_path):
     (tmp_path / "sub1").mkdir()
     (tmp_path / "sub2").mkdir()
@@ -431,6 +496,55 @@ def test_resolve_ground_truth_uses_basename_search_as_last_resort(tmp_path, skel
     assert isinstance(result, ResolvedGroundTruth)
     assert result.source == "basename_search"
     assert result.n_frames_resolved == 1
+
+
+def test_resolve_ground_truth_rejects_a_foreign_selector_before_any_tier(tmp_path):
+    """A selector not on the card raises before any resolution tier runs."""
+    card = _card(selectors=_TWO)
+    looked = []
+    foreign = Selector(species="rice", mode="cylinder", age_min=2, age_max=5)
+    with pytest.raises(ValueError, match="reg/arabidopsis-primary"):
+        resolve_ground_truth(
+            card,
+            tmp_path,
+            tmp_path / "work",
+            labels_registry_lookup=lambda c: looked.append(c) or tmp_path / "x.slp",
+            selector=foreign,
+        )
+    assert looked == []
+    assert not (tmp_path / "work").exists() or not any((tmp_path / "work").iterdir())
+
+
+def test_resolve_ground_truth_threads_the_selector_to_basename_search(
+    tmp_path, skeleton
+):
+    """A supplied selector is threaded through to _pick_best_candidate's age step."""
+    card = _card(selectors=_TWO)
+    video = sio.Video(filename="D:/old/plants/plant.h5", open_backend=False)
+    labels = _make_labels(video, skeleton, [[[1, 1], [2, 2]]], sio.Instance)
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    sio.save_slp(labels, (bundle_dir / "labels_gt.val.slp").as_posix())
+    search_dir = tmp_path / "search_root"
+    for day in ("expA/Day3", "expB/Day11"):
+        (search_dir / day).mkdir(parents=True)
+        save_array_as_h5(
+            np.zeros((1, 32, 32, 1), dtype="uint8"), search_dir / day / "plant.h5"
+        )
+    index = build_basename_index(search_dir)
+
+    result = resolve_ground_truth(
+        card,
+        bundle_dir=bundle_dir,
+        workdir=tmp_path,
+        labels_registry_lookup=lambda _card: None,
+        basename_index=index,
+        selector=card.selectors[1],
+    )
+
+    assert isinstance(result, ResolvedGroundTruth)
+    relinked = sio.load_slp(result.ground_truth_path.as_posix())
+    assert Path(relinked.videos[0].filename).parent.name == "Day11"
 
 
 # --- run_sleap_nn_predictions --------------------------------------------------
@@ -650,6 +764,49 @@ def test_build_label_card_derives_content_fields(tmp_path, image_files, skeleton
     assert result.bloom_experiment_id is None
     assert result.accessions is None
     assert result.labeler is None
+
+
+def _gt_file(tmp_path, image_files, skeleton):
+    video = sio.Video(filename=[str(f) for f in image_files])
+    labels = _make_labels(video, skeleton, [[[1, 1], [2, 2]]], sio.Instance)
+    path = tmp_path / "gt.slp"
+    sio.save_slp(labels, path.as_posix())
+    return path
+
+
+def test_build_label_card_multi_selector_requires_a_selector(
+    tmp_path, image_files, skeleton
+):
+    """A multi-selector card with no selector supplied raises, naming the card."""
+    with pytest.raises(ValueError, match="reg/arabidopsis-primary"):
+        build_label_card(
+            _gt_file(tmp_path, image_files, skeleton),
+            _card(selectors=_TWO),
+            images_embedded=True,
+        )
+
+
+def test_build_label_card_uses_the_supplied_selector(tmp_path, image_files, skeleton):
+    """A supplied selector's species/age window populates the LabelCard, not the card's first."""
+    card = _card(selectors=_TWO)
+    fresh = Selector(species="pennycress", mode="cylinder", age_min=10, age_max=13)
+    lc = build_label_card(
+        _gt_file(tmp_path, image_files, skeleton),
+        card,
+        images_embedded=True,
+        selector=fresh,
+    )
+    assert (lc.species, lc.age_min, lc.age_max) == ("pennycress", 10, 13)
+
+
+def test_build_label_card_unnamed_skeleton_uses_the_selectors_species(
+    tmp_path, image_files
+):
+    """An unnamed skeleton falls back to a name built from the resolved selector's species."""
+    card = _card(selectors=_TWO)
+    path = _gt_file(tmp_path, image_files, sio.Skeleton(nodes=["A", "B"]))
+    lc = build_label_card(path, card, images_embedded=True, selector=card.selectors[1])
+    assert lc.skeleton_name == "pennycress_primary"
 
 
 # --- within_tolerance ---------------------------------------------------------
@@ -946,6 +1103,32 @@ def test_run_parity_harness_writes_one_entry_per_card(
         assert "distance_p95" in entry["sleap_nn"]
 
 
+def test_run_parity_harness_multi_selector_card_round_trips(
+    tmp_path, video, native_model_dir
+):
+    """A two-selector card evaluates to a full entry, not a resolution/evaluation gap."""
+    card = _card(registry_id="reg/shared", selectors=_TWO)
+    skeleton = sio.Skeleton(nodes=["A", "B"])
+    gt = _make_labels(
+        video, skeleton, [[[1, 1], [2, 2]], [[3, 3], [4, 4]]], sio.Instance
+    )
+    gt_path = tmp_path / "gt.slp"
+    sio.save_slp(gt, gt_path.as_posix())
+    out_path = tmp_path / "report.json"
+
+    run_parity_harness(
+        [card],
+        LocalCardSource([(card, native_model_dir)]),
+        tmp_path,
+        out_path,
+        labels_registry_lookup=lambda c: gt_path,
+    )
+
+    (entry,) = json.loads(out_path.read_text())
+    assert "gap_stage" not in entry
+    assert [s["species"] for s in entry["selectors"]] == ["canola", "pennycress"]
+
+
 def test_run_parity_harness_returns_out_path_as_a_path(tmp_path, native_model_dir):
     # Unresolvable card: no real inference cost, just resolution-gap wiring.
     card = _card(registry_id="reg/unresolvable")
@@ -1228,6 +1411,21 @@ def test_run_parity_harness_with_no_cards_does_not_clobber_an_existing_report(tm
 
     assert str(out_path) in str(exc_info.value)
     assert json.loads(out_path.read_text()) == sentinel
+
+
+def test_run_parity_harness_script_requires_out():
+    """The lab-only harness script's --out is required, refusing the committed baseline path."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "run_parity_harness",
+        Path(__file__).parents[1] / "scripts" / "run_parity_harness.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    with pytest.raises(SystemExit) as exc:
+        mod.main([])
+    assert exc.value.code == 2
 
 
 # --- parity marker (real-data, network-gated) --------------------------------

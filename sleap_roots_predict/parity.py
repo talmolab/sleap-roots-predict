@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Sequence, Union
 import numpy as np
 import sleap_io as sio
 from sleap_nn.evaluation import load_metrics, run_evaluation
-from sleap_roots_contracts import LabelCard, ModelCard
+from sleap_roots_contracts import LabelCard, ModelCard, Selector
 
 if TYPE_CHECKING:
     from sleap_roots_predict.model_registry import ModelCardSource
@@ -66,8 +66,30 @@ _METRICS_FILENAME = "metrics.val.npz"
 
 #: Matches a day/age hint embedded in a lab folder name, e.g. "Day10_..." or
 #: "3_do"/"3do" ("do" = "days old"). Used to disambiguate basename-search
-#: candidates by which one falls inside a ModelCard's age range.
+#: candidates by which one falls inside the resolved selector's age window
+#: (see :func:`_resolve_selector`) — never a card-level window.
 _AGE_HINT_RE = re.compile(r"day(\d+)|(\d+)[\s_]*do\b", re.IGNORECASE)
+
+
+def _resolve_selector(
+    card: ModelCard, selector: Optional[Selector]
+) -> Optional[Selector]:
+    """Return the selector a ground-truth operation applies to, or ``None`` if unknown.
+
+    The supplied selector (validated by value equality against the card), else the card's
+    only selector, else ``None`` for a multi-selector card with none supplied.
+
+    Raises:
+        ValueError: If ``selector`` is not one of ``card.selectors``.
+    """
+    if selector is not None:
+        if selector not in card.selectors:
+            raise ValueError(
+                f"selector {selector!r} is not one of card "
+                f"{card.registry_id}:{card.version}'s selectors"
+            )
+        return selector
+    return card.selectors[0] if len(card.selectors) == 1 else None
 
 
 @dataclass(frozen=True)
@@ -333,7 +355,10 @@ def _age_hint(path: str) -> Optional[int]:
 
 
 def _pick_best_candidate(
-    broken_path: str, candidates: list, card: ModelCard
+    broken_path: str,
+    candidates: list,
+    card: ModelCard,
+    selector: Optional[Selector] = None,
 ) -> Optional[str]:
     """Disambiguate multiple same-basename candidates for one broken video path.
 
@@ -345,10 +370,12 @@ def _pick_best_candidate(
     exact match on the immediate parent folder name (case/punctuation
     normalized) — the day/date/batch is usually encoded there; (3) among
     remaining candidates, one whose path contains a day/age hint (see
-    :func:`_age_hint`) inside the card's ``[age_min, age_max]``; (4) the
-    candidate(s) whose path shares the most normalized path segments with the
-    broken path. Returns ``None`` (an explicit non-match, not a guess) if a
-    step still leaves more than one candidate tied.
+    :func:`_age_hint`) inside the resolved selector's window (see
+    :func:`_resolve_selector`); skipped for a multi-selector card with no
+    selector supplied; (4) the candidate(s) whose path shares the most
+    normalized path segments with the broken path. Returns ``None`` (an
+    explicit non-match, not a guess) if a step still leaves more than one
+    candidate tied.
     """
     if not candidates:
         return None
@@ -372,17 +399,17 @@ def _pick_best_candidate(
         return parent_matches[0]
 
     pool = parent_matches if parent_matches else candidates
-    window = card.selectors[0]
-    age_matches = [
-        c
-        for c in pool
-        if (hint := _age_hint(c)) is not None
-        and window.age_min <= hint <= window.age_max
-    ]
-    if len(age_matches) == 1:
-        return age_matches[0]
-
-    pool = age_matches if age_matches else pool
+    window = _resolve_selector(card, selector)
+    if window is not None:
+        age_matches = [
+            c
+            for c in pool
+            if (hint := _age_hint(c)) is not None
+            and window.age_min <= hint <= window.age_max
+        ]
+        if len(age_matches) == 1:
+            return age_matches[0]
+        pool = age_matches if age_matches else pool
     broken_segments = {normalize_segment(s) for s in segments(broken_path)}
     scored = sorted(
         (
@@ -401,6 +428,8 @@ def relink_ground_truth_by_basename_search(
     basename_index: dict,
     card: ModelCard,
     out_path: Path,
+    *,
+    selector: Optional[Selector] = None,
 ):
     """Relink a bundle's ground truth by basename search, partially if needed.
 
@@ -422,10 +451,12 @@ def relink_ground_truth_by_basename_search(
             contain ``labels_gt.val.slp``.
         basename_index: From :func:`build_basename_index`, built once and
             reused across models.
-        card: The production ``ModelCard`` (used for age-range disambiguation
-            in :func:`_pick_best_candidate`).
+        card: The production ``ModelCard``; card and selector used for
+            age-range disambiguation in :func:`_pick_best_candidate`.
         out_path: Where to save the filtered, relinked ground truth on
             success. The aligned predictions (if any) are saved alongside it.
+        selector: The selector this ground-truth operation applies to (see
+            :func:`_resolve_selector`), forwarded to :func:`_pick_best_candidate`.
 
     Returns:
         ``(out_path, n_frames_resolved, n_frames_total, predicted_path)``
@@ -446,7 +477,7 @@ def relink_ground_truth_by_basename_search(
         if not isinstance(fn, str):
             continue
         candidates = basename_index.get(Path(fn).name.lower(), [])
-        winner = _pick_best_candidate(fn, candidates, card)
+        winner = _pick_best_candidate(fn, candidates, card, selector)
         if winner is not None:
             filename_map[fn] = winner
     if not filename_map:
@@ -474,16 +505,21 @@ def resolve_ground_truth(
     labels_registry_lookup: Optional[Callable[[ModelCard], Optional[Path]]] = None,
     prefix_map: Optional[dict] = None,
     basename_index: Optional[dict] = None,
+    selector: Optional[Selector] = None,
 ):
     """Resolve real ground truth for one production ``ModelCard``.
 
-    Tries, in order: (1) a matching collection in the
+    Validates `selector` against `card` (see :func:`_resolve_selector`) as
+    its **first** statement, before any resolution tier runs — a foreign
+    selector must never reach the labels-registry lookup below. Tries, in
+    order: (1) a matching collection in the
     ``wandb-registry-sleap-roots-labels`` registry via `labels_registry_lookup`
-    (species/root-type/node-count join, injected so this stays testable
-    offline) — full coverage, since those collections are self-contained;
-    (2) the model bundle's own ``labels_gt.val.slp`` with `prefix_map`
-    relinking (see :func:`relink_ground_truth`) — full or partial coverage;
-    (3) `basename_index` search with disambiguation (see
+    — the lookup's own join criterion (species/root-type/node-count),
+    injected so this stays testable offline — full coverage, since those
+    collections are self-contained; (2) the model bundle's own
+    ``labels_gt.val.slp`` with `prefix_map` relinking (see
+    :func:`relink_ground_truth`) — full or partial coverage; (3)
+    `basename_index` search with disambiguation (see
     :func:`relink_ground_truth_by_basename_search`) for bundles whose video
     paths were reorganized, not just moved under a new drive letter/root —
     typically partial coverage. None resolving is not an error — it is
@@ -500,10 +536,15 @@ def resolve_ground_truth(
             :func:`relink_ground_truth`).
         basename_index: Optional basename index (see
             :func:`build_basename_index`) for the basename-search fallback.
+        selector: The selector this ground-truth operation applies to (see
+            :func:`_resolve_selector`); validated up front and forwarded to
+            :func:`relink_ground_truth_by_basename_search`.
 
     Returns:
         A :class:`ResolvedGroundTruth` on success, else a :class:`GapRecord`.
     """
+    _resolve_selector(card, selector)
+
     if labels_registry_lookup is not None:
         found = labels_registry_lookup(card)
         if found is not None:
@@ -536,7 +577,7 @@ def resolve_ground_truth(
     if basename_index is not None:
         out_path = workdir / f"{safe_id}.{card.version}.basename_search.slp"
         result = relink_ground_truth_by_basename_search(
-            bundle_dir, basename_index, card, out_path
+            bundle_dir, basename_index, card, out_path, selector=selector
         )
         if result is not None:
             path, n_resolved, n_total, predicted_path = result
@@ -867,6 +908,7 @@ def build_label_card(
     card: ModelCard,
     *,
     images_embedded: bool,
+    selector: Optional[Selector] = None,
     source_experiment: Optional[str] = None,
     bloom_experiment_id: Optional[str] = None,
     accessions: Optional[tuple] = None,
@@ -888,6 +930,10 @@ def build_label_card(
         images_embedded: Whether ``labels_path``'s frames are self-contained
             (``True`` for a labels-registry package, ``True`` for a
             successfully relinked bundle since its pixels are now reachable).
+        selector: The selector this label package's species/mode/age window
+            comes from (see :func:`_resolve_selector`). Required (raises) for
+            a multi-selector card with none supplied; a single-selector card
+            defaults to its one selector.
         source_experiment: Provenance, if known.
         bloom_experiment_id: Provenance, if known.
         accessions: Provenance, if known.
@@ -897,12 +943,23 @@ def build_label_card(
 
     Returns:
         A populated ``LabelCard``.
+
+    Raises:
+        ValueError: If `selector` is not one of `card.selectors`, or if
+            `card` carries multiple selectors and none was supplied.
     """
+    resolved = _resolve_selector(card, selector)
+    if resolved is None:
+        raise ValueError(
+            f"card {card.registry_id}:{card.version} carries {len(card.selectors)} "
+            "selectors; pass selector= naming the labeling package's "
+            "species/mode/age window"
+        )
     labels = sio.load_slp(labels_path.as_posix())
     node_names = tuple(n.name for n in labels.skeleton.nodes)
     n_instances = sum(len(lf.instances) for lf in labels)
     n_videos = len(labels.videos)
-    selector = card.selectors[0]
+    selector = resolved
     return LabelCard(
         species=selector.species,
         mode=selector.mode,

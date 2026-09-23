@@ -61,14 +61,6 @@ _DEFAULT_SHARE_ROOT = "Z:/users/eberrigan/SLEAP"
 #: this is deliberately only this script's own default.
 _SAMPLE_N = 100
 
-_DEFAULT_OUT_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "docs"
-    / "superpowers"
-    / "specs"
-    / "2026-08-04-define-parity-tolerance-results.json"
-)
-
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Parse args and regenerate the parity results JSON.
@@ -97,10 +89,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument(
         "--out",
-        default=str(_DEFAULT_OUT_PATH),
+        required=True,
         help=(
-            "Where to write the regenerated report (default: the existing "
-            "checked-in results JSON, overwritten in place)."
+            "Where to write the report. Required: never overwrite the "
+            "committed 2026-08-04 results JSON, a pre-selectors snapshot."
         ),
     )
     parser.add_argument(
