@@ -8,8 +8,9 @@ predict's ``choose_models`` correctly (the metadata -> params -> model
 round-trip), since ``choose_models`` lives in predict.
 """
 
-from sleap_roots_contracts import ModelCard, resolve_params
+from sleap_roots_contracts import resolve_params
 
+from card_builders import make_card
 from sleap_roots_predict.model_selection import choose_models
 
 
@@ -22,14 +23,13 @@ def _row(species_name="Pennycress", plant_age_days=14, **extra):
 
 def _card(root_type, *, species="rice", mode="cylinder", age_min=2, age_max=5):
     """Build a ModelCard with sensible defaults for one root type."""
-    return ModelCard(
+    return make_card(
+        root_type,
+        f"reg/{species}-{root_type}",
         species=species,
         mode=mode,
         age_min=age_min,
         age_max=age_max,
-        root_type=root_type,
-        registry_id=f"reg/{species}-{root_type}",
-        version="v1",
         weights_checksum="sha",
     )
 

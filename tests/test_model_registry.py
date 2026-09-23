@@ -14,6 +14,7 @@ import pytest
 from sleap_nn.inference import Predictor
 from sleap_roots_contracts import ModelCard
 
+from card_builders import make_card, raw_card_meta
 from sleap_roots_predict.model_registry import (
     LocalCardSource,
     ModelCardSource,
@@ -25,15 +26,7 @@ WANDB_API_KEY = os.environ.get("WANDB_API_KEY")
 
 
 def _card(root_type, registry_id, version="v1"):
-    return ModelCard(
-        species="rice",
-        mode="cylinder",
-        age_min=2,
-        age_max=5,
-        root_type=root_type,
-        registry_id=registry_id,
-        version=version,
-    )
+    return make_card(root_type, registry_id, version=version)
 
 
 def test_local_card_source_is_a_model_card_source(native_model_dir: Path):
@@ -163,13 +156,7 @@ class FakeArtifact:
 
 def _good_meta(species="rice", root_type="primary"):
     """Metadata carrying every required selection field (validates to a card)."""
-    return {
-        "species": species,
-        "mode": "cylinder",
-        "age_min": 2,
-        "age_max": 5,
-        "root_type": root_type,
-    }
+    return raw_card_meta(species=species, root_type=root_type)
 
 
 def _good_artifact(registry_id="reg/good", **kw):
@@ -178,9 +165,7 @@ def _good_artifact(registry_id="reg/good", **kw):
 
 def _malformed_artifact(registry_id="reg/bad"):
     # Missing the required ``species`` field -> pydantic ValidationError.
-    meta = _good_meta()
-    del meta["species"]
-    return FakeArtifact(registry_id, metadata=meta)
+    return FakeArtifact(registry_id, metadata=raw_card_meta(drop=("species",)))
 
 
 def test_collect_cards_skips_malformed_and_warns(caplog):

@@ -820,19 +820,11 @@ def test_changed_predict_code_sha_causes_repredict(
 
 
 def test_changed_model_ref_causes_repredict(tmp_path: Path, native_model_dir):
-    from sleap_roots_contracts import ModelCard
+    from card_builders import make_card
     from sleap_roots_predict.model_registry import LocalCardSource
 
     def _source(version):
-        card = ModelCard(
-            species="rice",
-            mode="cylinder",
-            age_min=2,
-            age_max=5,
-            root_type="primary",
-            registry_id="reg/rice-primary",
-            version=version,
-        )
+        card = make_card("primary", "reg/rice-primary", version=version)
         return LocalCardSource([(card, native_model_dir)])
 
     inp = tmp_path / "in"

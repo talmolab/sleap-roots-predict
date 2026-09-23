@@ -29,17 +29,17 @@ openspec validate update-model-card-selectors --strict
 
 ## 1. Prep refactor — green on contracts a7 (commit: `refactor(tests): share card builders`)
 
-- [ ] 1.1 Positive control first: record that
+- [x] 1.1 Positive control first: record that
       `rg -nU "ModelCard(\.model_validate)?\([^)]*\b(species|mode|age_min|age_max)\s*=" tests/ | rg -c ModelCard`
       prints `8` today.
-- [ ] 1.2 Add `tests/card_builders.py`: `make_card(root_type, registry_id=None, *, selectors=None,
+- [x] 1.2 Add `tests/card_builders.py`: `make_card(root_type, registry_id=None, *, selectors=None,
       species=, mode=, age_min=, age_max=, version=, weights_checksum=, sleap_nn_version=)` (either
       `selectors` or the flat kwargs; `registry_id` defaults from the first selector) and
       `raw_card_meta(..., drop=())` for the wandb fixtures. On a7 both assert exactly one selector
       and emit the flat shape. Keep each module's thin `_card` wrapper so call sites and per-module
       defaults are untouched; route the inline `ModelCard(` in `test_batch.py:827` and the
       `_good_meta`/`_malformed_artifact` fixtures (`test_model_registry.py:164-197`) through them.
-- [ ] 1.3 Verify: the gate is green on a7; `git diff -U0 tests/ | rg "^[-+]\s*assert"` prints
+- [x] 1.3 Verify: the gate is green on a7; `git diff -U0 tests/ | rg "^[-+]\s*assert"` prints
       nothing; 1.1's command prints `1` (the builder); `rg -n "[\"'](age_min|age_max)[\"']\s*:" tests/`
       hits only `raw_card_meta`.
 

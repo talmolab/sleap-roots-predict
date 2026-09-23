@@ -46,17 +46,21 @@ ASSETS_DIR = Path(__file__).parent / "assets"
 
 
 def _card(
-    root_type="primary", registry_id="reg/arabidopsis-primary", age_min=2, age_max=14
+    root_type="primary",
+    registry_id="reg/arabidopsis-primary",
+    age_min=2,
+    age_max=14,
+    selectors=None,
 ):
-    from sleap_roots_contracts import ModelCard
+    from card_builders import make_card
 
-    return ModelCard(
+    return make_card(
+        root_type,
+        registry_id,
+        selectors=selectors,
         species="arabidopsis",
-        mode="cylinder",
         age_min=age_min,
         age_max=age_max,
-        root_type=root_type,
-        registry_id=registry_id,
         version="v0",
     )
 

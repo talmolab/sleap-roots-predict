@@ -11,8 +11,9 @@ from pathlib import Path
 import pytest
 import sleap_io as sio
 from sleap_nn.inference import Predictor
-from sleap_roots_contracts import ModelCard, ResolvedParams
+from sleap_roots_contracts import ResolvedParams
 
+from card_builders import make_card
 from sleap_roots_predict.model_registry import LocalCardSource, WandbRegistrySource
 from sleap_roots_predict.predict import _resolve_device
 from sleap_roots_predict.video_utils import make_video_from_images
@@ -22,14 +23,13 @@ from sleap_roots_predict.warm_worker import WarmModelWorker
 def _card(
     root_type, registry_id, *, species="rice", version="v1", age_min=2, age_max=5
 ):
-    return ModelCard(
+    return make_card(
+        root_type,
+        registry_id,
         species=species,
-        mode="cylinder",
+        version=version,
         age_min=age_min,
         age_max=age_max,
-        root_type=root_type,
-        registry_id=registry_id,
-        version=version,
     )
 
 

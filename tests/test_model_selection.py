@@ -8,8 +8,9 @@ once at import).
 from importlib.metadata import version
 
 import pytest
-from sleap_roots_contracts import ModelCard, ModelRef, ResolvedParams
+from sleap_roots_contracts import ModelRef, ResolvedParams
 
+from card_builders import make_card
 from sleap_roots_predict.model_selection import choose_models
 
 
@@ -24,15 +25,17 @@ def _card(
     ver="v1",
     checksum="sha",
     trained_with=None,
+    selectors=None,
 ):
     """Build a ModelCard with sensible defaults for one root type."""
-    return ModelCard(
+    return make_card(
+        root_type,
+        registry_id,
+        selectors=selectors,
         species=species,
         mode=mode,
         age_min=age_min,
         age_max=age_max,
-        root_type=root_type,
-        registry_id=registry_id or f"reg/{species}-{root_type}",
         version=ver,
         weights_checksum=checksum,
         sleap_nn_version=trained_with,
