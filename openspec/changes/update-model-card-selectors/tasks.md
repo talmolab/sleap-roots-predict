@@ -217,7 +217,7 @@ report-entry shape) in the body.
       both wandb tests fail, each failure naming the guard's class, registry and alias; the CLI
       test shows "Batch aborted" and exit `1`. (Without the guard the failure would be
       `assert cards` — this check tells them apart.) Record it.
-- [ ] 6.4 **B — live canary (training 6.1)**, only on the user's explicit confirmation of
+- [x] 6.4 **B — live canary (training 6.1)**, only on the user's explicit confirmation of
       `seed-registry --execute --only <collection>` (irreversible, single-operator). Propose a rice
       cylinder 2–5 collection (crown or primary), which makes `test_module_cli_over_registry`
       (rice/cylinder/3) meaningful; with any other canary, pre-declare that test's expected exit
