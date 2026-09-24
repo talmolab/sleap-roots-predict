@@ -13,10 +13,15 @@ import sys
 
 from sleap_roots_contracts import ResolvedParams
 
+from sleap_roots_predict import model_registry
 from sleap_roots_predict.model_registry import WandbRegistrySource
 from sleap_roots_predict.model_selection import choose_models
 
-_SKIP_PREFIX = "Skipping non-conforming model artifact"
+# The constant exists from this change on; the literal keeps the file runnable on a
+# ``main`` that predates it (the canary compares the two).
+_SKIP_PREFIX = getattr(
+    model_registry, "SKIP_WARNING_PREFIX", "Skipping non-conforming model artifact"
+)
 
 
 class _SkipCounter(logging.Handler):

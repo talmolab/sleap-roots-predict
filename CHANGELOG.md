@@ -99,9 +99,11 @@ All notable changes to this project are documented here. The format is based on
   (`uv run python scripts/run_parity_harness.py`; lab-only — Windows + a `Z:` mapped network
   share, real registry credentials — manual/on-demand, no CI wiring).
 - **Registry guard**: `WandbRegistrySource.list_cards()` now raises `NoReadableModelCardsError`
-  (a `ValueError` naming the registry path, alias and failed-card count) when production-aliased
-  artifacts exist but **none** validates. A mixed listing (some valid, some malformed) still skips
-  the malformed ones with a logged warning and returns the rest, unchanged.
+  (a `ValueError`, exported from `sleap_roots_predict`, naming the registry path, alias and
+  unreadable-card count) when production-aliased artifacts exist but **none** can be read as a
+  `ModelCard`. Validation failures point at a re-seed; any other per-artifact error is named and
+  chained as the cause. A mixed listing (some valid, some malformed) still skips the malformed ones
+  with a logged warning and returns the rest, unchanged.
 - **`WarmModelWorker.load_catalog()`**: lists the model-card source once (idempotent — later
   `resolve()`/`get_predictors()` calls reuse the cached listing). `run_batch` calls it once,
   after the per-iteration stop check and before the first processable scan's `try`, so a registry

@@ -13,6 +13,7 @@ def test_public_surface_importable_without_credentials(monkeypatch):
         "resolve_params",
         "LocalCardSource",
         "WandbRegistrySource",
+        "NoReadableModelCardsError",
         "ModelCardSource",
         "make_predictor",
         "predict_on_video",

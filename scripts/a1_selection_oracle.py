@@ -2,6 +2,11 @@
 
 Deliberately reads no ModelCard field, so the same file runs on contracts 0.1.0a7 (flat) and
 0.1.0a9 (selectors). Cards come from the live registry or a JSON list of card dicts.
+
+Regenerating both sides needs two environments: the old side (flat cards) only validates
+under contracts 0.1.0a7 -- run it from a ``main`` worktree synced to its own lock -- and the new
+side only under 0.1.0a9 (this branch). A ValidationError on flat cards here is expected, not a
+regression.
 """
 
 import argparse

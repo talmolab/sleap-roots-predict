@@ -1230,7 +1230,7 @@ def test_unreadable_registry_aborts_the_batch_with_exit_1(
         NoReadableModelCardsError,
         WandbRegistrySource,
     )
-    from test_model_registry import FakeApi, FakeArtifact, _flat_meta
+    from registry_fakes import FakeApi, FakeArtifact, _flat_meta
 
     monkeypatch.setenv("WANDB_API_KEY", "dummy")
     monkeypatch.setattr(
@@ -1268,7 +1268,7 @@ def test_discovery_error_before_first_processable_scan_still_aborts_on_catalog_f
         NoReadableModelCardsError,
         WandbRegistrySource,
     )
-    from test_model_registry import FakeApi, FakeArtifact, _flat_meta
+    from registry_fakes import FakeApi, FakeArtifact, _flat_meta
 
     monkeypatch.setenv("WANDB_API_KEY", "dummy")
     monkeypatch.setattr(

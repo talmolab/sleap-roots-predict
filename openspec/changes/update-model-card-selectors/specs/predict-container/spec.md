@@ -67,6 +67,8 @@ A forward-copy failure occurring while a stop has already been requested SHALL p
 than being converted into the stop-requested exit code, giving exit `1` — the exception is
 raised before the driver's stop-requested check is reached. This is how every pre-flight staging
 error already behaves, and `1` is retryable in Argo just as `143` is.
+A catalog-load failure occurring while a stop has already been requested behaves the same way:
+it propagates as exit `1`, not `143`.
 
 #### Scenario: One failing scan does not abort the batch
 

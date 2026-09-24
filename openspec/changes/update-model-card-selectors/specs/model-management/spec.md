@@ -139,12 +139,15 @@ that artifact alone, and the remaining conforming artifacts SHALL still be retur
 artifact SHALL NOT abort the listing), subject to the all-invalid rule below. This isolation SHALL
 be scoped to per-artifact card construction only; genuine failures (missing credentials,
 registry/network errors) SHALL still propagate fail-loud rather than being swallowed per artifact.
-When at least one artifact carries the configured alias and **none** of them validates into a
+When at least one artifact carries the configured alias and **none** of them can be read into a
 `ModelCard`, `list_cards()` SHALL raise a `ValueError` (or subclass) naming the registry, the alias
-and the number of alias-carrying artifacts that failed validation, rather than returning an empty
+and the number of alias-carrying artifacts that could not be read, rather than returning an empty
 catalog: a registry whose every production card is unreadable (for example, flat-shaped cards read
 by a consumer pinned to a selector-shaped contract) is a deployment fault, not a set of
-per-artifact defects. A registry in which **no** artifact carries the configured alias SHALL still
+per-artifact defects. The error SHALL distinguish validation failures, for which it points at the
+registry's card shape, from any other per-artifact error, which it names and chains as the cause,
+so a transient registry fault is never reported as a shape mismatch. Building the error SHALL NOT
+itself be able to raise. A registry in which **no** artifact carries the configured alias SHALL still
 return an empty list without raising. This rule guards only a catalog with zero readable cards; it
 does not detect a catalog that is readable but incomplete.
 
@@ -200,7 +203,15 @@ does not detect a catalog that is readable but incomplete.
 - **WHEN** one or more artifacts carry the configured alias and none of them validates into a
   `ModelCard`
 - **THEN** `list_cards()` raises a `ValueError` naming the registry, the alias and the number of
-  alias-carrying artifacts that failed validation, and does not return an empty card list
+  alias-carrying artifacts that could not be read, points at the registry's card shape, and does
+  not return an empty card list
+
+#### Scenario: A non-validation failure is named, not reported as a shape mismatch
+
+- **WHEN** every alias-carrying artifact fails to build a card for a reason other than validation
+  (e.g. a registry error while reading its digest)
+- **THEN** `list_cards()` raises the same error type, naming the underlying error type and message,
+  chaining it as the cause, and not suggesting a re-seed
 
 #### Scenario: A registry with no artifact carrying the alias is empty, not an error
 
