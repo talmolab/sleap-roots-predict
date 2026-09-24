@@ -227,7 +227,7 @@ report-entry shape) in the body.
       6.0(b)/(e) alias-drop rehearsal is live on the canary collection.
 - [x] 6.5 The gate, plus `uv build`, plus `uv run pytest -m gpu -rs` under a `windows_cuda` venv
       reporting 0 skipped (it builds no cards, so A2 is the device-relevant check).
-- [ ] 6.6 `/review-pr`.
+- [x] 6.6 `/review-pr`.
 - [x] 6.7 Draft (for the user to approve before posting) a correction to the pipeline design of
       record (`2026-09-21-per-run-run-manifest-identity-design.md` §2.7 and §4 step 0a say merging
       #34 is ungated and pins a8; this change pins a9 and holds the merge for the canary).
