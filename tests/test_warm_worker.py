@@ -11,8 +11,9 @@ from pathlib import Path
 import pytest
 import sleap_io as sio
 from sleap_nn.inference import Predictor
-from sleap_roots_contracts import ModelCard, ResolvedParams
+from sleap_roots_contracts import ResolvedParams
 
+from card_builders import make_card
 from sleap_roots_predict.model_registry import LocalCardSource, WandbRegistrySource
 from sleap_roots_predict.predict import _resolve_device
 from sleap_roots_predict.video_utils import make_video_from_images
@@ -22,14 +23,13 @@ from sleap_roots_predict.warm_worker import WarmModelWorker
 def _card(
     root_type, registry_id, *, species="rice", version="v1", age_min=2, age_max=5
 ):
-    return ModelCard(
+    return make_card(
+        root_type,
+        registry_id,
         species=species,
-        mode="cylinder",
+        version=version,
         age_min=age_min,
         age_max=age_max,
-        root_type=root_type,
-        registry_id=registry_id,
-        version=version,
     )
 
 
@@ -190,3 +190,49 @@ def test_output_defining_subset_excludes_hardware_knobs():
     out = worker.output_params()
     assert out == {"peak_threshold": 0.3}
     assert "device" not in out and "batch_size" not in out
+
+
+# --- load_catalog (group: registry guard + batch-level catalog load) ---------
+
+
+class _CountingSource:
+    def __init__(self, inner):
+        self.inner, self.n = inner, 0
+
+    def list_cards(self):
+        self.n += 1
+        return self.inner.list_cards()
+
+    def materialize(self, ref):
+        return self.inner.materialize(ref)
+
+
+def test_load_catalog_lists_once_and_resolve_reuses_it(rice_source):
+    source = _CountingSource(rice_source)
+    worker = WarmModelWorker(source=source)
+    worker.load_catalog()
+    worker.load_catalog()
+    worker.resolve(_params())
+    worker.resolve(_params())
+    assert source.n == 1
+
+
+def test_load_catalog_after_resolve_does_not_list_again(rice_source):
+    source = _CountingSource(rice_source)
+    worker = WarmModelWorker(source=source)
+    worker.resolve(_params())
+    worker.load_catalog()
+    assert source.n == 1
+
+
+def test_load_catalog_without_key_names_it(clean_wandb_env):
+    with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        WarmModelWorker().load_catalog()
+
+
+def test_load_catalog_returns_the_cached_cards(rice_source):
+    """load_catalog returns the catalog it cached, so callers can check it is non-empty."""
+    worker = WarmModelWorker(source=rice_source)
+    cards = worker.load_catalog()
+    assert cards == rice_source.list_cards()
+    assert worker.load_catalog() is cards

@@ -8,15 +8,19 @@ a later task (``@pytest.mark.wandb``).
 
 import logging
 import os
+import re
 from pathlib import Path
 
 import pytest
 from sleap_nn.inference import Predictor
 from sleap_roots_contracts import ModelCard
 
+from card_builders import make_card, raw_card_meta
+from registry_fakes import FakeApi, FakeArtifact, _flat_meta
 from sleap_roots_predict.model_registry import (
     LocalCardSource,
     ModelCardSource,
+    NoReadableModelCardsError,
     WandbRegistrySource,
 )
 from sleap_roots_predict.predict import make_predictor
@@ -25,15 +29,7 @@ WANDB_API_KEY = os.environ.get("WANDB_API_KEY")
 
 
 def _card(root_type, registry_id, version="v1"):
-    return ModelCard(
-        species="rice",
-        mode="cylinder",
-        age_min=2,
-        age_max=5,
-        root_type=root_type,
-        registry_id=registry_id,
-        version=version,
-    )
+    return make_card(root_type, registry_id, version=version)
 
 
 def test_local_card_source_is_a_model_card_source(native_model_dir: Path):
@@ -145,31 +141,9 @@ def test_default_registry_still_fails_loud_without_key(clean_wandb_env):
 # --- per-artifact error isolation in list_cards (group 2) ---------------------
 
 
-class FakeArtifact:
-    """A duck-typed stand-in for a wandb artifact (data holder, not a mock).
-
-    Carries exactly the attributes ``_collect_cards`` / ``_card_from_artifact``
-    read: ``aliases``, ``metadata``, ``qualified_name``, ``version``, ``digest``.
-    """
-
-    def __init__(self, registry_id, *, metadata, version="v1", aliases=("production",)):
-        """Build a fake artifact with the read attributes set from the args."""
-        self.qualified_name = f"{registry_id}:{version}"
-        self.version = version
-        self.digest = f"sha256:{registry_id}"
-        self.aliases = list(aliases)
-        self.metadata = metadata
-
-
 def _good_meta(species="rice", root_type="primary"):
     """Metadata carrying every required selection field (validates to a card)."""
-    return {
-        "species": species,
-        "mode": "cylinder",
-        "age_min": 2,
-        "age_max": 5,
-        "root_type": root_type,
-    }
+    return raw_card_meta(species=species, root_type=root_type)
 
 
 def _good_artifact(registry_id="reg/good", **kw):
@@ -178,9 +152,7 @@ def _good_artifact(registry_id="reg/good", **kw):
 
 def _malformed_artifact(registry_id="reg/bad"):
     # Missing the required ``species`` field -> pydantic ValidationError.
-    meta = _good_meta()
-    del meta["species"]
-    return FakeArtifact(registry_id, metadata=meta)
+    return FakeArtifact(registry_id, metadata=raw_card_meta(drop=("species",)))
 
 
 def test_collect_cards_skips_malformed_and_warns(caplog):
@@ -197,13 +169,32 @@ def test_collect_cards_skips_malformed_and_warns(caplog):
     assert "species" in caplog.text
 
 
-def test_collect_cards_all_malformed_returns_empty(caplog):
-    """An all-malformed listing is empty, not an exception."""
+def test_collect_cards_skips_flat_cards_alongside_readable_ones(caplog):
+    """Pins #34 fact 1 against a9: flat cards are skipped, selector-shaped ones returned."""
     source = WandbRegistrySource(alias="production")
+    flat = FakeArtifact("reg/flat", metadata=_flat_meta())
+    good = _good_artifact("reg/good")
     with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
-        cards = source._collect_cards([_malformed_artifact()])
-    assert cards == []
-    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+        cards = source._collect_cards([flat, good])
+    assert [c.registry_id for c in cards] == ["reg/good"]
+    assert "reg/flat" in caplog.text and "selectors" in caplog.text
+
+
+def test_collect_cards_all_invalid_raises(caplog):
+    """Every alias-carrying artifact unreadable is a deployment fault, not an empty catalog.
+
+    Reverses #32's "empty, not an exception" for this one case (predict#34): an empty catalog
+    fails every scan and exits 3, which the pipeline's exit gate passes.
+    """
+    source = WandbRegistrySource(entity="ent", registry="reg", alias="production")
+    with pytest.raises(NoReadableModelCardsError) as exc:
+        source._collect_cards(
+            [_malformed_artifact("reg/a"), FakeArtifact("reg/b", metadata=None)]
+        )
+    assert "ent-org/wandb-registry-reg" in str(exc.value)
+    assert "production" in str(exc.value)
+    assert re.search(r"\b2\b", str(exc.value))
+    assert issubclass(NoReadableModelCardsError, ValueError)
 
 
 def test_collect_cards_drops_only_the_bad_one_preserving_order(caplog):
@@ -240,35 +231,6 @@ def test_collect_cards_pins_concrete_version_and_checksum():
 
 
 # --- offline coverage of the registry traversal ------------------------------
-
-
-class FakeCollection:
-    """A duck-typed stand-in for a wandb artifact collection."""
-
-    def __init__(self, name):
-        """Store the collection name the traversal reads."""
-        self.name = name
-
-
-class FakeApi:
-    """A duck-typed stand-in for ``wandb.Api`` recording the calls it receives."""
-
-    def __init__(self, collections):
-        """Build from a ``{collection_name: [artifacts]}`` mapping."""
-        self._collections = collections
-        self.artifacts_calls = []
-        self.project_name = None
-
-    def artifact_collections(self, project_name, type_name):
-        """Record the project + type and return the fake collections."""
-        self.project_name = project_name
-        self.type_name = type_name
-        return [FakeCollection(name) for name in self._collections]
-
-    def artifacts(self, type_name, name):
-        """Record the query and return the collection's artifacts."""
-        self.artifacts_calls.append((type_name, name))
-        return list(self._collections[name.rsplit("/", 1)[-1]])
 
 
 def test_iter_registry_artifacts_yields_across_collections():
@@ -312,8 +274,60 @@ def test_wandb_source_lists_and_materializes(tmp_path, monkeypatch):
     # and carry the selection metadata the matcher needs.
     assert all(c.version and c.version != source._alias for c in cards)
     assert all(c.weights_checksum for c in cards)
-    assert all(c.species and c.mode and c.root_type for c in cards)
+    assert all(c.selectors and c.root_type for c in cards)
+    assert all(s.species and s.mode for c in cards for s in c.selectors)
     ref = cards[0].to_model_ref("runtime")
     first = source.materialize(ref)
     assert Path(first).exists() and any(Path(first).iterdir())
     assert source.materialize(ref) == first  # cached, no re-download
+
+
+class _UnreadableDigestArtifact(FakeArtifact):
+    """An artifact whose metadata is valid but whose digest cannot be fetched."""
+
+    @property
+    def digest(self):
+        """Raise as a transient registry error would."""
+        raise ConnectionError("registry unreachable")
+
+    @digest.setter
+    def digest(self, value):
+        """Ignore the base class's assignment."""
+
+
+def test_collect_cards_non_validation_errors_name_the_real_cause():
+    """Unreadable-for-other-reasons artifacts raise, naming the error, not a re-seed."""
+    source = WandbRegistrySource(entity="ent", registry="reg", alias="production")
+    artifacts = [_UnreadableDigestArtifact("reg/a", metadata=raw_card_meta())]
+    with pytest.raises(NoReadableModelCardsError) as exc:
+        source._collect_cards(artifacts)
+    message = str(exc.value)
+    assert "ConnectionError" in message and "registry unreachable" in message
+    assert "re-seeded" not in message
+    assert isinstance(exc.value.__cause__, ConnectionError)
+
+
+def test_collect_cards_validation_failures_keep_the_reseed_hint():
+    """All-flat artifacts still point the operator at the re-seed."""
+    source = WandbRegistrySource(entity="ent", registry="reg", alias="production")
+    with pytest.raises(NoReadableModelCardsError, match="re-seeded"):
+        source._collect_cards([FakeArtifact("reg/flat", metadata=_flat_meta())])
+
+
+def test_installed_version_falls_back_when_metadata_is_missing():
+    """A missing distribution never masks the guard's own error."""
+    from sleap_roots_predict.model_registry import _installed_version
+
+    assert _installed_version("definitely-not-an-installed-dist-xyz") == "unknown"
+    assert _installed_version("sleap-roots-contracts") != "unknown"
+
+
+def test_skip_warning_prefix_matches_the_logged_warning(caplog):
+    """The exported prefix is what the skip warning actually starts with."""
+    from sleap_roots_predict.model_registry import SKIP_WARNING_PREFIX
+
+    source = WandbRegistrySource(alias="production")
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.model_registry"):
+        source._collect_cards([_good_artifact(), _malformed_artifact()])
+    (record,) = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert record.getMessage().startswith(SKIP_WARNING_PREFIX)

@@ -9,8 +9,8 @@ import h5py
 import numpy as np
 import pytest
 from PIL import Image
-from sleap_roots_contracts import ModelCard
 
+from card_builders import make_card
 from sleap_roots_predict.model_registry import LocalCardSource
 from sleap_roots_predict.video_utils import make_video_from_images
 
@@ -70,14 +70,13 @@ def _card(
     root_type, registry_id, *, species="rice", version="v1", age_min=2, age_max=5
 ):
     """Build a ModelCard for the vendored-model LocalCardSources."""
-    return ModelCard(
+    return make_card(
+        root_type,
+        registry_id,
         species=species,
-        mode="cylinder",
+        version=version,
         age_min=age_min,
         age_max=age_max,
-        root_type=root_type,
-        registry_id=registry_id,
-        version=version,
     )
 
 

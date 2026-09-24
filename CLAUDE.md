@@ -90,7 +90,7 @@ The modules provide modular functions for processing timelapse experiments:
 - `predict_on_video()`: Run inference on sleap_io.Video objects
 
 #### Model Management (model_selection.py / model_registry.py / warm_worker.py)
-- `choose_models()`: pure matcher — scan params (species/mode/age) + `ModelCard`s → `ModelRef` per root type (override wins; else `species`/`mode`/inclusive-age match; exactly-one selects, zero skips, ambiguity raises)
+- `choose_models()`: pure matcher — scan params (species/mode/age) + `ModelCard`s → `ModelRef` per root type (override wins; else matching rules: `model-management` spec; exactly-one selects, zero skips, ambiguity raises)
 - `LocalCardSource` / `WandbRegistrySource`: `ModelCardSource` implementations (`list_cards()` + `materialize(ref) → dir`); the wandb source pins alias→concrete version and confines all network access
 - `WarmModelWorker`: `resolve()` / `get_predictors()` / `predict()` / `inference_config()`; caches `Predictor`s by `(registry_id, version)` (fetch-once/load-once/reuse); fails loud on an unloadable root type. `predict(save_dir=…)` writes raw per-root `.slp` only (the `predictions.csv` manifest + scan-aware naming are a deferred output-contract slice)
 

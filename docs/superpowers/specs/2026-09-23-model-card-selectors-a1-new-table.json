@@ -1,0 +1,468 @@
+{
+  "arabidopsis|cylinder|1": {},
+  "arabidopsis|cylinder|10": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|11": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|12": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|13": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|14": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|15": {},
+  "arabidopsis|cylinder|2": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|3": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|4": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|5": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|6": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|7": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|8": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|cylinder|9": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|1": {},
+  "arabidopsis|multiplant cylinder|10": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|11": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|12": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|13": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|14": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|15": {},
+  "arabidopsis|multiplant cylinder|2": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|3": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|4": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|5": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|6": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|7": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|8": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|multiplant cylinder|9": {
+    "lateral": "arabidopsis-lateral-240130_140452.multi_instance.n-337",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "arabidopsis|plate|1": {},
+  "arabidopsis|plate|10": {},
+  "arabidopsis|plate|11": {},
+  "arabidopsis|plate|12": {},
+  "arabidopsis|plate|13": {},
+  "arabidopsis|plate|14": {},
+  "arabidopsis|plate|15": {},
+  "arabidopsis|plate|2": {},
+  "arabidopsis|plate|3": {},
+  "arabidopsis|plate|4": {},
+  "arabidopsis|plate|5": {},
+  "arabidopsis|plate|6": {},
+  "arabidopsis|plate|7": {},
+  "arabidopsis|plate|8": {},
+  "arabidopsis|plate|9": {},
+  "canola|cylinder|1": {},
+  "canola|cylinder|10": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|11": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|12": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|13": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|14": {},
+  "canola|cylinder|15": {},
+  "canola|cylinder|2": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|3": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|4": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|5": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|6": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|7": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|8": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|cylinder|9": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "canola|multiplant cylinder|1": {},
+  "canola|multiplant cylinder|10": {},
+  "canola|multiplant cylinder|11": {},
+  "canola|multiplant cylinder|12": {},
+  "canola|multiplant cylinder|13": {},
+  "canola|multiplant cylinder|14": {},
+  "canola|multiplant cylinder|15": {},
+  "canola|multiplant cylinder|2": {},
+  "canola|multiplant cylinder|3": {},
+  "canola|multiplant cylinder|4": {},
+  "canola|multiplant cylinder|5": {},
+  "canola|multiplant cylinder|6": {},
+  "canola|multiplant cylinder|7": {},
+  "canola|multiplant cylinder|8": {},
+  "canola|multiplant cylinder|9": {},
+  "canola|plate|1": {},
+  "canola|plate|10": {},
+  "canola|plate|11": {},
+  "canola|plate|12": {},
+  "canola|plate|13": {},
+  "canola|plate|14": {},
+  "canola|plate|15": {},
+  "canola|plate|2": {},
+  "canola|plate|3": {},
+  "canola|plate|4": {},
+  "canola|plate|5": {},
+  "canola|plate|6": {},
+  "canola|plate|7": {},
+  "canola|plate|8": {},
+  "canola|plate|9": {},
+  "pennycress|cylinder|1": {},
+  "pennycress|cylinder|10": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|11": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|12": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|13": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|14": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|15": {},
+  "pennycress|cylinder|2": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|3": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|4": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|5": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|6": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|7": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|8": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|cylinder|9": {
+    "lateral": "canola-lateral-240611_083419.multi_instance.n-631",
+    "primary": "canola_pennycress_arabidopsis-primary-240611_102513.multi_instance.n-743"
+  },
+  "pennycress|multiplant cylinder|1": {},
+  "pennycress|multiplant cylinder|10": {},
+  "pennycress|multiplant cylinder|11": {},
+  "pennycress|multiplant cylinder|12": {},
+  "pennycress|multiplant cylinder|13": {},
+  "pennycress|multiplant cylinder|14": {},
+  "pennycress|multiplant cylinder|15": {},
+  "pennycress|multiplant cylinder|2": {},
+  "pennycress|multiplant cylinder|3": {},
+  "pennycress|multiplant cylinder|4": {},
+  "pennycress|multiplant cylinder|5": {},
+  "pennycress|multiplant cylinder|6": {},
+  "pennycress|multiplant cylinder|7": {},
+  "pennycress|multiplant cylinder|8": {},
+  "pennycress|multiplant cylinder|9": {},
+  "pennycress|plate|1": {},
+  "pennycress|plate|10": {},
+  "pennycress|plate|11": {},
+  "pennycress|plate|12": {},
+  "pennycress|plate|13": {},
+  "pennycress|plate|14": {},
+  "pennycress|plate|15": {},
+  "pennycress|plate|2": {},
+  "pennycress|plate|3": {},
+  "pennycress|plate|4": {},
+  "pennycress|plate|5": {},
+  "pennycress|plate|6": {},
+  "pennycress|plate|7": {},
+  "pennycress|plate|8": {},
+  "pennycress|plate|9": {},
+  "rice|cylinder|1": {},
+  "rice|cylinder|10": {
+    "crown": "rice-older-crown-221208_113552.multi_instance.n-574"
+  },
+  "rice|cylinder|11": {},
+  "rice|cylinder|12": {},
+  "rice|cylinder|13": {},
+  "rice|cylinder|14": {},
+  "rice|cylinder|15": {},
+  "rice|cylinder|2": {
+    "crown": "rice-younger-crown-220821_163331.multi_instance.n-867",
+    "primary": "rice-younger-primary-230104_182346.multi_instance.n-720"
+  },
+  "rice|cylinder|3": {
+    "crown": "rice-younger-crown-220821_163331.multi_instance.n-867",
+    "primary": "rice-younger-primary-230104_182346.multi_instance.n-720"
+  },
+  "rice|cylinder|4": {
+    "crown": "rice-younger-crown-220821_163331.multi_instance.n-867",
+    "primary": "rice-younger-primary-230104_182346.multi_instance.n-720"
+  },
+  "rice|cylinder|5": {
+    "crown": "rice-younger-crown-220821_163331.multi_instance.n-867",
+    "primary": "rice-younger-primary-230104_182346.multi_instance.n-720"
+  },
+  "rice|cylinder|6": {
+    "crown": "rice-older-crown-221208_113552.multi_instance.n-574"
+  },
+  "rice|cylinder|7": {
+    "crown": "rice-older-crown-221208_113552.multi_instance.n-574"
+  },
+  "rice|cylinder|8": {
+    "crown": "rice-older-crown-221208_113552.multi_instance.n-574"
+  },
+  "rice|cylinder|9": {
+    "crown": "rice-older-crown-221208_113552.multi_instance.n-574"
+  },
+  "rice|multiplant cylinder|1": {},
+  "rice|multiplant cylinder|10": {},
+  "rice|multiplant cylinder|11": {},
+  "rice|multiplant cylinder|12": {},
+  "rice|multiplant cylinder|13": {},
+  "rice|multiplant cylinder|14": {},
+  "rice|multiplant cylinder|15": {},
+  "rice|multiplant cylinder|2": {},
+  "rice|multiplant cylinder|3": {},
+  "rice|multiplant cylinder|4": {},
+  "rice|multiplant cylinder|5": {},
+  "rice|multiplant cylinder|6": {},
+  "rice|multiplant cylinder|7": {},
+  "rice|multiplant cylinder|8": {},
+  "rice|multiplant cylinder|9": {},
+  "rice|plate|1": {},
+  "rice|plate|10": {},
+  "rice|plate|11": {},
+  "rice|plate|12": {},
+  "rice|plate|13": {},
+  "rice|plate|14": {},
+  "rice|plate|15": {},
+  "rice|plate|2": {},
+  "rice|plate|3": {},
+  "rice|plate|4": {},
+  "rice|plate|5": {},
+  "rice|plate|6": {},
+  "rice|plate|7": {},
+  "rice|plate|8": {},
+  "rice|plate|9": {},
+  "soybean|cylinder|1": {},
+  "soybean|cylinder|10": {},
+  "soybean|cylinder|11": {},
+  "soybean|cylinder|12": {},
+  "soybean|cylinder|13": {},
+  "soybean|cylinder|14": {},
+  "soybean|cylinder|15": {},
+  "soybean|cylinder|2": {
+    "lateral": "soybean-lateral-lateral_root_221006_172103.multi_instance.n-482",
+    "primary": "soybean-primary-221003_111420.multi_instance.n-1389"
+  },
+  "soybean|cylinder|3": {
+    "lateral": "soybean-lateral-lateral_root_221006_172103.multi_instance.n-482",
+    "primary": "soybean-primary-221003_111420.multi_instance.n-1389"
+  },
+  "soybean|cylinder|4": {
+    "lateral": "soybean-lateral-lateral_root_221006_172103.multi_instance.n-482",
+    "primary": "soybean-primary-221003_111420.multi_instance.n-1389"
+  },
+  "soybean|cylinder|5": {
+    "lateral": "soybean-lateral-lateral_root_221006_172103.multi_instance.n-482",
+    "primary": "soybean-primary-221003_111420.multi_instance.n-1389"
+  },
+  "soybean|cylinder|6": {
+    "lateral": "soybean-lateral-lateral_root_221006_172103.multi_instance.n-482",
+    "primary": "soybean-primary-221003_111420.multi_instance.n-1389"
+  },
+  "soybean|cylinder|7": {
+    "lateral": "soybean-lateral-lateral_root_221006_172103.multi_instance.n-482",
+    "primary": "soybean-primary-221003_111420.multi_instance.n-1389"
+  },
+  "soybean|cylinder|8": {
+    "lateral": "soybean-lateral-lateral_root_221006_172103.multi_instance.n-482",
+    "primary": "soybean-primary-221003_111420.multi_instance.n-1389"
+  },
+  "soybean|cylinder|9": {},
+  "soybean|multiplant cylinder|1": {},
+  "soybean|multiplant cylinder|10": {},
+  "soybean|multiplant cylinder|11": {},
+  "soybean|multiplant cylinder|12": {},
+  "soybean|multiplant cylinder|13": {},
+  "soybean|multiplant cylinder|14": {},
+  "soybean|multiplant cylinder|15": {},
+  "soybean|multiplant cylinder|2": {},
+  "soybean|multiplant cylinder|3": {},
+  "soybean|multiplant cylinder|4": {},
+  "soybean|multiplant cylinder|5": {},
+  "soybean|multiplant cylinder|6": {},
+  "soybean|multiplant cylinder|7": {},
+  "soybean|multiplant cylinder|8": {},
+  "soybean|multiplant cylinder|9": {},
+  "soybean|plate|1": {},
+  "soybean|plate|10": {},
+  "soybean|plate|11": {},
+  "soybean|plate|12": {},
+  "soybean|plate|13": {},
+  "soybean|plate|14": {},
+  "soybean|plate|15": {},
+  "soybean|plate|2": {},
+  "soybean|plate|3": {},
+  "soybean|plate|4": {},
+  "soybean|plate|5": {},
+  "soybean|plate|6": {},
+  "soybean|plate|7": {},
+  "soybean|plate|8": {},
+  "soybean|plate|9": {},
+  "unmodelled-species|cylinder|1": {},
+  "unmodelled-species|cylinder|10": {},
+  "unmodelled-species|cylinder|11": {},
+  "unmodelled-species|cylinder|12": {},
+  "unmodelled-species|cylinder|13": {},
+  "unmodelled-species|cylinder|14": {},
+  "unmodelled-species|cylinder|15": {},
+  "unmodelled-species|cylinder|2": {},
+  "unmodelled-species|cylinder|3": {},
+  "unmodelled-species|cylinder|4": {},
+  "unmodelled-species|cylinder|5": {},
+  "unmodelled-species|cylinder|6": {},
+  "unmodelled-species|cylinder|7": {},
+  "unmodelled-species|cylinder|8": {},
+  "unmodelled-species|cylinder|9": {},
+  "unmodelled-species|multiplant cylinder|1": {},
+  "unmodelled-species|multiplant cylinder|10": {},
+  "unmodelled-species|multiplant cylinder|11": {},
+  "unmodelled-species|multiplant cylinder|12": {},
+  "unmodelled-species|multiplant cylinder|13": {},
+  "unmodelled-species|multiplant cylinder|14": {},
+  "unmodelled-species|multiplant cylinder|15": {},
+  "unmodelled-species|multiplant cylinder|2": {},
+  "unmodelled-species|multiplant cylinder|3": {},
+  "unmodelled-species|multiplant cylinder|4": {},
+  "unmodelled-species|multiplant cylinder|5": {},
+  "unmodelled-species|multiplant cylinder|6": {},
+  "unmodelled-species|multiplant cylinder|7": {},
+  "unmodelled-species|multiplant cylinder|8": {},
+  "unmodelled-species|multiplant cylinder|9": {},
+  "unmodelled-species|plate|1": {},
+  "unmodelled-species|plate|10": {},
+  "unmodelled-species|plate|11": {},
+  "unmodelled-species|plate|12": {},
+  "unmodelled-species|plate|13": {},
+  "unmodelled-species|plate|14": {},
+  "unmodelled-species|plate|15": {},
+  "unmodelled-species|plate|2": {},
+  "unmodelled-species|plate|3": {},
+  "unmodelled-species|plate|4": {},
+  "unmodelled-species|plate|5": {},
+  "unmodelled-species|plate|6": {},
+  "unmodelled-species|plate|7": {},
+  "unmodelled-species|plate|8": {},
+  "unmodelled-species|plate|9": {}
+}

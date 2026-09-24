@@ -5,9 +5,10 @@ scans. It composes the pure selection matcher (Layer 1 of this capability) and a
 ``ModelCardSource`` with the built inference core (``make_predictor`` /
 ``predict_on_video``):
 
-    resolve(params)        -> ModelRefs, no weights loaded
-    get_predictors(params) -> Predictors, fetched once + loaded once + reused
-    predict(params, video) -> sio.Labels per root type
+    load_catalog()          -> lists the source's cards once (idempotent)
+    resolve(params)         -> ModelRefs, no weights loaded
+    get_predictors(params)  -> Predictors, fetched once + loaded once + reused
+    predict(params, video)  -> sio.Labels per root type
 
 Predictors are cached by model identity ``(registry_id, version)``, so different
 scan types that resolve to the same model version reuse one resident predictor.
@@ -16,11 +17,11 @@ If any resolved root type cannot be materialized or loaded, the worker fails lou
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import sleap_io as sio
 from sleap_nn.inference import Predictor
-from sleap_roots_contracts import ModelRef, ResolvedParams, RootType
+from sleap_roots_contracts import ModelCard, ModelRef, ResolvedParams, RootType
 
 from sleap_roots_predict.model_registry import ModelCardSource, WandbRegistrySource
 from sleap_roots_predict.model_selection import choose_models
@@ -57,8 +58,8 @@ class WarmModelWorker:
         # Default to the live production registry when no source is given. Building
         # WandbRegistrySource does no network I/O (wandb access is deferred to first
         # use), so a missing WANDB_API_KEY fails loud on the first
-        # resolve()/get_predictors(), not at construction — and there is no offline
-        # fallback.
+        # load_catalog()/resolve()/get_predictors(), not at construction — and there
+        # is no offline fallback.
         self._source = source if source is not None else WandbRegistrySource()
         # Resolve "auto" to a concrete device once, at construction, so the value
         # recorded by inference_config() is exactly what make_predictor builds with.
@@ -67,6 +68,25 @@ class WarmModelWorker:
         self._batch_size = batch_size
         self._cards = None
         self._predictors: Dict[Tuple[str, str], Predictor] = {}
+
+    @property
+    def source(self) -> ModelCardSource:
+        """The model-card source this worker lists and materializes from."""
+        return self._source
+
+    def load_catalog(self) -> List[ModelCard]:
+        """List the source's cards once, cache them (idempotent), and return them.
+
+        ``resolve``/``get_predictors`` reuse the cache. Call this before a batch to
+        surface catalog failures (missing credentials, registry errors, an
+        unreadable registry) once, outside any per-scan error isolation.
+
+        Returns:
+            The cached catalog (the same list on every call).
+        """
+        if self._cards is None:
+            self._cards = self._source.list_cards()
+        return self._cards
 
     def resolve(
         self,
@@ -82,8 +102,7 @@ class WarmModelWorker:
         Returns:
             The selected refs; root types with no match (and no override) are absent.
         """
-        if self._cards is None:
-            self._cards = self._source.list_cards()
+        self.load_catalog()
         return choose_models(params, self._cards, overrides)
 
     def get_predictors(

@@ -298,18 +298,22 @@ def test_empty_input_raises(tmp_path: Path):
 def _recording_source():
     """A model source that records access; returns ``(source, calls)``.
 
-    ``list_cards()`` yields no cards, so every scan resolves to zero models and fails
-    at ``_predict_one``'s ``if not refs:`` guard -- *before* ``out_scan_dir.mkdir()``,
-    so a batch using this source writes nothing at all. That makes it the cheap stand-in
-    for tests about the forward-copy, which must hold independently of prediction, and
-    it doubles as a probe for "no model-source interaction happened".
+    ``list_cards()`` yields one card no scan can match (an unmodelled species), so every
+    scan resolves to zero models and fails at ``_predict_one``'s ``if not refs:`` guard --
+    *before* ``out_scan_dir.mkdir()``, so a batch using this source writes nothing at all.
+    (Not an *empty* catalog: that is a batch-level error of its own.) That makes it the
+    cheap stand-in for tests about the forward-copy, which must hold independently of
+    prediction, and it doubles as a probe for "no model-source interaction happened".
     """
+    from card_builders import make_card
+
     calls = {"n": 0}
+    unmatched = make_card("primary", "reg/unmodelled", species="no-such-species")
 
     class _RecordingSource:
         def list_cards(self):
             calls["n"] += 1
-            return []
+            return [unmatched]
 
         def materialize(self, ref):
             calls["n"] += 1
@@ -820,19 +824,11 @@ def test_changed_predict_code_sha_causes_repredict(
 
 
 def test_changed_model_ref_causes_repredict(tmp_path: Path, native_model_dir):
-    from sleap_roots_contracts import ModelCard
+    from card_builders import make_card
     from sleap_roots_predict.model_registry import LocalCardSource
 
     def _source(version):
-        card = ModelCard(
-            species="rice",
-            mode="cylinder",
-            age_min=2,
-            age_max=5,
-            root_type="primary",
-            registry_id="reg/rice-primary",
-            version=version,
-        )
+        card = make_card("primary", "reg/rice-primary", version=version)
         return LocalCardSource([(card, native_model_dir)])
 
     inp = tmp_path / "in"
@@ -1186,3 +1182,265 @@ def test_run_batch_never_forwards_a_manifest_that_fails_validation(
         run_batch(inp, out, source=source)
 
     assert not out.exists()
+
+
+# --- batch-level catalog load (registry guard + load_catalog) ----------------
+
+
+def _counting(inner):
+    calls = {"list": 0, "order": []}
+
+    class _Counting:
+        def list_cards(self):
+            calls["list"] += 1
+            calls["order"].append("list")
+            return inner.list_cards()
+
+        def materialize(self, ref):
+            return inner.materialize(ref)
+
+    return _Counting(), calls
+
+
+def test_catalog_loaded_once_before_the_first_resolve(
+    all_roots_source, tmp_path, monkeypatch
+):
+    from sleap_roots_predict import warm_worker as ww
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    _real_scan(inp, "scanB", _RICE)
+    source, calls = _counting(all_roots_source)
+    real_resolve = ww.WarmModelWorker.resolve
+
+    def spy_resolve(self, *a, **k):
+        calls["order"].append("resolve")
+        return real_resolve(self, *a, **k)
+
+    monkeypatch.setattr(ww.WarmModelWorker, "resolve", spy_resolve)
+    run_batch(inp, tmp_path / "out", source=source)
+    assert calls["list"] == 1
+    assert calls["order"][0] == "list"
+
+
+def test_unreadable_registry_aborts_the_batch_with_exit_1(
+    tmp_path, monkeypatch, caplog
+):
+    import wandb
+
+    from sleap_roots_predict import batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+    from sleap_roots_predict.model_registry import (
+        NoReadableModelCardsError,
+        WandbRegistrySource,
+    )
+    from registry_fakes import FakeApi, FakeArtifact, _flat_meta
+
+    monkeypatch.setenv("WANDB_API_KEY", "dummy")
+    monkeypatch.setattr(
+        wandb,
+        "Api",
+        lambda: FakeApi({"col": [FakeArtifact("reg/flat", metadata=_flat_meta())]}),
+    )
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    out = tmp_path / "out"
+    with pytest.raises(NoReadableModelCardsError):
+        run_batch(inp, out, source=WandbRegistrySource(entity="ent", registry="reg"))
+    assert not out.exists() or {p.name for p in out.iterdir()} <= {"run_manifest.json"}
+
+    real_run_batch = batch_mod.run_batch
+
+    def _with_source(*args, **kwargs):
+        kwargs.setdefault("source", WandbRegistrySource(entity="ent", registry="reg"))
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _with_source)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(NoReadableModelCardsError):
+            main([str(inp), str(tmp_path / "out2")])
+    assert "Batch aborted" in caplog.text
+
+
+def test_discovery_error_before_first_processable_scan_still_aborts_on_catalog_failure(
+    tmp_path, monkeypatch
+):
+    """A `failed` discovery-error scan ahead of the first processable one doesn't block a catalog-failure abort."""
+    import wandb
+
+    from sleap_roots_predict.model_registry import (
+        NoReadableModelCardsError,
+        WandbRegistrySource,
+    )
+    from registry_fakes import FakeApi, FakeArtifact, _flat_meta
+
+    monkeypatch.setenv("WANDB_API_KEY", "dummy")
+    monkeypatch.setattr(
+        wandb,
+        "Api",
+        lambda: FakeApi({"col": [FakeArtifact("reg/flat", metadata=_flat_meta())]}),
+    )
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    # A present-but-invalid sidecar sorts alongside scanA's in discover_scans' single
+    # found-sidecars pass (unlike a manifest-scoped-but-*missing* scan_key, which is
+    # always appended in a second pass *after* every found sidecar regardless of its
+    # name -- verified empirically; that shape can never precede scanA). Naming it
+    # "aaa-ghost" sorts it first, landing it in scans[0] as the discovery-error entry
+    # ahead of the processable scanA in scans[1].
+    ghost_dir = inp / "aaa-ghost"
+    ghost_dir.mkdir(parents=True)
+    (ghost_dir / "aaa-ghost.scan_metadata.json").write_text(
+        json.dumps(
+            {"scan_key": "aaa-ghost", "image_ids": ["a"], "images_checksum": "sha256:x"}
+        )
+    )
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1",
+                "pipeline_run_id": "r",
+                "scan_keys": ["aaa-ghost", "scanA"],
+            }
+        )
+    )
+    scans = discover_scans(inp)
+    assert [s.scan_key for s in scans] == ["aaa-ghost", "scanA"]
+    assert scans[0].error is not None
+    assert scans[1].error is None
+
+    out = tmp_path / "out"
+    with pytest.raises(NoReadableModelCardsError):
+        run_batch(inp, out, source=WandbRegistrySource(entity="ent", registry="reg"))
+
+
+def test_missing_key_fails_the_batch_not_each_scan(tmp_path, clean_wandb_env):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
+        run_batch(inp, tmp_path / "out")
+
+
+def test_stop_before_first_scan_skips_the_catalog(tmp_path):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    source, calls = _recording_source()
+    run_batch(inp, tmp_path / "out", source=source, should_stop=lambda: True)
+    assert calls["n"] == 0
+
+
+def test_only_errored_scans_skip_the_catalog(tmp_path):
+    inp = tmp_path / "in"
+    inp.mkdir()
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {"schema_version": "1", "pipeline_run_id": "r", "scan_keys": ["ghost"]}
+        )
+    )
+    source, calls = _recording_source()
+    result = run_batch(inp, tmp_path / "out", source=source)
+    assert [s.status for s in result.scans] == ["failed"]
+    assert calls["n"] == 0
+
+
+class _EmptySource:
+    """A model source whose catalog is empty (lists no cards at all)."""
+
+    def list_cards(self):
+        """Return no cards."""
+        return []
+
+    def materialize(self, ref):
+        """Never reached: nothing can be selected from an empty catalog."""
+        raise AssertionError("materialize should never be called")
+
+
+def test_empty_catalog_aborts_the_batch(tmp_path):
+    """A processable scan against an empty catalog is a batch-level error, not exit 3."""
+    from sleap_roots_predict.model_registry import NoReadableModelCardsError
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    with pytest.raises(NoReadableModelCardsError, match="no model cards"):
+        run_batch(inp, tmp_path / "out", source=_EmptySource())
+
+
+def test_empty_catalog_cli_exits_1_with_the_staging_line(tmp_path, monkeypatch, caplog):
+    """The CLI logs its one-line staging message for an empty catalog and re-raises."""
+    from sleap_roots_predict import batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+    from sleap_roots_predict.model_registry import NoReadableModelCardsError
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    real_run_batch = batch_mod.run_batch
+
+    def _with_empty_source(*args, **kwargs):
+        kwargs.setdefault("source", _EmptySource())
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _with_empty_source)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(NoReadableModelCardsError):
+            main([str(inp), str(tmp_path / "out")])
+    assert "Batch aborted" in caplog.text
+
+
+def test_empty_catalog_with_only_errored_scans_is_not_loaded(tmp_path):
+    """No processable scan means no load, so an empty catalog changes nothing (exit 3)."""
+    inp = tmp_path / "in"
+    inp.mkdir()
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {"schema_version": "1", "pipeline_run_id": "r", "scan_keys": ["ghost"]}
+        )
+    )
+    result = run_batch(inp, tmp_path / "out", source=_EmptySource())
+    assert [s.status for s in result.scans] == ["failed"]
+
+
+def test_catalog_failure_during_requested_stop_propagates(
+    tmp_path, caplog, monkeypatch
+):
+    """A catalog failure with a stop pending exits 1 (raises), not 143.
+
+    The stop is requested *inside* ``list_cards()``, i.e. after that iteration's stop
+    check, which is the only window in which the two can coincide; the spy asserts the
+    stop really was pending when the catalog failed.
+    """
+    import signal
+
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+    from sleap_roots_predict.model_registry import NoReadableModelCardsError
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    seen = {}
+
+    class _StopThenEmpty:
+        def list_cards(self):
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            seen["stop_pending"] = seen["should_stop"]()
+            return []
+
+        def materialize(self, ref):
+            raise AssertionError("materialize should never be called")
+
+    real_run_batch = batch_mod.run_batch
+
+    def _with_source(*args, **kwargs):
+        seen["should_stop"] = kwargs["should_stop"]
+        kwargs.setdefault("source", _StopThenEmpty())
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _with_source)
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(NoReadableModelCardsError):
+                main([str(inp), str(tmp_path / "out")])
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
+    assert seen["stop_pending"], "stop was not pending when the catalog failed"
+    assert not any("Terminated by SIGTERM" in r.message for r in caplog.records)

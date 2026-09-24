@@ -29,7 +29,10 @@ from sleap_roots_contracts import (
 )
 from sleap_roots_contracts.identity import compute_idempotency_key
 
-from sleap_roots_predict.model_registry import ModelCardSource
+from sleap_roots_predict.model_registry import (
+    ModelCardSource,
+    NoReadableModelCardsError,
+)
 from sleap_roots_predict.output_contract import (
     predictions_json_path,
     resolve_identity,
@@ -328,6 +331,10 @@ def run_batch(
             forwarded to ``output_dir``. Also a batch-level staging error, raised
             before any prediction: a silently missing forwarded manifest would make
             the downstream stage fall back to unscoped discovery.
+        NoReadableModelCardsError: (a ``ValueError``) If the registry holds
+            production artifacts none of which validates. Raised, along with
+            ``RuntimeError`` for missing registry credentials, before the first
+            processable scan is predicted.
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
@@ -353,6 +360,7 @@ def run_batch(
 
     resolved_code_sha = resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA")
     worker = WarmModelWorker(source=source)
+    catalog_loaded = False
     for scan in scans:
         if should_stop():
             logger.warning(
@@ -365,6 +373,21 @@ def run_batch(
             logger.error("Scan %s failed: %s", scan.scan_key, scan.error)
             result.scans.append(ScanResult(scan.scan_key, "failed", scan.error))
             continue
+
+        if not catalog_loaded:
+            # Once, outside per-scan isolation: an unreadable or unreachable catalog is
+            # a batch-level error (exit 1), not one isolated failure per scan (exit 3,
+            # which the pipeline's exit gate passes). Placed after this iteration's stop
+            # check so it adds no should_stop() call, and skipped entirely when no scan
+            # is processable. An empty catalog is the same fault in another shape: a
+            # processable scan can never be predicted from it (e.g. a typo'd alias, or a
+            # production alias removed mid-rollout), so it must not pass as exit 3 either.
+            if not worker.load_catalog():
+                raise NoReadableModelCardsError(
+                    f"the model-card source listed no model cards ({worker.source!r}); "
+                    "no scan in this batch can be predicted"
+                )
+            catalog_loaded = True
 
         out_scan_dir = output_dir / scan.scan_key
         try:

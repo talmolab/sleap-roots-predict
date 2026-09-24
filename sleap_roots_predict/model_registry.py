@@ -11,6 +11,8 @@ network access to itself.
 
 import logging
 import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 from pathlib import Path
 from typing import (
     Dict,
@@ -23,6 +25,7 @@ from typing import (
     runtime_checkable,
 )
 
+from pydantic import ValidationError
 from sleap_roots_contracts import ModelCard, ModelRef
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,35 @@ logger = logging.getLogger(__name__)
 _DEFAULT_ENTITY = "eberrigan-salk-institute-for-biological-studies"
 _DEFAULT_REGISTRY = "sleap-roots-models"
 _DEFAULT_ALIAS = "production"
+
+#: What every per-artifact skip warning starts with. Exported so tooling that counts
+#: skips (``scripts/canary_check.py``) cannot drift from the message it counts.
+SKIP_WARNING_PREFIX = "Skipping non-conforming model artifact"
+
+
+def _installed_version(dist: str) -> str:
+    """Return ``dist``'s installed version, or ``"unknown"`` if it has no metadata.
+
+    Resolved once at import for the guard's message, so building that message can never
+    raise and replace the error it describes.
+    """
+    try:
+        return _package_version(dist)
+    except PackageNotFoundError:
+        return "unknown"
+
+
+_CONTRACTS_VERSION = _installed_version("sleap-roots-contracts")
+
+
+class NoReadableModelCardsError(ValueError):
+    """No artifact carrying the production alias could be read as a ``ModelCard``.
+
+    Raised when at least one alias-carrying artifact exists and none of them builds a
+    card — whether they failed validation (e.g. flat cards read by a selector-shaped
+    consumer) or failed for another reason, which the message names and chains. A
+    ``ValueError`` so the CLI's one-line staging-error path logs it (``__main__.py``).
+    """
 
 
 @runtime_checkable
@@ -144,6 +176,13 @@ class WandbRegistrySource:
                 "WANDB_CACHE_DIR"
             )
 
+    def __repr__(self) -> str:
+        """Name the registry and alias this source lists, for error messages."""
+        return (
+            f"WandbRegistrySource(registry={self._registry!r}, "
+            f"entity={self._entity!r}, alias={self._alias!r})"
+        )
+
     def _require_key(self) -> None:
         """Raise before any network call if credentials are absent."""
         if not os.environ.get("WANDB_API_KEY"):
@@ -169,6 +208,8 @@ class WandbRegistrySource:
         Raises:
             RuntimeError: If ``WANDB_API_KEY`` is unset (raised before any network
                 call) or no registry is configured.
+            NoReadableModelCardsError: If at least one alias-carrying artifact exists
+                and none of them validates as a ``ModelCard``.
         """
         self._require_key()
         import wandb
@@ -197,20 +238,27 @@ class WandbRegistrySource:
 
         Applies the alias filter, then builds one card per surviving artifact. A
         single artifact whose metadata cannot be validated into a ``ModelCard`` is
-        skipped with a logged warning (naming it and the underlying error) rather
-        than aborting the listing. The ``try`` wraps *only* per-artifact card
-        construction; the ``for`` loop that advances ``artifacts`` sits outside it,
-        so credential errors (raised by ``_require_key`` before this method) and
-        errors raised while traversing the registry propagate fail-loud — only a
-        single non-conforming artifact's card build is isolated here.
+        skipped with a logged warning (naming it and the underlying error) — unless
+        none validates, which raises ``NoReadableModelCardsError``; zero
+        alias-carrying artifacts still return ``[]``. The ``try`` wraps *only*
+        per-artifact card construction; the ``for`` loop that advances ``artifacts``
+        sits outside it, so credential errors (raised by ``_require_key`` before this
+        method) and errors raised while traversing the registry propagate fail-loud —
+        only a single non-conforming artifact's card build is isolated here.
 
         Args:
             artifacts: An iterable of wandb-artifact-like objects.
 
         Returns:
             The conforming cards, in input order.
+
+        Raises:
+            NoReadableModelCardsError: If at least one alias-carrying artifact exists
+                and none of them could be read as a ``ModelCard``.
         """
         cards: List[ModelCard] = []
+        invalid = 0
+        other_errors: List[Exception] = []
         for artifact in artifacts:
             if self._alias and self._alias not in (
                 getattr(artifact, "aliases", None) or []
@@ -220,14 +268,51 @@ class WandbRegistrySource:
                 cards.append(self._card_from_artifact(artifact))
             except Exception as e:
                 # Isolate one non-conforming artifact: skip it (with a warning) so a
-                # single bad card never aborts the whole listing.
+                # single bad card never aborts the whole listing, unless it turns out
+                # to be every alias-carrying artifact (see the guard below).
+                if isinstance(e, ValidationError):
+                    invalid += 1
+                else:
+                    other_errors.append(e)
                 label = getattr(artifact, "qualified_name", None) or getattr(
                     artifact, "name", "<unknown>"
                 )
-                logger.warning(
-                    "Skipping non-conforming model artifact %r: %s", label, e
-                )
+                logger.warning("%s %r: %s", SKIP_WARNING_PREFIX, label, e)
+        if (invalid or other_errors) and not cards:
+            raise self._no_readable_cards_error(invalid, other_errors)
         return cards
+
+    def _no_readable_cards_error(
+        self, invalid: int, other_errors: List[Exception]
+    ) -> "NoReadableModelCardsError":
+        """Build the guard's error, naming the actual cause of the failures.
+
+        Validation failures point at the registry shape (a re-seed); any other
+        per-artifact error is named, and the last one is chained as the cause, so a
+        transient registry fault is never misreported as a shape mismatch.
+        """
+        total = invalid + len(other_errors)
+        where = (
+            f"none of the {total} model artifact(s) carrying alias {self._alias!r} "
+            f"in {self._registry_project()} could be read as a ModelCard"
+        )
+        parts = []
+        if invalid:
+            parts.append(
+                f"{invalid} failed validation (this consumer requires "
+                f"sleap-roots-contracts {_CONTRACTS_VERSION} selector-shaped cards; "
+                "has the registry been re-seeded?)"
+            )
+        if other_errors:
+            last = other_errors[-1]
+            parts.append(
+                f"{len(other_errors)} failed with other errors (last: "
+                f"{type(last).__name__}: {last})"
+            )
+        error = NoReadableModelCardsError(f"{where}: {'; '.join(parts)}")
+        if other_errors:
+            error.__cause__ = other_errors[-1]
+        return error
 
     @staticmethod
     def _card_from_artifact(artifact: object) -> ModelCard:

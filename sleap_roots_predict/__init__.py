@@ -40,6 +40,7 @@ from sleap_roots_contracts import resolve_params  # noqa: F401
 from sleap_roots_predict.model_registry import (  # noqa: F401
     LocalCardSource,
     ModelCardSource,
+    NoReadableModelCardsError,
     WandbRegistrySource,
 )
 
@@ -71,6 +72,7 @@ __all__ = [
     "ModelCardSource",
     "LocalCardSource",
     "WandbRegistrySource",
+    "NoReadableModelCardsError",
     "WarmModelWorker",
     "PredictionArtifact",
     "PredictionManifest",

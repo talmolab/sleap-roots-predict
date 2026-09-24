@@ -8,8 +8,9 @@ once at import).
 from importlib.metadata import version
 
 import pytest
-from sleap_roots_contracts import ModelCard, ModelRef, ResolvedParams
+from sleap_roots_contracts import ModelRef, ResolvedParams
 
+from card_builders import make_card
 from sleap_roots_predict.model_selection import choose_models
 
 
@@ -24,15 +25,17 @@ def _card(
     ver="v1",
     checksum="sha",
     trained_with=None,
+    selectors=None,
 ):
     """Build a ModelCard with sensible defaults for one root type."""
-    return ModelCard(
+    return make_card(
+        root_type,
+        registry_id,
+        selectors=selectors,
         species=species,
         mode=mode,
         age_min=age_min,
         age_max=age_max,
-        root_type=root_type,
-        registry_id=registry_id or f"reg/{species}-{root_type}",
         version=ver,
         weights_checksum=checksum,
         sleap_nn_version=trained_with,
@@ -124,3 +127,83 @@ def test_runtime_sleap_nn_version_resolved_at_import():
     from sleap_roots_predict import model_selection
 
     assert model_selection._RUNTIME_SLEAP_NN_VERSION == version("sleap-nn")
+
+
+_CANOLA_PENNYCRESS = [("canola", "cylinder", 2, 13), ("pennycress", "cylinder", 2, 14)]
+
+
+def test_card_matches_through_any_one_selector():
+    card = _card("primary", selectors=_CANOLA_PENNYCRESS)
+    assert "primary" in choose_models(_params(species="pennycress", age=14), [card])
+
+
+def test_age_compared_against_the_matching_selectors_window_only():
+    card = _card("primary", selectors=_CANOLA_PENNYCRESS)
+    assert choose_models(_params(species="canola", age=14), [card]) == {}
+
+
+@pytest.mark.parametrize(
+    "species,age,expected", [("pennycress", "14", True), ("canola", "14", False)]
+)
+def test_string_age_at_a_per_selector_boundary(species, age, expected):
+    card = _card("primary", selectors=_CANOLA_PENNYCRESS)
+    assert (
+        "primary" in choose_models(_params(species=species, age=age), [card])
+    ) is expected
+
+
+def test_disjoint_windows_of_one_species_are_not_merged():
+    card = _card(
+        "primary",
+        selectors=[("canola", "cylinder", 2, 5), ("canola", "cylinder", 10, 13)],
+    )
+    assert choose_models(_params(species="canola", age=7), [card]) == {}
+
+
+@pytest.mark.parametrize("age", [2, 5, 13])
+def test_selectors_are_never_combined(age):
+    card = _card(
+        "primary",
+        selectors=[
+            ("canola", "cylinder", 2, 13),
+            ("arabidopsis", "multiplant cylinder", 2, 14),
+        ],
+    )
+    params = _params(species="canola", mode="multiplant cylinder", age=age)
+    assert choose_models(params, [card]) == {}
+
+
+def test_overlapping_selectors_on_one_card_are_one_match():
+    card = _card(
+        "primary", selectors=[("rice", "cylinder", 2, 5), ("rice", "cylinder", 3, 8)]
+    )
+    assert "primary" in choose_models(_params(age=4), [card])
+
+
+def test_duplicate_identical_selectors_are_one_match():
+    card = _card(
+        "primary", selectors=[("rice", "cylinder", 2, 5), ("rice", "cylinder", 2, 5)]
+    )
+    assert "primary" in choose_models(_params(age=3), [card])
+
+
+def test_two_cards_matching_through_different_selectors_are_ambiguous():
+    a = _card("primary", ver="a", selectors=[("canola", "cylinder", 2, 13)])
+    b = _card(
+        "primary",
+        ver="b",
+        registry_id="reg/other",
+        selectors=[("pennycress", "cylinder", 2, 14), ("canola", "cylinder", 5, 9)],
+    )
+    with pytest.raises(ValueError, match="Ambiguous"):
+        choose_models(_params(species="canola", age=6), [a, b])
+
+
+@pytest.mark.parametrize(
+    "age,expected", [(2, True), (13, True), (1, False), (14, False)]
+)
+def test_inclusive_boundaries_per_selector(age, expected):
+    card = _card("primary", selectors=_CANOLA_PENNYCRESS)
+    assert (
+        "primary" in choose_models(_params(species="canola", age=age), [card])
+    ) is expected
