@@ -115,7 +115,7 @@ report-entry shape) in the body.
       `test_should_stop_stops_after_first_scan` and the SIGTERM compose test count them. Update the `run_batch` `Raises:`
       docstring (`batch.py:322-330`), `__main__.py`'s module docstring and staging-error comment
       (`:1-12`, `:86-90`), and the `_collect_cards` docstring (`model_registry.py:196-214`).
-- [ ] 3.6 Draft (for the user to approve before posting) a #34 comment: fact 1 now has one
+- [x] 3.6 Draft (for the user to approve before posting) a #34 comment: fact 1 now has one
       deliberate exception (all-invalid → raise, reversing #32's test), why (a premature deploy
       otherwise exits `3`, which the exit gate passes), and its limit (it cannot see an
       incomplete-but-readable catalog, e.g. mid-re-seed).
@@ -225,16 +225,16 @@ report-entry shape) in the body.
       the new collection's `registry_id` without raising; `main` still resolves the old flat card;
       skip warnings number exactly 13 on the branch and 1 on `main`. Do not run it while training's
       6.0(b)/(e) alias-drop rehearsal is live on the canary collection.
-- [ ] 6.5 The gate, plus `uv build`, plus `uv run pytest -m gpu -rs` under a `windows_cuda` venv
+- [x] 6.5 The gate, plus `uv build`, plus `uv run pytest -m gpu -rs` under a `windows_cuda` venv
       reporting 0 skipped (it builds no cards, so A2 is the device-relevant check).
 - [ ] 6.6 `/review-pr`.
-- [ ] 6.7 Draft (for the user to approve before posting) a correction to the pipeline design of
+- [x] 6.7 Draft (for the user to approve before posting) a correction to the pipeline design of
       record (`2026-09-21-per-run-run-manifest-identity-design.md` §2.7 and §4 step 0a say merging
       #34 is ungated and pins a8; this change pins a9 and holds the merge for the canary).
 
 ## 7. Post-merge gates → tracked on #34
 
-- [ ] 7.1 Post (after user approval) the post-merge checklist on #34: **C1** re-run A1 with the new
+- [x] 7.1 Post (after user approval) the post-merge checklist on #34: **C1** re-run A1 with the new
       side read from the live selector registry after training 6.2; **C2** bump the predictor pin
       in `sleap-roots-pipeline` (tag + digest + `SRP_PREDICT_CONTAINER_DIGEST`,
       `sleap-roots-predictor-template.yaml:80,107`), run a small real Argo batch (selection
