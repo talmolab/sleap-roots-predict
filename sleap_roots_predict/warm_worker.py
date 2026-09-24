@@ -17,11 +17,11 @@ If any resolved root type cannot be materialized or loaded, the worker fails lou
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import sleap_io as sio
 from sleap_nn.inference import Predictor
-from sleap_roots_contracts import ModelRef, ResolvedParams, RootType
+from sleap_roots_contracts import ModelCard, ModelRef, ResolvedParams, RootType
 
 from sleap_roots_predict.model_registry import ModelCardSource, WandbRegistrySource
 from sleap_roots_predict.model_selection import choose_models
@@ -69,15 +69,24 @@ class WarmModelWorker:
         self._cards = None
         self._predictors: Dict[Tuple[str, str], Predictor] = {}
 
-    def load_catalog(self) -> None:
-        """List the source's cards once and cache them (idempotent).
+    @property
+    def source(self) -> ModelCardSource:
+        """The model-card source this worker lists and materializes from."""
+        return self._source
+
+    def load_catalog(self) -> List[ModelCard]:
+        """List the source's cards once, cache them (idempotent), and return them.
 
         ``resolve``/``get_predictors`` reuse the cache. Call this before a batch to
         surface catalog failures (missing credentials, registry errors, an
         unreadable registry) once, outside any per-scan error isolation.
+
+        Returns:
+            The cached catalog (the same list on every call).
         """
         if self._cards is None:
             self._cards = self._source.list_cards()
+        return self._cards
 
     def resolve(
         self,

@@ -298,18 +298,22 @@ def test_empty_input_raises(tmp_path: Path):
 def _recording_source():
     """A model source that records access; returns ``(source, calls)``.
 
-    ``list_cards()`` yields no cards, so every scan resolves to zero models and fails
-    at ``_predict_one``'s ``if not refs:`` guard -- *before* ``out_scan_dir.mkdir()``,
-    so a batch using this source writes nothing at all. That makes it the cheap stand-in
-    for tests about the forward-copy, which must hold independently of prediction, and
-    it doubles as a probe for "no model-source interaction happened".
+    ``list_cards()`` yields one card no scan can match (an unmodelled species), so every
+    scan resolves to zero models and fails at ``_predict_one``'s ``if not refs:`` guard --
+    *before* ``out_scan_dir.mkdir()``, so a batch using this source writes nothing at all.
+    (Not an *empty* catalog: that is a batch-level error of its own.) That makes it the
+    cheap stand-in for tests about the forward-copy, which must hold independently of
+    prediction, and it doubles as a probe for "no model-source interaction happened".
     """
+    from card_builders import make_card
+
     calls = {"n": 0}
+    unmatched = make_card("primary", "reg/unmodelled", species="no-such-species")
 
     class _RecordingSource:
         def list_cards(self):
             calls["n"] += 1
-            return []
+            return [unmatched]
 
         def materialize(self, ref):
             calls["n"] += 1
@@ -1337,3 +1341,106 @@ def test_only_errored_scans_skip_the_catalog(tmp_path):
     result = run_batch(inp, tmp_path / "out", source=source)
     assert [s.status for s in result.scans] == ["failed"]
     assert calls["n"] == 0
+
+
+class _EmptySource:
+    """A model source whose catalog is empty (lists no cards at all)."""
+
+    def list_cards(self):
+        """Return no cards."""
+        return []
+
+    def materialize(self, ref):
+        """Never reached: nothing can be selected from an empty catalog."""
+        raise AssertionError("materialize should never be called")
+
+
+def test_empty_catalog_aborts_the_batch(tmp_path):
+    """A processable scan against an empty catalog is a batch-level error, not exit 3."""
+    from sleap_roots_predict.model_registry import NoReadableModelCardsError
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    with pytest.raises(NoReadableModelCardsError, match="no model cards"):
+        run_batch(inp, tmp_path / "out", source=_EmptySource())
+
+
+def test_empty_catalog_cli_exits_1_with_the_staging_line(tmp_path, monkeypatch, caplog):
+    """The CLI logs its one-line staging message for an empty catalog and re-raises."""
+    from sleap_roots_predict import batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+    from sleap_roots_predict.model_registry import NoReadableModelCardsError
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    real_run_batch = batch_mod.run_batch
+
+    def _with_empty_source(*args, **kwargs):
+        kwargs.setdefault("source", _EmptySource())
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _with_empty_source)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(NoReadableModelCardsError):
+            main([str(inp), str(tmp_path / "out")])
+    assert "Batch aborted" in caplog.text
+
+
+def test_empty_catalog_with_only_errored_scans_is_not_loaded(tmp_path):
+    """No processable scan means no load, so an empty catalog changes nothing (exit 3)."""
+    inp = tmp_path / "in"
+    inp.mkdir()
+    (inp / "run_manifest.json").write_text(
+        json.dumps(
+            {"schema_version": "1", "pipeline_run_id": "r", "scan_keys": ["ghost"]}
+        )
+    )
+    result = run_batch(inp, tmp_path / "out", source=_EmptySource())
+    assert [s.status for s in result.scans] == ["failed"]
+
+
+def test_catalog_failure_during_requested_stop_propagates(
+    tmp_path, caplog, monkeypatch
+):
+    """A catalog failure with a stop pending exits 1 (raises), not 143.
+
+    The stop is requested *inside* ``list_cards()``, i.e. after that iteration's stop
+    check, which is the only window in which the two can coincide; the spy asserts the
+    stop really was pending when the catalog failed.
+    """
+    import signal
+
+    import sleap_roots_predict.batch as batch_mod
+    from sleap_roots_predict.__main__ import main
+    from sleap_roots_predict.model_registry import NoReadableModelCardsError
+
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanA", _RICE)
+    seen = {}
+
+    class _StopThenEmpty:
+        def list_cards(self):
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            seen["stop_pending"] = seen["should_stop"]()
+            return []
+
+        def materialize(self, ref):
+            raise AssertionError("materialize should never be called")
+
+    real_run_batch = batch_mod.run_batch
+
+    def _with_source(*args, **kwargs):
+        seen["should_stop"] = kwargs["should_stop"]
+        kwargs.setdefault("source", _StopThenEmpty())
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _with_source)
+    prev_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(NoReadableModelCardsError):
+                main([str(inp), str(tmp_path / "out")])
+    finally:
+        signal.signal(signal.SIGTERM, prev_handler)
+    assert seen["stop_pending"], "stop was not pending when the catalog failed"
+    assert not any("Terminated by SIGTERM" in r.message for r in caplog.records)

@@ -5,7 +5,12 @@ import json
 import sys
 from pathlib import Path
 
-_MODES = ("cylinder", "multiplant cylinder", "plate")
+from typing import get_args
+
+from sleap_roots_contracts import Mode
+
+# Every mode the contract allows, so a new or renamed mode is covered on a rerun.
+_MODES = get_args(Mode)
 
 
 def _contexts(card):

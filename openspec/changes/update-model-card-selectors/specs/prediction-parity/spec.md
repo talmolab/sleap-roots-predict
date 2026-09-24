@@ -165,7 +165,9 @@ A full (non-gap) parity report entry SHALL identify the evaluated card's selecti
 `selectors` list, one JSON object per card selector in the card's order, each carrying `species`,
 `mode`, `age_min` and `age_max`. The entry SHALL NOT carry top-level `species`, `mode`, `age_min`
 or `age_max` fields. One entry SHALL be produced per card, not per selector. Gap entries are
-unaffected.
+unaffected. The multi-model runner SHALL evaluate each card once, supplying no selector, so for a
+multi-selector card the basename-search age step is skipped and `selectors` describes the
+contexts the card serves, not the contexts its evaluated ground truth is known to cover.
 
 #### Scenario: A multi-selector card yields one entry listing every selector
 

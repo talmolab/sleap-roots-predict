@@ -148,8 +148,9 @@ per-artifact defects. The error SHALL distinguish validation failures, for which
 registry's card shape, from any other per-artifact error, which it names and chains as the cause,
 so a transient registry fault is never reported as a shape mismatch. Building the error SHALL NOT
 itself be able to raise. A registry in which **no** artifact carries the configured alias SHALL still
-return an empty list without raising. This rule guards only a catalog with zero readable cards; it
-does not detect a catalog that is readable but incomplete.
+return an empty list without raising (the batch runner separately treats an empty catalog as a
+staging error — see the `predict-container` capability). This rule guards only a catalog with zero
+readable cards; it does not detect a catalog that is readable but incomplete.
 
 #### Scenario: Registry defaults to the live production registry
 
@@ -237,8 +238,8 @@ reading the live production registry — the default source is the registry, not
 and there SHALL be no silent `LocalCardSource` fallback. Constructing the worker SHALL perform no
 network access; a missing `WANDB_API_KEY` SHALL surface fail-loud on the first call that lists cards —
 `load_catalog()`, or the first `resolve()` / `get_predictors()` when `load_catalog()` has not been
-called — not at construction. `load_catalog()` SHALL list the source's cards and cache them, and
-SHALL be idempotent: repeat calls, and every later `resolve()` / `get_predictors()`, SHALL reuse the
+called — not at construction. `load_catalog()` SHALL list the source's cards, cache them and
+return the cached list, and SHALL be idempotent: repeat calls, and every later `resolve()` / `get_predictors()`, SHALL reuse the
 cached cards without listing again. `resolve(params)` SHALL return `dict[RootType, ModelRef]`
 without loading weights. `get_predictors(params)` SHALL resolve, `materialize` each `ModelRef`,
 build a `Predictor` via `make_predictor`, and cache it keyed by `(registry_id, version)` so a model

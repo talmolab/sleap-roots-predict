@@ -228,3 +228,11 @@ def test_load_catalog_after_resolve_does_not_list_again(rice_source):
 def test_load_catalog_without_key_names_it(clean_wandb_env):
     with pytest.raises(RuntimeError, match="WANDB_API_KEY"):
         WarmModelWorker().load_catalog()
+
+
+def test_load_catalog_returns_the_cached_cards(rice_source):
+    """load_catalog returns the catalog it cached, so callers can check it is non-empty."""
+    worker = WarmModelWorker(source=rice_source)
+    cards = worker.load_catalog()
+    assert cards == rice_source.list_cards()
+    assert worker.load_catalog() is cards

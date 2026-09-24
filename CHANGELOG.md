@@ -126,9 +126,22 @@ All notable changes to this project are documented here. The format is based on
 - **Batch exit code**: a missing `WANDB_API_KEY`, a registry/network error while listing model
   cards, and an unreadable catalog (the guard above) now exit `1` instead of `3` with every scan
   failed.
-- **Note:** immediately after this change deploys, the `:latest`/`:main` images read only
-  the canary collection's re-seeded `ModelCard` until the full re-seed (`sleap-roots-training`
-  6.2).
+- **Empty catalog**: a batch with a processable scan whose model-card source lists **no** cards
+  (e.g. nothing carries the configured alias) now also raises `NoReadableModelCardsError` and
+  exits `1`, instead of exiting `3` with every scan failed.
+- **Deploy gate — do not bump the predictor pin in
+  `sleap-roots-pipeline/sleap-roots-predictor-template.yaml` until the `sleap-roots-training`
+  re-seed (6.2) is live and verified.** This image reads only selector-shaped cards. While the
+  registry is partly re-seeded (today: one canary collection), the guard above cannot fire —
+  one card is readable — so every scan outside the re-seeded contexts resolves zero models and
+  the batch exits `3`, which the pipeline's exit gate **passes**. Until then the `:latest`/`:main`
+  images read only the canary collection's card.
+- **One-time full recompute and `.slp` rename on the first post-migration run.** Every
+  `registry_id` changes under the re-seed's collection-id scheme; the idempotency key and
+  predict's skip-if-done hash it, so every scan is recomputed once, and every per-root `.slp`
+  filename (which embeds the model slug) changes once — the writer removes the old file only
+  after the new outputs are written. Re-baseline the A4 batch-oracle ("re-run a done batch → 0 GPU
+  pods") **after** the migration; never compare across it.
 
 ### Changed (BREAKING)
 

@@ -176,6 +176,13 @@ class WandbRegistrySource:
                 "WANDB_CACHE_DIR"
             )
 
+    def __repr__(self) -> str:
+        """Name the registry and alias this source lists, for error messages."""
+        return (
+            f"WandbRegistrySource(registry={self._registry!r}, "
+            f"entity={self._entity!r}, alias={self._alias!r})"
+        )
+
     def _require_key(self) -> None:
         """Raise before any network call if credentials are absent."""
         if not os.environ.get("WANDB_API_KEY"):

@@ -17,7 +17,10 @@ order of stop checks is unchanged. A catalog that cannot be
 listed — missing credentials, a registry/network error, or a registry with production artifacts
 none of which is readable (per the `model-management` "Wandb Registry Source With Version Pinning"
 requirement) — is therefore a batch-level error (exit `1`) rather than one isolated failure per
-scan (exit `3`, which these conditions produced before this change). It follows that the catalog
+scan (exit `3`, which these conditions produced before this change). A catalog that lists **no
+cards at all** (e.g. a registry where nothing carries the configured alias, or an empty local
+source) SHALL likewise raise a batch-level `ValueError` naming the source, since no scan can be
+predicted from it. It follows that the catalog
 is not loaded when a stop is requested before the first processable scan, nor when every
 discovered scan already carries a discovery error (no scan could use it); in both cases the batch
 proceeds exactly as without the load. Scans recorded `failed` for a discovery error before the
@@ -37,7 +40,8 @@ isolated per-scan failure from a genuine crash:
   validation before discovery ever runs — **a failure to forward `run_manifest.json` to the
   output directory, per the "Run-manifest forward-copy" requirement** — **zero scans
   discovered**: `discover_scans` returns an empty list because no sidecar exists anywhere under a
-  present input directory — or **a model-card catalog with no readable production card**), or a
+  present input directory — or **a model-card catalog with no readable production card, or no
+  card at all**), or a
   genuine pod-level crash (e.g. model-registry authentication failing before any scan is
   attempted). All are "the batch could not meaningfully run" conditions and are not split into
   separate codes; Argo's `retryStrategy` should retry any of them. The CLI SHALL log a clear
@@ -120,6 +124,18 @@ way; the mechanism differs, the outcome doesn't.
 - **THEN** `run_batch` raises before any scan is predicted, writes no per-scan outputs, the CLI
   logs its one-line staging-error message, and the process exits `1` — not `3` with every scan
   failed
+
+#### Scenario: An empty catalog is a staging error
+
+- **WHEN** a batch with a processable scan runs against a model-card source that lists no cards
+- **THEN** `run_batch` raises a `ValueError` naming the source before any scan is predicted, the
+  CLI logs its one-line staging-error message, and the process exits `1` — not `3` with every
+  scan failed
+
+#### Scenario: An empty catalog with only errored scans is not loaded
+
+- **WHEN** every discovered scan carries a discovery error and the source would list no cards
+- **THEN** the catalog is not loaded, each scan is recorded `failed`, and the process exits `3`
 
 #### Scenario: The catalog is loaded once per batch, before the first scan
 

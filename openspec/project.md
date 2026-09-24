@@ -68,7 +68,7 @@ importable library.
     `distance_metrics`/`visibility_metrics`, never OKS scores), `within_tolerance`, and
     `run_parity_harness` (loops the per-card evaluation over many `ModelCard`s, isolating one
     card's failure as a gap entry instead of aborting the run — resolves
-    sleap-roots-pipeline#15). Measured results across all 13 production models:
+    sleap-roots-pipeline#15). Measured results across the 13 production models registered at the 2026-08-04 measurement (8 physical weight sets):
     `docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`, regenerable via
     the committed `scripts/run_parity_harness.py` (lab-only, credentialed; manual/on-demand,
     no CI wiring)

@@ -1066,6 +1066,10 @@ def build_report_entry(
             identity fields, carried through unchanged.
         ``selectors``: the card's selection contexts, one
             ``{species, mode, age_min, age_max}`` object per selector in card order.
+            **Descriptive of the card, not of the evaluation**: the harness
+            evaluates each card once, with no selector, so for a multi-selector
+            card these are the contexts the model serves, not the contexts its
+            resolved ground truth is known to cover.
         ``weights_checksum``: identifies the *physical* trained weights.
             Several ``registry_id``s can share one checksum (e.g. a primary
             and lateral alias pointing at the same export) — **dedupe by
@@ -1215,6 +1219,12 @@ def evaluate_model_card(
     (:func:`build_report_entry`). Extracted so this composition is reusable
     (e.g. a future ``peak_threshold`` sweep) and independently testable,
     rather than living only in a one-off script.
+
+    Evaluates the card **once, with no selector**: for a multi-selector card the
+    basename-search age tie-breaker is therefore skipped (never guessed), and the
+    entry's ``selectors`` describe the card rather than the evaluated ground truth.
+    Callers needing a per-context evaluation call :func:`resolve_ground_truth` with
+    ``selector=`` directly.
 
     Args:
         card: The production ``ModelCard`` to evaluate.

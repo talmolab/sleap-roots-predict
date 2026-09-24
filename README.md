@@ -267,7 +267,8 @@ required local step in the pre-merge gate — run it on a CUDA/MPS machine:
 `parity` marker (`WANDB_API_KEY` + `SRP_PARITY_DATA_DIR`, a basename-search root for ground
 truth whose video paths were reorganized; deselected by default/in CI, like
 `gpu`/`acceptance`/`wandb` — run with `uv run pytest -m parity -s`). The decided tolerance and
-the full measured results across all 13 production models are in
+the full measured results across the 13 production models registered at the 2026-08-04
+measurement (8 physical weight sets) are in
 [`docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`](docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json)
 (design writeup:
 [`2026-08-03-define-parity-tolerance-design.md`](docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md)).

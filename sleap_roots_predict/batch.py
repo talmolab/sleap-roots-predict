@@ -29,7 +29,10 @@ from sleap_roots_contracts import (
 )
 from sleap_roots_contracts.identity import compute_idempotency_key
 
-from sleap_roots_predict.model_registry import ModelCardSource
+from sleap_roots_predict.model_registry import (
+    ModelCardSource,
+    NoReadableModelCardsError,
+)
 from sleap_roots_predict.output_contract import (
     predictions_json_path,
     resolve_identity,
@@ -376,8 +379,14 @@ def run_batch(
             # a batch-level error (exit 1), not one isolated failure per scan (exit 3,
             # which the pipeline's exit gate passes). Placed after this iteration's stop
             # check so it adds no should_stop() call, and skipped entirely when no scan
-            # is processable.
-            worker.load_catalog()
+            # is processable. An empty catalog is the same fault in another shape: a
+            # processable scan can never be predicted from it (e.g. a typo'd alias, or a
+            # production alias removed mid-rollout), so it must not pass as exit 3 either.
+            if not worker.load_catalog():
+                raise NoReadableModelCardsError(
+                    f"the model-card source listed no model cards ({worker.source!r}); "
+                    "no scan in this batch can be predicted"
+                )
             catalog_loaded = True
 
         out_scan_dir = output_dir / scan.scan_key

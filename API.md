@@ -102,6 +102,23 @@ from sleap_roots_predict import (
 )
 ```
 
+#### `WarmModelWorker.load_catalog` and `NoReadableModelCardsError`
+
+```python
+from sleap_roots_predict import NoReadableModelCardsError, WarmModelWorker
+
+worker = WarmModelWorker()        # default source: the production WandbRegistrySource
+cards = worker.load_catalog()     # list once, cache, return; resolve() reuses the cache
+```
+
+`load_catalog()` lists the source's cards once and returns the cached list (idempotent;
+`resolve()`/`get_predictors()` reuse it). `WandbRegistrySource.list_cards()` raises
+`NoReadableModelCardsError` — a `ValueError` subclass — when production-aliased artifacts exist
+but none can be read as a `ModelCard`; `run_batch` raises the same error when the catalog lists
+no cards at all. Catch it specifically to tell "the registry is not usable by this build" from
+other staging errors. Matching and exit-code semantics: the `model-management` and
+`predict-container` OpenSpec specs.
+
 #### `resolve_params`
 ```python
 resolve_params(
@@ -214,8 +231,9 @@ downstream traits stage's `input_dir`. A copy failure raises as a batch-level st
 rather than being swallowed as best-effort. Loads
 models **once** via a single resident `WarmModelWorker` (`source=None` → the production
 `WandbRegistrySource`); the model-card catalog is loaded once, before the first processable
-scan, so a registry with no readable production card raises `NoReadableModelCardsError`
-(exit `1`) as a batch-level error rather than failing every scan individually. Per scan:
+scan, so a registry with no readable production card — or a catalog with no cards at all —
+raises `NoReadableModelCardsError` (exit `1`) as a batch-level error rather than failing every
+scan individually. Per scan:
 compares a recomputed idempotency key
 (`compute_idempotency_key`) against the prior run's own artifacts (no new storage — the key
 is recovered from the previously-copied sidecar and previously-written manifest), skipping
