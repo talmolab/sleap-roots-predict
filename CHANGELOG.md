@@ -132,7 +132,7 @@ All notable changes to this project are documented here. The format is based on
 - **Deploy gate — do not bump the predictor pin in
   `sleap-roots-pipeline/sleap-roots-predictor-template.yaml` until the `sleap-roots-training`
   re-seed (6.2) is live and verified.** This image reads only selector-shaped cards. While the
-  registry is partly re-seeded (today: one canary collection), the guard above cannot fire —
+  registry is partly re-seeded (as of 2026-09-24: one canary collection), the guard above cannot fire —
   one card is readable — so every scan outside the re-seeded contexts resolves zero models and
   the batch exits `3`, which the pipeline's exit gate **passes**. Until then the `:latest`/`:main`
   images read only the canary collection's card.

@@ -83,7 +83,7 @@ it propagates as exit `1`, not `143`.
 
 #### Scenario: A scan resolving to zero models is failed
 
-- **WHEN** a scan's params match no model for any root type
+- **WHEN** a scan's params match no model for any root type in a non-empty catalog
 - **THEN** the scan's status is `failed` (no empty-artifacts manifest is written for it), the
   batch continues, and the process exits `3`
 
