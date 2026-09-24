@@ -213,7 +213,7 @@ report-entry shape) in the body.
       the control make A2 inconclusive, not passed. Manifests may differ only in `registry_id`,
       `version`, `weights_checksum`, the `.slp` filename/path slug, the idempotency key and
       timestamps. Record the commit sha, snapshot path and device in the PR; do not commit outputs.
-- [ ] 6.3 Before the canary: `uv run pytest -m wandb -rA` with `WANDB_API_KEY` set → 0 skipped;
+- [x] 6.3 Before the canary: `uv run pytest -m wandb -rA` with `WANDB_API_KEY` set → 0 skipped;
       both wandb tests fail, each failure naming the guard's class, registry and alias; the CLI
       test shows "Batch aborted" and exit `1`. (Without the guard the failure would be
       `assert cards` — this check tells them apart.) Record it.
