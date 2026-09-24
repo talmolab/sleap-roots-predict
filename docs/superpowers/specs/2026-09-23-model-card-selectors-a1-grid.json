@@ -1,0 +1,1352 @@
+[
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 1
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 2
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 3
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 4
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 5
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 6
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 7
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 8
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 9
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 10
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 11
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 12
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 13
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 14
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "cylinder",
+    "age": 15
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 1
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 2
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 3
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 4
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 5
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 6
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 7
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 8
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 9
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 10
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 11
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 12
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 13
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 14
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "multiplant cylinder",
+    "age": 15
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 1
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 2
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 3
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 4
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 5
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 6
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 7
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 8
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 9
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 10
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 11
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 12
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 13
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 14
+  },
+  {
+    "species": "arabidopsis",
+    "mode": "plate",
+    "age": 15
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 1
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 2
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 3
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 4
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 5
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 6
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 7
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 8
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 9
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 10
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 11
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 12
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 13
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 14
+  },
+  {
+    "species": "canola",
+    "mode": "cylinder",
+    "age": 15
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 1
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 2
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 3
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 4
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 5
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 6
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 7
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 8
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 9
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 10
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 11
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 12
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 13
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 14
+  },
+  {
+    "species": "canola",
+    "mode": "multiplant cylinder",
+    "age": 15
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 1
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 2
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 3
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 4
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 5
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 6
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 7
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 8
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 9
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 10
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 11
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 12
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 13
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 14
+  },
+  {
+    "species": "canola",
+    "mode": "plate",
+    "age": 15
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 1
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 2
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 3
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 4
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 5
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 6
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 7
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 8
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 9
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 10
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 11
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 12
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 13
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 14
+  },
+  {
+    "species": "pennycress",
+    "mode": "cylinder",
+    "age": 15
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 1
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 2
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 3
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 4
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 5
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 6
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 7
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 8
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 9
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 10
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 11
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 12
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 13
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 14
+  },
+  {
+    "species": "pennycress",
+    "mode": "multiplant cylinder",
+    "age": 15
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 1
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 2
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 3
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 4
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 5
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 6
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 7
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 8
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 9
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 10
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 11
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 12
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 13
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 14
+  },
+  {
+    "species": "pennycress",
+    "mode": "plate",
+    "age": 15
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 1
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 2
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 3
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 4
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 5
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 6
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 7
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 8
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 9
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 10
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 11
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 12
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 13
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 14
+  },
+  {
+    "species": "rice",
+    "mode": "cylinder",
+    "age": 15
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 1
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 2
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 3
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 4
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 5
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 6
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 7
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 8
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 9
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 10
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 11
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 12
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 13
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 14
+  },
+  {
+    "species": "rice",
+    "mode": "multiplant cylinder",
+    "age": 15
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 1
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 2
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 3
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 4
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 5
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 6
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 7
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 8
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 9
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 10
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 11
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 12
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 13
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 14
+  },
+  {
+    "species": "rice",
+    "mode": "plate",
+    "age": 15
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 1
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 2
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 3
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 4
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 5
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 6
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 7
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 8
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 9
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 10
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 11
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 12
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 13
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 14
+  },
+  {
+    "species": "soybean",
+    "mode": "cylinder",
+    "age": 15
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 1
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 2
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 3
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 4
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 5
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 6
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 7
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 8
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 9
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 10
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 11
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 12
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 13
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 14
+  },
+  {
+    "species": "soybean",
+    "mode": "multiplant cylinder",
+    "age": 15
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 1
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 2
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 3
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 4
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 5
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 6
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 7
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 8
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 9
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 10
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 11
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 12
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 13
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 14
+  },
+  {
+    "species": "soybean",
+    "mode": "plate",
+    "age": 15
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 1
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 2
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 3
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 4
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 5
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 6
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 7
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 8
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 9
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 10
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 11
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 12
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 13
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 14
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "cylinder",
+    "age": 15
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 1
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 2
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 3
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 4
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 5
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 6
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 7
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 8
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 9
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 10
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 11
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 12
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 13
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 14
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "multiplant cylinder",
+    "age": 15
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 1
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 2
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 3
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 4
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 5
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 6
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 7
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 8
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 9
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 10
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 11
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 12
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 13
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 14
+  },
+  {
+    "species": "unmodelled-species",
+    "mode": "plate",
+    "age": 15
+  }
+]

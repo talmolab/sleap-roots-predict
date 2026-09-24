@@ -171,12 +171,12 @@ report-entry shape) in the body.
 
 ## 6. PR and merge gates
 
-- [ ] 6.0 Push and open a **draft** PR titled `feat(selection)!: migrate to ModelCard.selectors
+- [x] 6.0 Push and open a **draft** PR titled `feat(selection)!: migrate to ModelCard.selectors
       (contracts 0.1.0a9)`, body "Part of #34" (replace `/pr-description`'s literal
       `Closes #…` line; do not link #34 in the Development sidebar). Include a ready-made squash
       message ending with the `BREAKING CHANGE:` footer. Check each commit is green:
       `GIT_SEQUENCE_EDITOR=: git rebase -x "<the gate>" main`.
-- [ ] 6.1 **A1 — selection-equivalence oracle.** Commit `scripts/a1_selection_oracle.py` (calls
+- [x] 6.1 **A1 — selection-equivalence oracle.** Commit `scripts/a1_selection_oracle.py` (calls
       only `list_cards`/`LocalCardSource` + `choose_models`, never card fields; copied unmodified
       into the `main` worktree, sha256 recorded on both sides) and `scripts/a1_compare.py` (exits
       non-zero on any mismatch). Three environments exchange JSON:

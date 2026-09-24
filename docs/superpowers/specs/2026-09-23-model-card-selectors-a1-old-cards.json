@@ -1,0 +1,145 @@
+[
+  {
+    "age_max": 5,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/rice-cylinder-crown-age2-5",
+    "root_type": "crown",
+    "sleap_nn_version": null,
+    "species": "rice",
+    "version": "v0",
+    "weights_checksum": "58af1578e4faddd6bdc1f21bccefc45c"
+  },
+  {
+    "age_max": 5,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/rice-cylinder-primary-age2-5",
+    "root_type": "primary",
+    "sleap_nn_version": null,
+    "species": "rice",
+    "version": "v0",
+    "weights_checksum": "bb373c5c5ddd8d7711b8b5cf39c4d638"
+  },
+  {
+    "age_max": 14,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/arabidopsis-cylinder-lateral-age2-14",
+    "root_type": "lateral",
+    "sleap_nn_version": null,
+    "species": "arabidopsis",
+    "version": "v0",
+    "weights_checksum": "329334a5d8897eebbbf8b169725c894f"
+  },
+  {
+    "age_max": 14,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/arabidopsis-cylinder-primary-age2-14",
+    "root_type": "primary",
+    "sleap_nn_version": null,
+    "species": "arabidopsis",
+    "version": "v0",
+    "weights_checksum": "a6b27968b01c7640335359d2539a8ae3"
+  },
+  {
+    "age_max": 14,
+    "age_min": 2,
+    "mode": "multiplant cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/arabidopsis-multiplant-cylinder-lateral-age2-14",
+    "root_type": "lateral",
+    "sleap_nn_version": null,
+    "species": "arabidopsis",
+    "version": "v0",
+    "weights_checksum": "329334a5d8897eebbbf8b169725c894f"
+  },
+  {
+    "age_max": 14,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/pennycress-cylinder-lateral-age2-14",
+    "root_type": "lateral",
+    "sleap_nn_version": null,
+    "species": "pennycress",
+    "version": "v0",
+    "weights_checksum": "75e1b1e7671e0b0c01176165ed6f4076"
+  },
+  {
+    "age_max": 14,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/pennycress-cylinder-primary-age2-14",
+    "root_type": "primary",
+    "sleap_nn_version": null,
+    "species": "pennycress",
+    "version": "v0",
+    "weights_checksum": "a6b27968b01c7640335359d2539a8ae3"
+  },
+  {
+    "age_max": 13,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/canola-cylinder-lateral-age2-13",
+    "root_type": "lateral",
+    "sleap_nn_version": null,
+    "species": "canola",
+    "version": "v0",
+    "weights_checksum": "75e1b1e7671e0b0c01176165ed6f4076"
+  },
+  {
+    "age_max": 13,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/canola-cylinder-primary-age2-13",
+    "root_type": "primary",
+    "sleap_nn_version": null,
+    "species": "canola",
+    "version": "v0",
+    "weights_checksum": "a6b27968b01c7640335359d2539a8ae3"
+  },
+  {
+    "age_max": 8,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/soybean-cylinder-lateral-age2-8",
+    "root_type": "lateral",
+    "sleap_nn_version": null,
+    "species": "soybean",
+    "version": "v0",
+    "weights_checksum": "92b32e117d072ad69baa4d585af73b7d"
+  },
+  {
+    "age_max": 8,
+    "age_min": 2,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/soybean-cylinder-primary-age2-8",
+    "root_type": "primary",
+    "sleap_nn_version": null,
+    "species": "soybean",
+    "version": "v0",
+    "weights_checksum": "e2dec889eff6b4faa91c2d7ccdafbb99"
+  },
+  {
+    "age_max": 10,
+    "age_min": 6,
+    "mode": "cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/rice-cylinder-crown-age6-10",
+    "root_type": "crown",
+    "sleap_nn_version": null,
+    "species": "rice",
+    "version": "v0",
+    "weights_checksum": "0e4d7d439513b6c3e60dd2b962efd6c8"
+  },
+  {
+    "age_max": 14,
+    "age_min": 2,
+    "mode": "multiplant cylinder",
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/arabidopsis-multiplant-cylinder-primary-age2-14",
+    "root_type": "primary",
+    "sleap_nn_version": null,
+    "species": "arabidopsis",
+    "version": "v0",
+    "weights_checksum": "a6b27968b01c7640335359d2539a8ae3"
+  }
+]
