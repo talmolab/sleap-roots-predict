@@ -197,7 +197,7 @@ report-entry shape) in the body.
       Pass iff every cell's outcome class (selected model / skip / raise) and selected model agree,
       the new side never raises, and both sides select in the same, non-zero number of cells.
       Commit inputs and tables as `docs/superpowers/specs/<date>-model-card-selectors-a1-*.json`.
-- [ ] 6.2 **A2 — real-inference equivalence.** Commit `scripts/a2_run_local.py`, calling
+- [x] 6.2 **A2 — real-inference equivalence.** Commit `scripts/a2_run_local.py`, calling
       `run_batch(in, out, source=LocalCardSource([...]))` with cards loaded from A1's dumps ((ii) on
       `main`, (i) on the branch) and directories mapped by `source_model_id` into the
       models-downloader snapshot (`c:\repos\models-downloader\tests\data\models_downloader_input\20250204_models`,
