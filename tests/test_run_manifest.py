@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from sleap_roots_contracts import RUN_MANIFEST_FILENAME
 
+from manifest_builders import write_run_manifest
 from sleap_roots_predict.run_manifest import copy_run_manifest_forward
 
 _LOGGER = "sleap_roots_predict.run_manifest"
@@ -306,6 +307,8 @@ def test_a_failed_forward_keeps_a_pre_existing_output_directory(
 def _raise_eacces_for(monkeypatch, target: Path):
     """Make stat'ing exactly ``target`` fail with EACCES, delegating everything else.
 
+    Used for the same-file (identity) check, which stats both paths.
+
     ``Path.is_file()`` only swallows the errnos in ``pathlib._IGNORED_ERRNOS``
     (ENOENT, ENOTDIR, EBADF, WSAENOTSOCK) -- ``EACCES`` is not among them, so a
     permission problem propagates rather than reading as "absent". Injected at
@@ -327,23 +330,26 @@ def _raise_eacces_for(monkeypatch, target: Path):
     monkeypatch.setattr(os, "stat", _stat)
 
 
-def test_permission_error_from_the_presence_check_is_reported_cleanly(
+def test_permission_error_from_the_read_is_reported_cleanly(
     tmp_path: Path, caplog, monkeypatch
 ):
-    """The presence check is the *first* thing that touches the filesystem, so it is
-    the first thing that can fail -- and it was the one step left outside the block
-    that satisfies the spec's "log both directories before raising". An unreadable
-    source manifest (an NFS ACL misconfiguration, or a race narrowing the mode) skipped
-    the mandated diagnostic entirely and surfaced only as the CLI's generic line.
-    """
+    """The read is the first filesystem step, so the first that can fail; an unreadable
+    source manifest (an NFS ACL misconfiguration) must still get the log naming both
+    directories, not only the CLI's generic line."""
+    import sleap_roots_predict.run_manifest as rm_mod
+
     _stage(tmp_path / "in")
     out = tmp_path / "out"
-    _raise_eacces_for(monkeypatch, tmp_path / "in" / RUN_MANIFEST_FILENAME)
+
+    def _denied(*_a, **_k):
+        raise PermissionError(errno.EACCES, "Permission denied")
+
+    monkeypatch.setattr(rm_mod, "read_run_manifest", _denied)
     with caplog.at_level(logging.ERROR, logger=_LOGGER):
         with pytest.raises(PermissionError):
             copy_run_manifest_forward(tmp_path / "in", out)
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-    assert errors, "presence-check failure propagated without the mandated log"
+    assert errors, "read failure propagated without the mandated log"
     assert (tmp_path / "in").as_posix() in errors[0].message
     assert out.as_posix() in errors[0].message
 
@@ -492,3 +498,214 @@ def test_zero_byte_manifest_is_forwarded_verbatim(tmp_path: Path):
     out = tmp_path / "out"
     copy_run_manifest_forward(tmp_path / "in", out)
     assert (out / RUN_MANIFEST_FILENAME).read_bytes() == b""
+
+
+_PER_RUN = "run_manifest.wf-a.json"
+
+
+def _resolve(input_dir, run_id):
+    from sleap_roots_predict.run_manifest import _resolve_run_manifest
+
+    return _resolve_run_manifest(input_dir, run_id)
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_resolver_prefers_the_per_run_manifest_silently(tmp_path, caplog):
+    write_run_manifest(
+        tmp_path, RUN_MANIFEST_FILENAME, pipeline_run_id="hpdpf", scan_keys=["s1", "s2"]
+    )
+    write_run_manifest(tmp_path, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"])
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        loaded = _resolve(tmp_path, "wf-a")
+    assert loaded.read.is_per_run and loaded.read.filename == _PER_RUN
+    assert loaded.manifest.scan_keys == ["s1"]
+    assert _warnings(caplog) == []
+
+
+def test_resolver_warns_when_a_legacy_manifest_names_another_run(tmp_path, caplog):
+    write_run_manifest(
+        tmp_path, RUN_MANIFEST_FILENAME, pipeline_run_id="hpdpf", scan_keys=["s1"]
+    )
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        loaded = _resolve(tmp_path, "wf-a")
+    assert loaded.read.filename == RUN_MANIFEST_FILENAME
+    (msg,) = _warnings(caplog)
+    assert "wf-a" in msg and "hpdpf" in msg
+
+
+def test_resolver_is_silent_when_a_legacy_manifest_names_this_run(tmp_path, caplog):
+    write_run_manifest(
+        tmp_path, RUN_MANIFEST_FILENAME, pipeline_run_id="wf-a", scan_keys=["s1"]
+    )
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        _resolve(tmp_path, "wf-a")
+    assert _warnings(caplog) == []
+
+
+def test_resolver_warns_about_unread_per_run_manifests_under_an_identity(
+    tmp_path, caplog
+):
+    write_run_manifest(
+        tmp_path, RUN_MANIFEST_FILENAME, pipeline_run_id="wf-a", scan_keys=["s1"]
+    )
+    write_run_manifest(
+        tmp_path, "run_manifest.wf-b.json", pipeline_run_id="wf-b", scan_keys=["s2"]
+    )
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        _resolve(tmp_path, "wf-a")
+    assert any("run_manifest.wf-b.json" in m for m in _warnings(caplog))
+
+
+def test_resolver_raises_for_a_known_run_with_no_manifest(tmp_path):
+    from sleap_roots_contracts import RunManifestMissingError
+
+    with pytest.raises(RunManifestMissingError):
+        _resolve(tmp_path, "wf-a")
+
+
+def test_resolver_rejects_a_per_run_manifest_naming_another_run(tmp_path):
+    from sleap_roots_contracts import RunManifestIdentityError
+
+    write_run_manifest(tmp_path, _PER_RUN, pipeline_run_id="wf-b", scan_keys=["s1"])
+    with pytest.raises(RunManifestIdentityError):
+        _resolve(tmp_path, "wf-a")
+
+
+def test_resolver_without_identity_ignores_per_run_files_but_warns(tmp_path, caplog):
+    write_run_manifest(tmp_path, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"])
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        assert _resolve(tmp_path, None) is None
+    (msg,) = _warnings(caplog)
+    assert _PER_RUN in msg
+    assert "None" not in msg and "no run identity" in msg.lower()
+
+
+def test_a_directory_at_the_legacy_path_raises(tmp_path):
+    (tmp_path / RUN_MANIFEST_FILENAME).mkdir()
+    with pytest.raises(OSError):
+        _resolve(tmp_path, None)
+
+
+def _per_run_read(input_dir):
+    from sleap_roots_contracts import read_run_manifest
+
+    return read_run_manifest(input_dir, "wf-a", allow_legacy=True)
+
+
+def test_forward_publishes_under_the_per_run_name_only(tmp_path, caplog):
+    src = write_run_manifest(
+        tmp_path / "in", _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"]
+    )
+    out = tmp_path / "out"
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        copy_run_manifest_forward(
+            tmp_path / "in", out, read=_per_run_read(tmp_path / "in")
+        )
+    assert _names(out) == {_PER_RUN}
+    assert (out / _PER_RUN).read_bytes() == src.read_bytes()
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert any(_PER_RUN in m for m in infos)
+
+
+def test_standalone_forward_of_unparsable_per_run_bytes(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    src = tmp_path / "in" / _PER_RUN
+    src.parent.mkdir()
+    src.write_bytes(b"{not valid json")
+    copy_run_manifest_forward(tmp_path / "in", tmp_path / "out")
+    assert (tmp_path / "out" / _PER_RUN).read_bytes() == b"{not valid json"
+
+
+def test_standalone_forward_does_not_check_run_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    src = write_run_manifest(
+        tmp_path / "in", _PER_RUN, pipeline_run_id="wf-b", scan_keys=["s1"]
+    )
+    copy_run_manifest_forward(tmp_path / "in", tmp_path / "out")
+    assert (tmp_path / "out" / _PER_RUN).read_bytes() == src.read_bytes()
+
+
+def test_standalone_forward_fails_loud_for_a_known_run_with_no_manifest(
+    tmp_path, monkeypatch, caplog
+):
+    from sleap_roots_contracts import RunManifestMissingError
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    (tmp_path / "in").mkdir()
+    out = tmp_path / "out"
+    with caplog.at_level(logging.ERROR, logger=_LOGGER):
+        with pytest.raises(RunManifestMissingError):
+            copy_run_manifest_forward(tmp_path / "in", out)
+    assert not out.exists()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert (
+        errors
+        and (tmp_path / "in").as_posix() in errors[0]
+        and out.as_posix() in errors[0]
+    )
+
+
+def test_standalone_forward_on_a_missing_input_directory_raises(tmp_path):
+    """Review focus 3: was a silent no-op; a mis-mounted stage-in must not pass."""
+    with pytest.raises(FileNotFoundError):
+        copy_run_manifest_forward(tmp_path / "nope", tmp_path / "out")
+    assert not (tmp_path / "out").exists()
+
+
+def test_per_run_same_directory_forward_is_a_noop(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    both = tmp_path / "both"
+    src = write_run_manifest(both, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"])
+    before, stat = src.read_bytes(), src.stat()
+    copy_run_manifest_forward(both, both / ".." / "both")  # a different spelling
+    after = src.stat()
+    assert src.read_bytes() == before
+    # os.replace always yields a new inode, so an unchanged st_ino proves no re-copy
+    # even on filesystems whose mtime is too coarse to tell.
+    assert (after.st_ino, after.st_mtime_ns) == (stat.st_ino, stat.st_mtime_ns)
+    assert _names(both) == {_PER_RUN}
+
+
+def test_retried_forward_replaces_this_runs_per_run_manifest(tmp_path, monkeypatch):
+    """Review focus 4: a same-workflow retry finds its own earlier forward."""
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    src = write_run_manifest(
+        tmp_path / "in", _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1", "s2"]
+    )
+    write_run_manifest(
+        tmp_path / "out", _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"]
+    )
+    copy_run_manifest_forward(tmp_path / "in", tmp_path / "out")
+    assert (tmp_path / "out" / _PER_RUN).read_bytes() == src.read_bytes()
+    assert _names(tmp_path / "out") == {_PER_RUN}
+
+
+def test_per_run_forward_leaves_a_stale_legacy_output_manifest_untouched(
+    tmp_path, monkeypatch
+):
+    """Review focus 5."""
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    write_run_manifest(
+        tmp_path / "in", _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"]
+    )
+    stale = write_run_manifest(
+        tmp_path / "out", RUN_MANIFEST_FILENAME, pipeline_run_id="old", scan_keys=["s9"]
+    )
+    before = stale.read_bytes()
+    copy_run_manifest_forward(tmp_path / "in", tmp_path / "out")
+    assert stale.read_bytes() == before
+    assert _names(tmp_path / "out") == {_PER_RUN, RUN_MANIFEST_FILENAME}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_per_run_forward_keeps_the_source_mode(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    src = write_run_manifest(
+        tmp_path / "in", _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"]
+    )
+    os.chmod(src, 0o640)
+    copy_run_manifest_forward(tmp_path / "in", tmp_path / "out")
+    assert (tmp_path / "out" / _PER_RUN).stat().st_mode & 0o777 == 0o640

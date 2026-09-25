@@ -18,6 +18,7 @@ POSIX and Windows.
 import hashlib
 import os
 import re
+import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,6 +120,24 @@ def predictions_json_path(out_dir: str | Path, scan_key: str) -> Path:
     return Path(out_dir) / f"{scan_key}{_PREDICTIONS_JSON_SUFFIX}"
 
 
+def _unique_tmp_path(dst: Path) -> Path:
+    """Return a temporary path beside ``dst`` that is private to this writer.
+
+    Unique -- not derivable from ``dst`` alone -- so two concurrent writers of the same
+    scan never share a temp file, and one's ``os.replace`` can never publish the other's
+    half-written bytes (predict#43). In ``dst``'s own directory, so the replace is never
+    cross-device on NFS. Dot-prefixed and ``.tmp``-suffixed, so no consumer glob
+    (``*.predictions.json``, ``*.slp``, the ``{scan_key}.model…`` stale sweep) ever
+    matches it -- which is also why an orphan left by a SIGKILL is inert and is not
+    reclaimed. Name-only rather than ``mkstemp``: ``mkstemp`` creates at ``0600``, and
+    ``shutil.copyfile``/``write_text`` would keep that mode, making the artifact
+    unreadable to the downstream stage's different uid. ``uuid4`` rather than a pid,
+    since every container is PID 1; 16 hex digits (64 bits) keeps deep Windows paths
+    clear of ``MAX_PATH``. Cross-module-internal (``batch.py`` uses it too), not public.
+    """
+    return dst.with_name(f".{dst.name}.{uuid.uuid4().hex[:16]}.tmp")
+
+
 # --- writer -----------------------------------------------------------------
 
 
@@ -190,12 +209,11 @@ def write_prediction_outputs(
         filename = f"{scan_key}.model{slug}.root{root_type}.slp"
         written_filenames.add(filename)
         slp_path = out / filename
-        tmp_slp_path = slp_path.with_name(slp_path.name + ".tmp")
+        tmp_slp_path = _unique_tmp_path(slp_path)
         try:
             # format="slp" is passed explicitly rather than relied upon via the temp
             # filename's extension: sio.save_file infers format from the filename
-            # when format is omitted, and the ".tmp"-suffixed temp name no longer
-            # ends in ".slp".
+            # when format is omitted, and the temp name does not end in ".slp".
             sio.save_file(
                 labels_by_root[root_type], tmp_slp_path.as_posix(), format="slp"
             )
@@ -232,7 +250,7 @@ def write_prediction_outputs(
     # failure in the purely-cosmetic sweep that follows can never leave a
     # still-current manifest referencing artifacts the sweep only partially deleted.
     manifest_path = predictions_json_path(out, scan_key)
-    tmp_manifest_path = manifest_path.with_name(manifest_path.name + ".tmp")
+    tmp_manifest_path = _unique_tmp_path(manifest_path)
     try:
         tmp_manifest_path.write_text(
             manifest.model_dump_json(indent=2), encoding="utf-8"
@@ -260,7 +278,10 @@ def write_prediction_outputs(
             and stale.name.endswith(".slp")
             and stale.name not in written_filenames
         ):
-            stale.unlink()
+            # missing_ok: a concurrent writer of the same scan may have removed the
+            # same stale file first; that must not fail a scan whose manifest is
+            # already committed.
+            stale.unlink(missing_ok=True)
 
     return manifest
 

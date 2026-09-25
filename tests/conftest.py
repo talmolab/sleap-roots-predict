@@ -34,6 +34,18 @@ _WANDB_ENV_VARS = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_pipeline_run_id(monkeypatch):
+    """Run every test as a local, identity-less run unless it opts in.
+
+    ``ARGO_WORKFLOW_NAME`` is the run identity predict reads through contracts'
+    ``pipeline_run_id_from_env()``; set, a missing run manifest fails the batch. A
+    developer shell (or CI) that happens to export it must not change what the default
+    suite tests. Tests that need an identity ``monkeypatch.setenv`` it themselves.
+    """
+    monkeypatch.delenv("ARGO_WORKFLOW_NAME", raising=False)
+
+
 @pytest.fixture
 def clean_wandb_env(monkeypatch):
     """Delete every wandb/SRP env var so registry-source tests are hermetic."""

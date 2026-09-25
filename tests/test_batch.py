@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from manifest_builders import write_run_manifest
 from sleap_roots_predict.batch import discover_scans, run_batch
 
 
@@ -623,6 +624,8 @@ def test_sidecar_copy_failure_leaves_no_manifest(
     def _boom(src, dst):
         raise OSError("disk full")
 
+    # path-safe: only the sidecar copy uses shutil.copyfile (the run-manifest forward
+    # writes through the fd mkstemp opened)
     monkeypatch.setattr(batch_mod.shutil, "copyfile", _boom)
     out = tmp_path / "out"
     result = run_batch(scan_input_dir, out, source=all_roots_source)
@@ -632,21 +635,70 @@ def test_sidecar_copy_failure_leaves_no_manifest(
     assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
 
 
+def _fail_replace_for_sidecars(monkeypatch):
+    """Record + raise only for the sidecar's destination; everything else is real.
+
+    Path-conditional so the run-manifest forward-copy, which also calls os.replace,
+    can never be what these tests intercept.
+    """
+    import os as _os
+
+    real_replace = _os.replace
+    seen = []
+
+    def _replace(src, dst, *a, **k):
+        if str(dst).endswith(".scan_metadata.json"):
+            seen.append(str(src))
+            raise OSError("simulated interruption")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr("os.replace", _replace)
+    return seen
+
+
 def test_sidecar_copy_leaves_no_partial_file_if_replace_fails(
     scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
 ):
-    # batch.py has no local `os` reference to patch (unlike output_contract.py),
-    # so patch the global `os.replace` rather than a module attribute.
-    monkeypatch.setattr(
-        "os.replace",
-        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
-    )
+    _fail_replace_for_sidecars(monkeypatch)
     out = tmp_path / "out"
     result = run_batch(scan_input_dir, out, source=all_roots_source)
     assert [s.status for s in result.scans] == ["failed"]
-    assert not (out / "scanCPTEST0" / "scanCPTEST0.scan_metadata.json").exists()
-    assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
-    assert not list((out / "scanCPTEST0").glob("*.tmp"))  # temp copy is cleaned up
+    scan_dir = out / "scanCPTEST0"
+    assert not (scan_dir / "scanCPTEST0.scan_metadata.json").exists()
+    assert not (scan_dir / "scanCPTEST0.predictions.json").exists()
+    assert not [p.name for p in scan_dir.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_concurrent_sidecar_copies_use_private_temp_files(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
+):
+    """Two writers of one scan must never share a sidecar temp path (predict#43)."""
+    seen = _fail_replace_for_sidecars(monkeypatch)
+    out = tmp_path / "out"
+    for _ in range(2):
+        run_batch(scan_input_dir, out, source=all_roots_source)
+    assert len(seen) == 2 and seen[0] != seen[1]
+    scan_dir = out / "scanCPTEST0"
+    assert not [p.name for p in scan_dir.iterdir() if p.name.endswith(".tmp")]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_copied_sidecar_keeps_a_direct_writes_permissions(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path
+):
+    """Guard (green before and after #43): a private 0600 temp mode must never leak."""
+    import os as _os
+
+    old = _os.umask(0o022)
+    try:
+        out = tmp_path / "out"
+        run_batch(scan_input_dir, out, source=all_roots_source)
+        control = out / "control"
+        control.write_bytes(b"x")
+        sidecar = out / "scanCPTEST0" / "scanCPTEST0.scan_metadata.json"
+        assert sidecar.stat().st_mode & 0o777 == control.stat().st_mode & 0o777
+    finally:
+        _os.umask(old)
 
 
 def test_unreadable_json_sidecar_is_error(tmp_path: Path):
@@ -1444,3 +1496,241 @@ def test_catalog_failure_during_requested_stop_propagates(
         signal.signal(signal.SIGTERM, prev_handler)
     assert seen["stop_pending"], "stop was not pending when the catalog failed"
     assert not any("Terminated by SIGTERM" in r.message for r in caplog.records)
+
+
+_PER_RUN = "run_manifest.wf-a.json"
+_TWELVE = [f"scan_{i}" for i in range(1, 13)]
+
+
+def _stage_accumulated_union(inp: Path, *, with_per_run: bool) -> Path:
+    """The measured srp#71 shape: a legacy manifest carrying every run's keys."""
+    for key in _TWELVE:
+        _write_scan(inp, key, _RICE)
+    write_run_manifest(
+        inp, _MANIFEST, pipeline_run_id="sleap-roots-pipeline-hpdpf", scan_keys=_TWELVE
+    )
+    if with_per_run:
+        return write_run_manifest(
+            inp, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scan_7"]
+        )
+    return inp / _MANIFEST
+
+
+def test_a_per_run_manifest_stops_the_accumulated_union(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    src = _stage_accumulated_union(inp, with_per_run=True)
+    assert [s.scan_key for s in discover_scans(inp)] == ["scan_7"]
+    source, _ = _recording_source()
+    result = run_batch(inp, out, source=source)
+    assert [s.scan_key for s in result.scans] == ["scan_7"]
+    assert (out / _PER_RUN).read_bytes() == src.read_bytes()
+    assert not (out / _MANIFEST).exists()
+
+
+def test_a_legacy_union_is_honored_and_flagged_during_the_rollout(
+    tmp_path, monkeypatch, caplog
+):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    src = _stage_accumulated_union(inp, with_per_run=False)
+    source, _ = _recording_source()
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.run_manifest"):
+        result = run_batch(inp, out, source=source)
+    assert sorted(s.scan_key for s in result.scans) == sorted(_TWELVE)
+    assert any(
+        "hpdpf" in r.getMessage() and "wf-a" in r.getMessage() for r in caplog.records
+    )
+    assert {p.name for p in out.iterdir() if p.is_file()} == {_MANIFEST}
+    assert (out / _MANIFEST).read_bytes() == src.read_bytes()
+
+
+def _no_manifest(inp):
+    _write_scan(inp, "scanA", _RICE)
+
+
+def _foreign_per_run(inp):
+    _write_scan(inp, "scanA", _RICE)
+    write_run_manifest(inp, _PER_RUN, pipeline_run_id="wf-b", scan_keys=["scanA"])
+
+
+def _directory_at_legacy_path(inp):
+    _write_scan(inp, "scanA", _RICE)
+    (inp / _MANIFEST).mkdir()
+
+
+@pytest.mark.parametrize(
+    "run_id, stage, error",
+    [
+        ("wf-a", _no_manifest, "RunManifestMissingError"),
+        ("wf-a", _foreign_per_run, "RunManifestIdentityError"),
+        ("../x", _no_manifest, "ValueError"),
+        (None, _directory_at_legacy_path, "OSError"),
+    ],
+    ids=["missing", "foreign", "unusable-id", "directory-at-path"],
+)
+def test_manifest_staging_errors_abort_before_any_work(
+    tmp_path, monkeypatch, run_id, stage, error
+):
+    import sleap_roots_contracts as contracts
+
+    if run_id is not None:
+        monkeypatch.setenv("ARGO_WORKFLOW_NAME", run_id)
+    inp, out = tmp_path / "in", tmp_path / "out"
+    stage(inp)
+    expected = {"ValueError": ValueError, "OSError": OSError}.get(error) or getattr(
+        contracts, error
+    )
+    source, calls = _recording_source()
+    with pytest.raises(expected):
+        run_batch(inp, out, source=source)
+    assert calls["n"] == 0
+    assert not out.exists()
+
+
+def test_standalone_discovery_fails_loud_for_a_known_run(tmp_path, monkeypatch):
+    from sleap_roots_contracts import RunManifestMissingError
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    _write_scan(tmp_path, "scanA", _RICE)
+    with pytest.raises(RunManifestMissingError):
+        discover_scans(tmp_path)
+
+
+def test_discovery_without_identity_ignores_per_run_manifests(tmp_path):
+    _write_scan(tmp_path, "scanA", _RICE)
+    _write_scan(tmp_path, "scanB", _RICE)
+    write_run_manifest(tmp_path, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scanA"])
+    assert [s.scan_key for s in discover_scans(tmp_path)] == ["scanA", "scanB"]
+
+
+@pytest.mark.parametrize("value", ["   ", ""])
+def test_a_blank_run_identity_is_no_identity(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", value)
+    _write_scan(tmp_path, "scanA", _RICE)
+    assert [s.scan_key for s in discover_scans(tmp_path)] == ["scanA"]
+
+
+def test_a_run_identity_with_incidental_whitespace_still_resolves(
+    tmp_path, monkeypatch
+):
+    """Review focus 1."""
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a\n")
+    _write_scan(tmp_path, "scanA", _RICE)
+    _write_scan(tmp_path, "scanB", _RICE)
+    write_run_manifest(tmp_path, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scanB"])
+    assert [s.scan_key for s in discover_scans(tmp_path)] == ["scanB"]
+
+
+def test_an_input_path_that_is_a_file_fails_the_batch(tmp_path):
+    """Review focus 2: a mis-mount must never pass as success, on any OS."""
+    not_a_dir = tmp_path / "in"
+    not_a_dir.write_bytes(b"x")
+    source, calls = _recording_source()
+    # Predict's own guard names the real misconfiguration -- neither the "no scans
+    # discovered" ValueError nor a contracts error about the manifest directory.
+    with pytest.raises(NotADirectoryError, match="input scan path is not a directory"):
+        run_batch(not_a_dir, tmp_path / "out", source=source)
+    assert calls["n"] == 0
+
+
+def test_an_invalid_per_run_manifest_is_never_forwarded(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    _write_scan(inp, "scanA", _RICE)
+    (inp / _PER_RUN).write_bytes(b"{not valid json")
+    source, _ = _recording_source()
+    with pytest.raises(ValueError):
+        run_batch(inp, out, source=source)
+    assert not out.exists()
+
+
+def test_run_batch_forwards_the_resolved_per_run_bytes_even_if_rewritten(
+    tmp_path, monkeypatch
+):
+    import sleap_roots_predict.batch as batch_mod
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    _write_scan(inp, "scanA", _RICE)
+    src = write_run_manifest(inp, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scanA"])
+    resolved = src.read_bytes()
+    real = batch_mod._resolve_run_manifest
+
+    def _resolve_then_rewrite(*args, **kwargs):
+        loaded = real(*args, **kwargs)
+        src.write_bytes(b'{"pipeline_run_id":"wf-a","scan_keys":["scanA","scanZ"]}')
+        return loaded
+
+    monkeypatch.setattr(batch_mod, "_resolve_run_manifest", _resolve_then_rewrite)
+    source, _ = _recording_source()
+    result = run_batch(inp, out, source=source)
+    assert (out / _PER_RUN).read_bytes() == resolved
+    # Discovery scoped against the same single resolution, not a re-read of the
+    # rewritten source (which would add the phantom scanZ as a failed scan).
+    assert [s.scan_key for s in result.scans] == ["scanA"]
+
+
+def test_run_batch_resolves_the_run_manifest_exactly_once(tmp_path, monkeypatch):
+    import sleap_roots_predict.batch as batch_mod
+    import sleap_roots_predict.run_manifest as rm_mod
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    _write_scan(inp, "scanA", _RICE)
+    write_run_manifest(inp, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scanA"])
+    calls = {"n": 0}
+    real = rm_mod.load_run_manifest
+
+    def _counting(*args, **kwargs):
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(rm_mod, "load_run_manifest", _counting)
+    source, _ = _recording_source()
+    batch_mod.run_batch(inp, out, source=source)
+    assert calls["n"] == 1
+
+
+def test_missing_input_dir_wins_over_an_unusable_run_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "../x")
+    with pytest.raises(FileNotFoundError, match="input scan directory does not exist"):
+        run_batch(tmp_path / "nope", tmp_path / "out")
+
+
+def _main_with_recording_source(monkeypatch):
+    import sleap_roots_predict.batch as batch_mod
+
+    source, calls = _recording_source()
+    real_run_batch = batch_mod.run_batch
+
+    def _with_source(*args, **kwargs):
+        kwargs.setdefault("source", source)
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _with_source)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "stage, error",
+    [
+        (_no_manifest, "RunManifestMissingError"),
+        (_foreign_per_run, "RunManifestIdentityError"),
+    ],
+)
+def test_cli_logs_run_manifest_errors_as_staging_errors(
+    tmp_path, monkeypatch, caplog, clean_wandb_env, stage, error
+):
+    import sleap_roots_contracts as contracts
+    from sleap_roots_predict.__main__ import main
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    stage(inp)
+    calls = _main_with_recording_source(monkeypatch)
+    with caplog.at_level("ERROR"):
+        with pytest.raises(getattr(contracts, error)):
+            main([str(inp), str(out)])
+    assert any("Batch aborted" in r.getMessage() for r in caplog.records)
+    assert calls["n"] == 0 and not out.exists()

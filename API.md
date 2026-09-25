@@ -187,8 +187,9 @@ Write the named per-root `.slp` files and a combined `{scan_key}.predictions.jso
 to `scan_key`. Build identity falls back to `SRP_PREDICT_CODE_SHA` /
 `SRP_PREDICT_CONTAINER_DIGEST` then `""`. Re-runs overwrite in place; a stale `.slp` from a
 changed model is removed only after every new file is written successfully. All writes
-(`.slp` and the manifest) are atomic — temp file + `os.replace` — so no reader ever
-observes a partially-written file; the manifest is written last.
+(`.slp` and the manifest) are atomic — a per-writer, dot-prefixed temp file beside the
+destination + `os.replace` — so no reader ever observes a partially-written file, even with a
+concurrent writer of the same scan; the manifest is written last.
 
 **Raises:** `ValueError` if `scan_key` is unsafe as a path segment, or `labels_by_root`
 and `refs_by_root` cover different root types.
@@ -222,13 +223,17 @@ run_batch(
 The container-oriented batch runner — also the `sleap-roots-predict` /
 `python -m sleap_roots_predict <input_dir> <output_dir>` entrypoint (the predict service
 image's `ENTRYPOINT`). Discovers scans under `input_dir` (each a directory of image frames
-with a co-located `{scan_key}.scan_metadata.json` sidecar); when a `run_manifest.json`
-(`RunManifest`, `sleap-roots-contracts`) is staged in `input_dir`, discovery is
-scoped to exactly its `scan_keys` (an out-of-scope sidecar is silently excluded); that
-manifest is then **forwarded byte-identically to the top level of `output_dir`** — before
-any scan is predicted, so it survives a `should_stop` early exit — since `output_dir` is the
-downstream traits stage's `input_dir`. A copy failure raises as a batch-level staging error
-rather than being swallowed as best-effort. Loads
+with a co-located `{scan_key}.scan_metadata.json` sidecar). This run's manifest
+(`RunManifest`, `sleap-roots-contracts`) is resolved **once** by the contracts policy — with
+`ARGO_WORKFLOW_NAME` set, `run_manifest.<ARGO_WORKFLOW_NAME>.json`, else (during the rollout)
+the legacy `run_manifest.json`; with it unset, only `run_manifest.json` — and discovery is
+scoped to exactly its `scan_keys` (an out-of-scope sidecar is silently excluded). That
+manifest is then **forwarded byte-identically, under the name it was read, to the top level
+of `output_dir`** — before any scan is predicted, so it survives a `should_stop` early exit —
+since `output_dir` is the downstream traits stage's `input_dir`. A known run with no manifest
+(`RunManifestMissingError`), a per-run manifest naming another run
+(`RunManifestIdentityError`), an unusable `ARGO_WORKFLOW_NAME` (`ValueError`), and a copy
+failure all raise as batch-level staging errors before any prediction. Loads
 models **once** via a single resident `WarmModelWorker` (`source=None` → the production
 `WandbRegistrySource`); the model-card catalog is loaded once, before the first processable
 scan, so a registry with no readable production card — or a catalog with no cards at all —
@@ -238,7 +243,7 @@ compares a recomputed idempotency key
 (`compute_idempotency_key`) against the prior run's own artifacts (no new storage — the key
 is recovered from the previously-copied sidecar and previously-written manifest), skipping
 only on an exact match and otherwise (re)predicting; writes the output-contract artifacts
-into `out_dir/{scan_key}/` (all writes atomic — temp file + rename), and copies the sidecar
+into `out_dir/{scan_key}/` (all writes atomic — per-writer temp file + rename), and copies the sidecar
 through so the output is a self-contained traits-input tree. `should_stop` is checked at
 each per-scan loop boundary; when it returns `True` the batch stops before the next scan
 (the CLI's `SIGTERM` handler wires this to graceful preemption). An empty (zero-scan) input
@@ -246,6 +251,20 @@ raises rather than silently succeeding. Per-scan failures are isolated; `BatchRe
 `False` iff any scan failed, which maps to CLI exit `3` — distinct from a staging-error or
 crash, which surfaces exit `1`. See the `predict-container` OpenSpec spec for the full
 exit-code contract.
+
+#### `discover_scans`
+
+```python
+discover_scans(input_dir: Union[str, Path]) -> List[ScanInput]
+```
+Discovers scans under `input_dir` by their `*.scan_metadata.json` sidecars, scoped to this
+run's manifest exactly as `run_batch` does (same resolution, same raises). A `scan_key`
+listed in the manifest with no sidecar is returned as an entry with `.error` set; an invalid
+sidecar likewise. **Raises:** `FileNotFoundError` for a missing `input_dir` and
+`NotADirectoryError` when it is not a directory; `ValueError` for a duplicate `scan_key`, an
+unusable `ARGO_WORKFLOW_NAME`, or an invalid manifest; `OSError` for a manifest candidate that
+exists but cannot be read (e.g. a directory at that path); `RunManifestMissingError` /
+`RunManifestIdentityError` as for `run_batch`.
 
 #### `copy_run_manifest_forward`
 
@@ -255,29 +274,35 @@ copy_run_manifest_forward(
     output_dir: Union[str, Path],
 ) -> None
 ```
-Copies a `run_manifest.json` (`RunManifest`, `sleap-roots-contracts`) from the top level of
-`input_dir` to the top level of `output_dir`. Called by `run_batch` before the per-scan loop;
+Copies this run's manifest (`RunManifest`, `sleap-roots-contracts`) from the top level of
+`input_dir` to the top level of `output_dir`, **under the filename it was read from** (the
+per-run `run_manifest.<ARGO_WORKFLOW_NAME>.json` or the legacy `run_manifest.json`). Called by
+`run_batch` before the per-scan loop;
 exported for callers driving the hop independently. A raw byte copy with **no validation** —
 byte-identical to what the upstream producer wrote — written atomically via a temp file in
 `output_dir` under a name unique to the writing process, so concurrent invocations sharing an
 output directory can never publish one another's partially-written bytes. Permissions are
 carried over from the source, since the downstream stage reads as a different user.
 
-No-op when no manifest is staged (preserving the unscoped fallback for local runs), or when
+No-op when no manifest is found — possible only with `ARGO_WORKFLOW_NAME` unset,
+preserving the unscoped fallback for local runs — or when
 source and destination are the same file — identity decided by what the paths refer to, so a
 bind-mounted `output_dir` is caught, never by comparing them as strings. When no manifest is
 staged but `output_dir` already holds one from an earlier run, that file is **left in place with
 a warning** — it cannot be distinguished from a concurrent invocation's file, but left silent it
 would scope the downstream stage to an earlier run's `scan_keys`. A copy failure raises
 `OSError` rather than being best-effort: a silently missing forwarded manifest is what makes the
-downstream stage fall back to unscoped discovery. `output_dir` is created if missing, and
+downstream stage fall back to unscoped discovery. Called standalone with `ARGO_WORKFLOW_NAME`
+set and no manifest for that run, it raises `RunManifestMissingError`; a missing `input_dir`
+raises `FileNotFoundError`. `output_dir` is created if missing, and
 removed again if the copy then fails, so a failed forward leaves behind no directory that did
 not exist before it.
 
 Inside `run_batch` the manifest is read **once** per batch and that snapshot is what both
 discovery and this copy use, so the bytes scoped against are the bytes published even if the
-upstream producer rewrites or removes the source in between. Called standalone, it reads the
-manifest itself.
+upstream producer rewrites or removes the source in between. Called standalone, it locates the
+manifest itself with contracts' non-parsing `read_run_manifest`, so contents are never
+validated.
 
 ---
 

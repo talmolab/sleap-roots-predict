@@ -3,8 +3,10 @@
 Warm-batch predict over a directory of staged scans. Exit codes: ``0`` success (no
 scan failed); ``3`` partial (the batch ran to completion but one or more scans
 isolated-failed); Python's default ``1`` for every other failure (a pre-flight
-staging error — missing input directory, duplicate ``scan_key``, malformed
-``run_manifest.json``, a failed run-manifest forward-copy, zero scans discovered,
+staging error — missing input directory, duplicate ``scan_key``, a malformed run
+manifest, a run manifest that cannot be resolved for a known run
+(``ARGO_WORKFLOW_NAME`` set) or names another run, an unusable ``ARGO_WORKFLOW_NAME``,
+a failed run-manifest forward-copy, zero scans discovered,
 or no readable production model card — or a genuine crash); ``143``
 (``128 + SIGTERM``) if the process was asked to stop early (Argo preemption),
 overriding whatever the completed-so-far scans would otherwise produce. ``2`` is
@@ -74,6 +76,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
 
     # Lazy import: `--help` exits inside parse_args above, so it never pulls in torch.
+    from sleap_roots_contracts import RunManifestError
+
     from sleap_roots_predict.batch import run_batch
 
     prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
@@ -83,13 +87,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             result = run_batch(
                 args.input_dir, args.output_dir, should_stop=stop_event.is_set
             )
-        except (OSError, ValueError) as exc:
-            # A pre-flight staging error (missing input mount, duplicate scan_key,
-            # malformed run_manifest.json, a failed run-manifest forward-copy, zero
-            # scans discovered, or no readable production model card
-            # (NoReadableModelCardsError, a ValueError) — all but the first raise
-            # ValueError or an OSError subclass, so they land here too). `OSError`
-            # rather than `FileNotFoundError` because the forward-copy raises
+        except (OSError, ValueError, RunManifestError) as exc:
+            # A pre-flight staging error: missing input mount, duplicate scan_key, a
+            # malformed/unresolvable/foreign run manifest, an unusable
+            # ARGO_WORKFLOW_NAME, a failed run-manifest forward-copy, zero scans
+            # discovered, or no readable production model card
+            # (NoReadableModelCardsError, a ValueError). RunManifestError is listed
+            # explicitly: contracts deliberately does not derive
+            # RunManifestMissingError / RunManifestIdentityError from ValueError.
+            # `OSError` rather than `FileNotFoundError` because the forward-copy raises
             # PermissionError and friends, which are *siblings* of FileNotFoundError,
             # not subclasses. It is deliberately a superset of the staging set: a few
             # genuine crashes (a registry network error, since requests' base

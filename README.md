@@ -193,6 +193,7 @@ default. Copy [`.env.example`](.env.example) to `.env` and fill in your key to g
 | `SRP_DEVICE` | no | auto-detect (cuda / mps / cpu) |
 | `SRP_PREDICT_CODE_SHA` | no | recorded in each manifest's `predict_code_sha`; **baked into the image at build time** (build-arg → `ENV`), so operators don't set it |
 | `SRP_PREDICT_CONTAINER_DIGEST` | no | recorded in each manifest's `predict_container_digest` (fail-soft to `""`) |
+| `ARGO_WORKFLOW_NAME` | no — set by the cluster predictor template; **leave unset locally** | unset → only `run_manifest.json` is read (absent = unscoped discovery); set → this run's `run_manifest.<ARGO_WORKFLOW_NAME>.json` (or, during the rollout, the legacy `run_manifest.json`) is required, and its absence exits `1` |
 
 ## Running the predict container
 
@@ -206,16 +207,19 @@ docker run --rm -e WANDB_API_KEY=$WANDB_API_KEY \
 
 Each scan is a directory of image frames with a co-located
 `{scan_key}.scan_metadata.json` sidecar (carrying the resolved `{species, mode, age}`
-params). If the input directory also has a `run_manifest.json` (staged by an upstream
-pipeline stage), discovery is scoped to exactly that manifest's `scan_keys` — a leftover
-sidecar from a prior run is silently excluded rather than reprocessed. An empty (zero-scan)
+params). This run's manifest, staged by an upstream pipeline stage — the per-run
+`run_manifest.<ARGO_WORKFLOW_NAME>.json` under Argo (the legacy `run_manifest.json` is still
+accepted during the rollout), or `run_manifest.json` with no run identity — scopes discovery
+to exactly its `scan_keys`: a leftover sidecar from a prior run is silently excluded rather
+than reprocessed. Under Argo a missing manifest fails the batch rather than processing every
+scan in the shared directory. An empty (zero-scan)
 input directory raises rather than silently succeeding, so a misconfigured stage-in mount
 never looks like a completed batch. The container loads models once, predicts every scan,
 and writes per scan `out/{scan_key}/{scan_key}.predictions.json` + named per-root `.slp` +
-a copy of the sidecar; a staged `run_manifest.json` is also forwarded to the top level of
-`out/`, so the downstream trait-extraction stage — whose input directory *is* this output
-directory — stays scoped to the same run instead of falling back to unscoped discovery. All
-writes are atomic (temp file + rename) so no reader ever observes a partially-written file. Skip-if-done compares a recomputed idempotency key
+a copy of the sidecar; the run manifest is also forwarded, under the name it was read, to
+the top level of `out/`, so the downstream trait-extraction stage — whose input directory
+*is* this output directory — stays scoped to the same run. All writes are atomic (a
+per-writer temp file + rename) so no reader ever observes a partially-written file. Skip-if-done compares a recomputed idempotency key
 against the prior run's own artifacts (no new storage needed) and skips only on an exact
 match, (re)predicting otherwise. A `SIGTERM` (Argo preemption) stops the batch at the next
 scan boundary rather than mid-scan. See the `predict-container` OpenSpec spec
@@ -243,6 +247,15 @@ is unaffected either way; it only ever reads the manifest from its *input* direc
 # on the shared mount, as part of any predict rollback
 rm -f <output_dir>/run_manifest.json
 ```
+
+Per-run `run_manifest.<workflow>.json` files need no rollback cleanup — each names one Argo
+workflow and no later run reads it. **Never glob-delete them on the shared mount**: a
+concurrent run's manifest would go too.
+
+**Once bloomctl writes per-run manifests, this version is predict's rollback floor.** An
+older image reads only the stale, accumulated legacy `run_manifest.json`, forwards it, and
+re-scopes traits to that union — the contamination per-run manifests exist to prevent
+(talmolab/sleap-roots-pipeline#71). Roll the writer back first.
 
 ## CI/CD
 
@@ -308,7 +321,7 @@ sleap_roots_predict/
 ├── warm_worker.py                  # WarmModelWorker: resident predictors across scans
 ├── output_contract.py              # Per-scan output artifacts (.slp + predictions.json)
 ├── batch.py                        # Warm-batch container runner (run_batch, discover_scans)
-├── run_manifest.py                 # Forward run_manifest.json input_dir -> output_dir
+├── run_manifest.py                 # Resolve this run's manifest; forward it input_dir -> output_dir
 ├── parity.py                       # A3-predict parity harness (ground truth + metrics)
 ├── __main__.py                     # `python -m sleap_roots_predict <in> <out>` CLI
 ├── video_utils.py                  # Core image processing utilities
@@ -323,7 +336,7 @@ tests/
 ├── test_warm_worker.py                 # Warm worker tests (real CPU inference)
 ├── test_output_contract.py             # Output-contract writer/batch tests (real CPU inference)
 ├── test_batch.py                       # Batch runner / CLI tests (real CPU inference)
-├── test_run_manifest.py                # Run-manifest forward-copy tests (offline)
+├── test_run_manifest.py                # Run-manifest resolution + forward-copy tests (offline)
 ├── test_parity.py                      # Parity harness tests (offline + gated `parity` marker)
 ├── test_predict_container_packaging.py # Console-script + docker-workflow guards
 ├── test_public_api.py                  # Public-surface import test
