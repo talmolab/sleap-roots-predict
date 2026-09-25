@@ -33,7 +33,8 @@ forwards it under the name it read. Success:
 2. A legacy `run_manifest.json` is still honored while `allow_legacy=True`.
 3. A stage that knows its run id and finds no manifest fails the batch (exit 1) rather than
    falling back to unscoped discovery (srp §2.2).
-4. With no run id (local, `local-WSL2-*`, the test suite) behavior is byte-for-byte unchanged;
+4. With no run id (local, `local-WSL2-*`, the test suite) scoping is unchanged — the only
+   differences there are D6's non-file edge and D5's new "unread per-run manifest" warning;
    `tests/assets/scans/` still stages no manifest.
 5. No production behavior change on deploy: the old bloomctl still writes only the legacy name,
    which predict still reads (srp §4 step 2).
@@ -84,9 +85,11 @@ allow_legacy=True)` — the contract's non-parsing primitive, exported precisely
 stage that never parses" — so "the standalone copy validates nothing" remains true. It therefore
 also raises `RunManifestMissingError` standalone when the id is known and nothing is found.
 
-The temp prefix stays `.{read.filename}.`. For a run id over ~220 characters that exceeds
-`NAME_MAX` and the publish raises `OSError` (exit 1); Argo ids are ~26 characters, so this is
-documented, not engineered around (contracts' `run_manifest_filename` docstring flags it).
+The temp prefix changes from `.run_manifest.json.` to `.{read.filename}.` (matching traits). For a
+run id over ~227 characters that exceeds `NAME_MAX` and the publish raises `OSError` (exit 1);
+Argo ids are ~26 characters, so this is documented, not engineered around (contracts'
+`run_manifest_filename` docstring flags it). A standalone failure before the read completes (e.g.
+`RunManifestMissingError`) is logged naming both directories but no filename, since none is known.
 
 ### D5. Diagnostics (log-only; scope never changes)
 
@@ -111,16 +114,25 @@ the contract exists to prevent. Same as traits.
 The sidecar copy (`batch.py`), `.slp` write and `predictions.json` write (`output_contract.py`)
 derive their temp path as `dst.with_name(dst.name + ".tmp")`, shared by any two concurrent
 writers of the same destination. A private helper returns
-`dst.with_name(f".{dst.name}.{uuid4().hex}.tmp")`: unique per writer, in the destination
+`dst.with_name(f".{dst.name}.{uuid4().hex[:16]}.tmp")`: unique per writer, in the destination
 directory (no cross-device replace on NFS), dot-prefixed.
 
 **Why not `mkstemp` here, unlike the manifest copy:** `mkstemp` creates the file at `0600`. The
-`.slp` is written by h5py, which truncates an existing file and keeps its mode, so every artifact
-would become unreadable to the downstream container (a different uid on the shared NFS mount)
-unless re-chmodded to a mode derived from the process umask. A name-only helper lets each site
-keep creating its file exactly as today, so modes are unchanged by construction. `uuid4` rather
-than a pid: every container is PID 1. Each site keeps its existing write → `os.replace` →
-unlink-on-failure shape.
+sidecar copy (`shutil.copyfile`) and the `predictions.json` write (`write_text`) open the reserved
+file with `O_TRUNC`, which keeps that mode, so both would become unreadable to the downstream
+container (a different uid on the shared NFS mount) unless re-chmodded to a umask-derived mode.
+At the `.slp` site sio's writer unlinks an existing path before creating it
+(`sleap_io/io/slp.py`), so an `O_EXCL` reservation would be discarded anyway. A name-only helper
+lets each site keep creating its file exactly as today, so modes are unchanged by construction.
+`uuid4().hex[:16]` (64 random bits) rather than a pid — every container is PID 1 — and rather than
+the full hex, to keep deep Windows test paths clear of `MAX_PATH`. Each site keeps its existing
+write → `os.replace` → unlink-on-failure shape.
+
+**Cost:** a write killed by SIGKILL (Argo's grace period expiring mid-`.slp`, an OOM kill) leaves a
+hidden `.{name}.<hex>.tmp` that no later run overwrites, where the fixed `.tmp` name used to be
+overwritten. No consumer glob matches it (`*.predictions.json`, `*.slp`, the `{scan_key}.model…`
+sweep), and reclaiming it automatically would risk deleting a concurrent writer's live temp, so it
+is accepted and documented rather than swept.
 
 The sidecar-atomicity tests that patch the global `os.replace`/`shutil.copyfile` are made
 path-conditional (fail only for the sidecar path), so the "stage no run manifest" constraint is
@@ -140,33 +152,25 @@ enforced by the test rather than by a code comment (predict#43's test note).
   (srp#89, `sha-9ac819f`); its checks can be observed on that or this deploy.
 - **srp#82**: flipping `allow_legacy=False` (srp §4 step 6).
 
-## Testing (TDD, tests first)
+## Testing
 
-An autouse fixture deletes `ARGO_WORKFLOW_NAME`, so the default suite is a "no run id" run
-regardless of the developer's shell.
-
-- **Contamination reproduction:** 12 staged sidecars; legacy `run_manifest.json` with all 12 keys
-  and `pipeline_run_id="sleap-roots-pipeline-hpdpf"`; `run_manifest.wf-a.json` with one key and
-  `pipeline_run_id="wf-a"`. Under `ARGO_WORKFLOW_NAME=wf-a`: discovery yields exactly one scan;
-  `output/run_manifest.wf-a.json` is byte-identical to the source with the source's mode; no
-  `output/run_manifest.json` is written. With only the legacy file: all 12 are in scope (honored)
-  and the "names another run" warning fires.
-- Id known, no manifest → `RunManifestMissingError` from `run_batch`; no model-source call, no
-  output directory created; CLI exits 1 and logs `Batch aborted`.
-- Per-run file naming another run → `RunManifestIdentityError`; CLI exits 1 with `Batch aborted`.
-- Invalid id (e.g. `../x`) → `ValueError`; CLI exits 1.
-- No id, per-run files present → legacy/unscoped behavior plus the "unread" warning.
-- Directory at `run_manifest.json` → raises.
-- Standalone `copy_run_manifest_forward` with an id: forwards the per-run file under its own name
-  without validating it.
-- #43: two sequential writes to the same destination use different temp paths (recorded via a
-  patched `os.replace`); failure still leaves no temp file; written files' modes equal a plain
-  write's in the same directory.
-- Every existing no-run-id test passes unchanged.
+TDD, tests first; the concrete test list is `openspec/changes/adopt-per-run-run-manifest-reader/tasks.md`
+(single source). The headline is a contamination reproduction: a stale 12-key legacy manifest
+plus a 1-key `run_manifest.wf-a.json` under `ARGO_WORKFLOW_NAME=wf-a` must scope to one scan and
+forward only the per-run file. An autouse fixture clears `ARGO_WORKFLOW_NAME` so the default suite
+is a "no run id" run.
 
 ## Rollout (srp §4; order is load-bearing)
 
 Merge anytime (readers before writer is the only merge constraint). Release, rebuild the image,
-and bump the predictor pin in `sleap-roots-pipeline` — **deploying only after C2 (srp#89) is
-confirmed**, never in the same deploy. Then bloomctl flips the writer (step 3). After merge: dated
+and bump the predictor pin in `sleap-roots-pipeline` — **deploying only after "C2" is confirmed**
+(the predict#34 selector deploy, srp §4 step 0c: srp#89, merged 2026-09-25, cluster apply
+pending), never in the same deploy. The traits pin (`sha-689cffb`, predating sleap-roots #269)
+must also be bumped before the writer flips.
+
+**Rollback floor.** Before the writer flips, rolling this back is safe as today. After it, an image
+older than this change reads only the stale accumulated legacy manifest, forwards it, and
+re-scopes traits to the union — roll the writer back first. Per-run forwarded files need no
+rollback cleanup (no later run reads another run's file); never glob-delete them on the shared
+mount. Then bloomctl flips the writer (step 3). After merge: dated
 roadmap entry in `sleap-roots-pipeline/docs/bloom-integration/roadmap.md` and a comment on srp#71.
