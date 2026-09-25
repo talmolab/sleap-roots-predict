@@ -1627,7 +1627,9 @@ def test_an_input_path_that_is_a_file_fails_the_batch(tmp_path):
     not_a_dir = tmp_path / "in"
     not_a_dir.write_bytes(b"x")
     source, calls = _recording_source()
-    with pytest.raises((OSError, ValueError)):
+    # OSError, not the "no scans discovered" ValueError: a mis-mount must never be
+    # reported as an empty staging directory.
+    with pytest.raises(OSError):
         run_batch(not_a_dir, tmp_path / "out", source=source)
     assert calls["n"] == 0
 
