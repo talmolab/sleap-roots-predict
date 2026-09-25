@@ -23,7 +23,7 @@
 
 ## 1. Test harness
 
-- [ ] 1.1 Autouse fixture in `tests/conftest.py`: `monkeypatch.delenv("ARGO_WORKFLOW_NAME",
+- [x] 1.1 Autouse fixture in `tests/conftest.py`: `monkeypatch.delenv("ARGO_WORKFLOW_NAME",
       raising=False)`. Verify the default suite is still green (nothing reads it yet).
 
 ## 2. predict#43: per-writer unique temp names (TDD)
