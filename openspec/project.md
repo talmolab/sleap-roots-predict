@@ -60,9 +60,10 @@ importable library.
     `sleap_roots_contracts` (re-exported from `__init__.py`; predict carries no local copy
     of the models themselves)
   - `batch.py` — the warm-batch container runner (`run_batch`, `discover_scans`)
-  - `run_manifest.py` — forwards `run_manifest.json` from the input directory to the
-    output directory (`copy_run_manifest_forward`), so the downstream traits stage
-    stays run-scoped
+  - `run_manifest.py` — resolves this run's manifest via contracts
+    (`run_manifest.<ARGO_WORKFLOW_NAME>.json`, or the legacy `run_manifest.json`) and
+    forwards it, under the name read, from the input directory to the output directory
+    (`copy_run_manifest_forward`), so the downstream traits stage stays run-scoped
   - `parity.py` — the A3-predict parity harness: ground-truth resolution (labels registry,
     path relinking, basename search), a `run_evaluation` wrapper (OKS-matched
     `distance_metrics`/`visibility_metrics`, never OKS scores), `within_tolerance`, and

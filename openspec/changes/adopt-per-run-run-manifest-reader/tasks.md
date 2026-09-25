@@ -138,7 +138,7 @@
 
 ## 4. Docs
 
-- [ ] 4.1 Update:
+- [x] 4.1 Update:
   - **`API.md`**:
     - `run_batch` and `copy_run_manifest_forward`: per-run resolution, forwarding under the name
       read, the new raises.

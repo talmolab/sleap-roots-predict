@@ -50,8 +50,8 @@ All notable changes to this project are documented here. The format is based on
   against exactly the bytes the forward publishes, so an upstream writer rewriting or removing
   the source mid-batch can neither widen the forwarded scope beyond what was predicted nor turn
   the forward into a silent no-op. The copy is otherwise naive (overwrite, no union-merge or
-  lock), matching the sibling traits hop; concurrency-safe merging across all three hops is a
-  filed follow-up. Per scan, skip-if-done now compares a
+  lock), matching the sibling traits hop; the cross-run half of that follow-up (#40) is
+  dissolved by per-run manifests (see Changed (BREAKING)). Per scan, skip-if-done now compares a
   recomputed idempotency key (`compute_idempotency_key`) against the prior run's own artifacts,
   skipping only on an exact match and otherwise (re)predicting — no new storage. Note:
   `resolve()` (and its one-time model-registry fetch) now runs once per batch invocation even
@@ -145,6 +145,16 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed (BREAKING)
 
+- **Run-manifest resolution uses `sleap-roots-contracts` 0.1.0a9's per-run policy** (#46,
+  part of talmolab/sleap-roots-pipeline#71). With `ARGO_WORKFLOW_NAME` set,
+  `run_manifest.<ARGO_WORKFLOW_NAME>.json` is preferred, the legacy `run_manifest.json` is
+  accepted during the rollout, and a missing manifest aborts the batch (`RunManifestMissingError`,
+  exit `1`) instead of falling back to unscoped discovery; a per-run manifest naming another
+  run raises `RunManifestIdentityError` (exit `1`). The manifest is forwarded under the name
+  it was read. With `ARGO_WORKFLOW_NAME` unset, scoping is unchanged. A directory (or other
+  unreadable entry) at a manifest path now raises instead of reading as absent, and a
+  standalone `copy_run_manifest_forward` on a missing input directory raises instead of
+  doing nothing.
 - **Flipped the default model source to the live production wandb registry.**
   `WandbRegistrySource` now defaults its registry to `sleap-roots-models`, and
   `WarmModelWorker(source=None)` defaults to a `WandbRegistrySource` — so with only
@@ -178,3 +188,10 @@ All notable changes to this project are documented here. The format is based on
   are accepted and ignored, and `predictions_path` in the results is always
   `None`. Use `predict_on_video` directly. (Timelapse-integrated prediction is
   deferred to a future release.)
+
+### Fixed
+
+- Per-scan atomic writes (the sidecar copy, `.slp` and `predictions.json`) use per-writer temp
+  names, so two invocations writing the same scan into a shared output directory can no
+  longer publish each other's partial files (#43). A write killed by SIGKILL now leaves a
+  hidden, uniquely named `.tmp` orphan that no consumer glob matches.
