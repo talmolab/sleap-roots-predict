@@ -127,7 +127,15 @@ the manifest portable across POSIX and Windows). It SHALL NOT import or depend o
 Both the `.slp` files and the `{scan_key}.predictions.json` manifest SHALL be written
 atomically: each is written to a temporary file in the same directory as its final path, then
 moved into place via `os.replace`, so no reader can ever observe a partially-written file at the
-final path. The manifest SHALL be written after every `.slp` write completes but *before* the
+final path. Atomicity SHALL also hold **between concurrent writers** of the same `scan_key` into
+a shared `out_dir`: each temporary file's name SHALL be private to the writer (not derivable from
+the destination alone), so one writer's move can never publish another's incomplete bytes. The
+temporary file SHALL NOT match the `{scan_key}.model…` / `.slp` pattern the stale-`.slp` removal
+pass matches, nor the `{scan_key}.predictions.json` name consumers look for; a temporary file orphaned by an
+uncatchable termination (SIGKILL) is therefore inert and is not reclaimed. The written files'
+permissions SHALL be those a direct write produces, never a private temporary-file mode — the
+downstream stage reads them as a different user on shared storage. The manifest SHALL be written
+after every `.slp` write completes but *before* the
 stale-`.slp` removal pass, preserving its role as the resume commit-marker: once the manifest
 commit succeeds, it is already correct and complete on its own, so the stale-removal pass that
 follows is purely cosmetic cleanup, never load-bearing for the manifest's correctness. The `.slp`
@@ -166,6 +174,19 @@ an unknown-format error.
 - **WHEN** a `.slp` or manifest write is interrupted before its final `os.replace` into place
 - **THEN** no file exists at the final path with incomplete content — a reader sees either the
   complete prior version (if any) or nothing, never a truncated one
+
+#### Scenario: Concurrent writers of one scan use private temporary files
+
+- **WHEN** `write_prediction_outputs` runs twice for the same `scan_key` into the same `out_dir`
+- **THEN** the two runs' temporary paths for each `.slp` and for the manifest differ, and a run
+  whose move fails leaves no temporary file behind *(verified via per-writer temp-path uniqueness
+  rather than a live race)*
+
+#### Scenario: Written artifacts keep a direct write's permissions
+
+- **WHEN** the writer publishes a `.slp` and the manifest on a POSIX filesystem
+- **THEN** each file's permissions equal those of a file created directly in the same directory
+  by the same process, not a private temporary-file mode such as `0600`
 
 #### Scenario: Manifest write completes before the stale-.slp removal pass
 

@@ -56,17 +56,45 @@ container does not call `resolve_params` (which runs upstream) and SHALL NOT imp
 `trait_extractor` package. Two sidecars resolving to the same `scan_key` anywhere in the tree
 SHALL be rejected.
 
-If a `RunManifest` (`sleap-roots-contracts`; fixed filename `RUN_MANIFEST_FILENAME`,
-`"run_manifest.json"`) is present directly under the input directory, discovery SHALL be scoped
-to exactly its `scan_keys`: a discovered sidecar whose `scan_key` is not in that set SHALL be
-silently excluded (not returned, not recorded as an error — a leftover from a prior run is not
-this run's concern), and a `scan_key` listed in the manifest with no matching sidecar anywhere
-under the input directory SHALL be recorded as a failed scan (isolated, batch continues) rather
-than silently omitted. If no `run_manifest.json` is present, discovery SHALL fall back to the
-unscoped behavior described above (every sidecar found is discovered), unchanged from before this
-manifest-awareness existed. A `run_manifest.json` that is present but fails to parse or validate
-as a `RunManifest` SHALL raise (a batch-level error surfaced before any scan is processed), since
-scope cannot be trusted from an invalid manifest.
+The run manifest (`RunManifest`, `sleap-roots-contracts`) SHALL be resolved from the top level of
+the input directory by the contract's own policy, `load_run_manifest(input_dir, pipeline_run_id,
+allow_legacy=True)`, where `pipeline_run_id` is `pipeline_run_id_from_env()` (the stripped
+`ARGO_WORKFLOW_NAME`, or none when unset or blank). Predict SHALL NOT read the run identity from
+the environment by any other means, nor reimplement the resolution order:
+- **With a run identity**, the per-run `run_manifest.<pipeline_run_id>.json` SHALL be preferred;
+  the legacy `run_manifest.json` (`RUN_MANIFEST_FILENAME`) SHALL be accepted as a fallback, because
+  the fleet's writer still publishes only that name during the rollout (`allow_legacy=True`;
+  turning the fallback off is `sleap-roots-pipeline#82`, a separate change). Finding **neither**
+  SHALL raise `RunManifestMissingError` — a batch-level error — and SHALL NOT fall back to unscoped
+  discovery, since a stage that knows its run is running under orchestration, where a manifest is
+  always written, and unscoped discovery over the shared tree is the contamination this exists to
+  prevent. A per-run manifest whose own `pipeline_run_id` names a different run SHALL raise
+  `RunManifestIdentityError`. A run identity unusable as a filename component SHALL raise
+  `ValueError`.
+- **Without a run identity** (local and `local-WSL2-*` runs, the test suite — including an
+  `ARGO_WORKFLOW_NAME` that is set but blank), `run_manifest.json` SHALL be the only candidate;
+  per-run files are never read for scope. If it is absent, discovery SHALL
+  fall back to the unscoped behavior described above (every sidecar found is discovered),
+  unchanged from before manifest-awareness existed.
+
+A candidate reached in resolution order that exists but cannot be read as a file — including a directory at that path, a
+permission error, or a dangling symlink — SHALL raise rather than being treated as absent, since
+treating a broken tree as "no manifest" would silently advance to an older run's scope or to
+unscoped discovery. A resolved manifest that fails to parse or validate as a `RunManifest` SHALL
+raise (a batch-level error surfaced before any scan is processed), since scope cannot be trusted
+from an invalid manifest.
+
+When a manifest is resolved, discovery SHALL be scoped to exactly its `scan_keys`: a discovered
+sidecar whose `scan_key` is not in that set SHALL be silently excluded (not returned, not recorded
+as an error — a leftover from a prior run is not this run's concern), and a `scan_key` listed in
+the manifest with no matching sidecar anywhere under the input directory SHALL be recorded as a
+failed scan (isolated, batch continues) rather than silently omitted.
+
+Two conditions the contract deliberately leaves unchecked SHALL each be logged as a warning,
+without changing the scope: (a) the manifest used is not a per-run manifest (discovery is unscoped,
+or scoped by `run_manifest.json`) while per-run `run_manifest.*.json` files are present, unread, at
+the top level of the input directory; and (b) a run identity is known, the legacy `run_manifest.json` was
+used, and its `pipeline_run_id` names a different run.
 
 #### Scenario: Discovers a scan and resolves its params
 
@@ -101,29 +129,80 @@ scope cannot be trusted from an invalid manifest.
 
 #### Scenario: Discovery is scoped to a present RunManifest's scan_keys
 
-- **WHEN** `run_manifest.json` under the input directory lists `scan_keys=["scan_1009"]`, and
-  the input directory also contains a leftover `scan_1010/` sidecar from a prior run
+- **WHEN** the resolved manifest lists `scan_keys=["scan_1009"]`, and the input directory also
+  contains a leftover `scan_1010/` sidecar from a prior run
 - **THEN** discovery returns only `scan_1009`; `scan_1010` is neither discovered nor reported as
   an error
 
+#### Scenario: A per-run manifest stops an accumulated legacy manifest's contamination
+
+- **WHEN** the input directory holds twelve scans' sidecars, a legacy `run_manifest.json` listing
+  all twelve `scan_keys` under `pipeline_run_id="sleap-roots-pipeline-hpdpf"` (the measured
+  accumulated union), and `run_manifest.wf-a.json` listing one of them under
+  `pipeline_run_id="wf-a"`, and `ARGO_WORKFLOW_NAME=wf-a`
+- **THEN** discovery returns exactly that one scan; the other eleven are excluded
+
+#### Scenario: A legacy manifest is honored under a run identity during the rollout
+
+- **WHEN** `ARGO_WORKFLOW_NAME=wf-a` and the input directory holds only a legacy
+  `run_manifest.json` whose `pipeline_run_id` is `"sleap-roots-pipeline-hpdpf"`
+- **THEN** discovery is scoped to that file's `scan_keys`, and a warning names both runs
+
+#### Scenario: A known run with no manifest fails rather than discovering everything
+
+- **WHEN** `ARGO_WORKFLOW_NAME=wf-a` and the input directory holds sidecars but neither
+  `run_manifest.wf-a.json` nor `run_manifest.json`
+- **THEN** discovery raises `RunManifestMissingError` and no scan is returned or processed
+
+#### Scenario: A per-run manifest naming another run is rejected
+
+- **WHEN** `ARGO_WORKFLOW_NAME=wf-a` and `run_manifest.wf-a.json` carries
+  `pipeline_run_id="wf-b"`
+- **THEN** discovery raises `RunManifestIdentityError` and no scan is processed
+
+#### Scenario: An unusable run identity is rejected
+
+- **WHEN** `ARGO_WORKFLOW_NAME` is set to a value that is not a safe filename component (e.g.
+  `../x`)
+- **THEN** discovery raises `ValueError` and no scan is processed
+
+#### Scenario: A blank run identity is no run identity
+
+- **WHEN** `ARGO_WORKFLOW_NAME` is set to whitespace only and the input directory holds sidecars
+  but no manifest
+- **THEN** discovery is unscoped (every sidecar is returned) and nothing raises
+
+#### Scenario: Without a run identity, per-run manifests are not consulted
+
+- **WHEN** `ARGO_WORKFLOW_NAME` is unset and the input directory holds `run_manifest.wf-a.json`
+  but no `run_manifest.json`
+- **THEN** discovery is unscoped (every sidecar is returned), and a warning names the unread
+  per-run manifest
+
 #### Scenario: A manifest scan_key with no matching sidecar fails only that scan
 
-- **WHEN** `run_manifest.json` lists a `scan_key` for which no `*.scan_metadata.json` exists
+- **WHEN** the resolved manifest lists a `scan_key` for which no `*.scan_metadata.json` exists
   anywhere under the input directory
 - **THEN** that scan is recorded as failed (isolated; the batch continues for scans that do have
   a sidecar)
 
 #### Scenario: No manifest present falls back to unscoped discovery
 
-- **WHEN** the input directory contains sidecars but no `run_manifest.json`
+- **WHEN** `ARGO_WORKFLOW_NAME` is unset and the input directory contains sidecars but no
+  `run_manifest.json`
 - **THEN** discovery behaves exactly as it did before manifest-awareness existed — every
   discovered sidecar is returned, none excluded
 
 #### Scenario: A malformed manifest raises before any scan is processed
 
-- **WHEN** `run_manifest.json` is present but is invalid JSON, or fails `RunManifest` validation
-  (e.g. an empty `scan_keys` list)
+- **WHEN** the resolved manifest is invalid JSON, or fails `RunManifest` validation (e.g. an
+  empty `scan_keys` list)
 - **THEN** `discover_scans` raises and no scan is processed
+
+#### Scenario: A non-file at the manifest path raises rather than reading as absent
+
+- **WHEN** a directory exists at `run_manifest.json` under the input directory
+- **THEN** discovery raises an `OSError` rather than falling back to unscoped discovery
 
 ### Requirement: Per-scan outputs with scan-metadata pass-through
 
@@ -136,9 +215,15 @@ self-contained trait-extractor input tree (manifest + sidecar + `.slp` co-locate
 SHALL be copied **before** the manifest is written (the manifest is the resume marker), so the
 manifest never exists without its co-located sidecar. The copy SHALL be performed atomically
 (written to a temporary file in the same directory, then moved into place via `os.replace`), so
-no reader can ever observe a partially-written sidecar at the final path. The runner SHALL NOT
-author or modify the sidecar's contents (its `image_ids`/`images_checksum` remain the upstream
-downloader's responsibility).
+no reader can ever observe a partially-written sidecar at the final path. Atomicity SHALL also
+hold **between concurrent invocations** writing the same scan into a shared output directory: the
+temporary file's name SHALL be private to the writer (not derivable from the destination alone),
+so one invocation's move can never publish another's incomplete bytes. A temporary file orphaned
+by an uncatchable termination (SIGKILL) is not reclaimed; it is dot-prefixed and `.tmp`-suffixed so
+no consumer glob matches it. The copied sidecar's permissions SHALL equal those of a file created
+directly in the same directory by the same process, never a private temporary-file mode such as
+`0600`. The runner SHALL NOT author or modify the sidecar's contents (its `image_ids`/`images_checksum` remain
+the upstream downloader's responsibility).
 
 #### Scenario: Writes manifest, .slp, and the copied sidecar
 
@@ -153,6 +238,18 @@ downloader's responsibility).
 - **THEN** no partially-written file is ever visible at the final `{scan_key}.scan_metadata.json`
   path — a reader sees either nothing, a complete prior copy, or the complete new copy, never a
   truncated one
+
+#### Scenario: Concurrent sidecar copies use private temporary files
+
+- **WHEN** the same scan's sidecar is copied twice into the same output directory
+- **THEN** the two copies' temporary paths differ, and a copy whose move fails leaves no
+  temporary file behind *(verified via per-writer temp-path uniqueness rather than a live race)*
+
+#### Scenario: The copied sidecar keeps a direct write's permissions
+
+- **WHEN** a scan's sidecar is copied into its output directory on a POSIX filesystem
+- **THEN** the copy's permissions equal those of a file created directly in the same directory by
+  the same process, not a private temporary-file mode such as `0600`
 
 ### Requirement: Per-scan failure isolation and batch exit code
 
@@ -189,22 +286,28 @@ isolated per-scan failure from a genuine crash:
   with "this is done, some scans need attention."
 - *(Python's default, produced by an uncaught exception, not an explicit `return`)* `1` — every
   other failure: a pre-flight/staging error before any scan ran (a missing input directory, two
-  sidecars sharing a `scan_key`, a `run_manifest.json` that fails to parse or validate — including
+  sidecars sharing a `scan_key`, a run manifest that fails to parse or validate — including
   an empty `scan_keys` list, rejected by the "Scan discovery" requirement's own manifest
-  validation before discovery ever runs — **a failure to forward `run_manifest.json` to the
-  output directory, per the "Run-manifest forward-copy" requirement** — **zero scans
-  discovered**: `discover_scans` returns an empty list because no sidecar exists anywhere under a
-  present input directory — or **a model-card catalog with no readable production card, or no
-  card at all**), or a
+  validation before discovery ever runs — **a run manifest that cannot be resolved for a known
+  run (`RunManifestMissingError`), a per-run manifest naming a different run
+  (`RunManifestIdentityError`), or an unusable run identity (`ValueError`), per the "Scan
+  discovery" requirement** — **a failure to forward the run manifest to the output directory, per
+  the "Run-manifest forward-copy" requirement** — **zero scans discovered**: `discover_scans`
+  returns an empty list because no sidecar exists anywhere under a present input directory — or
+  **a model-card catalog with no readable production card, or no card at all**), or a
   genuine pod-level crash (e.g. model-registry authentication failing before any scan is
   attempted). All are "the batch could not meaningfully run" conditions and are not split into
   separate codes; Argo's `retryStrategy` should retry any of them. The CLI SHALL log a clear
-  one-line message before propagating any `OSError` or `ValueError` (which, since
-  `FileNotFoundError` subclasses `OSError`, and `json.JSONDecodeError` and
-  `pydantic.ValidationError` both subclass `ValueError`, covers all six staging-error cases above —
-  missing directory, duplicate `scan_key`, malformed manifest, forward-copy failure,
-  zero-scans-discovered, and no readable production card); any other exception type is not
-  specially logged and surfaces Python's default traceback. Note `OSError` is deliberately a
+  one-line message before propagating any `OSError`, `ValueError` or `RunManifestError` (which,
+  since `FileNotFoundError` subclasses `OSError`, `json.JSONDecodeError` and
+  `pydantic.ValidationError` both subclass `ValueError`, and `RunManifestMissingError` and
+  `RunManifestIdentityError` both subclass `RunManifestError`, covers every staging-error case
+  above — missing directory, duplicate `scan_key`, malformed manifest, unresolvable manifest,
+  foreign per-run manifest, unusable run identity, forward-copy failure, zero-scans-discovered,
+  and no readable production card). `RunManifestError` SHALL be listed explicitly: the contract
+  deliberately does not derive it from `ValueError`, so neither of the other two types catches it.
+  Any other exception type is not specially logged and surfaces Python's default traceback. Note
+  `OSError` is deliberately a
   **superset** of the staging set: some pod-level crashes subclass it (a model-registry network
   failure, for instance, since `requests`' exception base subclasses `OSError`), so those are now
   labelled with the same one-line message. This over-capture is accepted — the exit code is `1`
@@ -217,7 +320,7 @@ identical convention adopted by the sibling `sleap-roots` trait-extractor driver
 (`sleap-roots#259`) — both producers report numerically identical codes for numerically identical
 situations, per A4's design doc §8 ask to resolve this "the same way for both."
 
-A `run_manifest.json`-scoped batch where every listed `scan_key` has no matching sidecar is
+A manifest-scoped batch where every listed `scan_key` has no matching sidecar is
 **not** the zero-scans-discovered case: `discover_scans` still returns one (failed) entry per
 listed key, so that batch ends `partial` (`3`), not the crash/staging-error code (`1`).
 
@@ -226,7 +329,7 @@ than being converted into the stop-requested exit code, giving exit `1` — the 
 raised before the driver's stop-requested check is reached. This is how every pre-flight staging
 error already behaves, and `1` is retryable in Argo just as `143` is.
 A catalog-load failure occurring while a stop has already been requested behaves the same way:
-it propagates as exit `1`, not `143`.
+it propagates as exit `1`, not `143`, as does a run-manifest resolution error.
 
 #### Scenario: One failing scan does not abort the batch
 
@@ -252,7 +355,7 @@ it propagates as exit `1`, not `143`.
 - **THEN** `run_batch` raises before constructing a `WarmModelWorker`, writes nothing, and the CLI
   logs a clear message and exits `1`
 
-Note: this is distinct from a `run_manifest.json` scoping discovery to zero `scan_keys`, which is
+Note: this is distinct from a run manifest scoping discovery to zero `scan_keys`, which is
 rejected earlier by the "Scan discovery" requirement's own manifest validation (an empty
 `scan_keys` list fails `RunManifest` validation before `discover_scans` returns at all) — see the
 exit-code bullet above, which already separates the two raise sites. Both land on exit `1` either
@@ -264,9 +367,25 @@ way; the mechanism differs, the outcome doesn't.
 - **THEN** the runner raises, the CLI logs a clear message before the exception propagates, and
   the process exits `1`, rather than reporting success with no outputs
 
+#### Scenario: A known run with no resolvable manifest is a staging error
+
+- **WHEN** `ARGO_WORKFLOW_NAME` is set and the input directory holds no manifest for that run
+  (neither its per-run name nor `run_manifest.json`)
+- **THEN** `run_batch` raises `RunManifestMissingError` before constructing a `WarmModelWorker`,
+  predicts nothing, creates no output directory, and the CLI logs its one-line staging-error
+  message and exits `1` — not the raw-traceback path
+
+#### Scenario: A per-run manifest naming another run is a staging error
+
+- **WHEN** `ARGO_WORKFLOW_NAME` is set and the per-run manifest for it names a different
+  `pipeline_run_id`
+- **THEN** `run_batch` raises `RunManifestIdentityError` before constructing a `WarmModelWorker`,
+  predicts nothing, creates no output directory, and the CLI logs its one-line staging-error
+  message and exits `1`
+
 #### Scenario: A failed run-manifest forward-copy is a staging error
 
-- **WHEN** a `run_manifest.json` is present but cannot be copied into the output directory
+- **WHEN** a run manifest is resolved but cannot be copied into the output directory
 - **THEN** the CLI logs its clear one-line staging-error message before the exception
   propagates, giving the process exit `1` — not the raw-traceback path, and not `3`, since no
   scan was predicted
@@ -317,7 +436,7 @@ way; the mechanism differs, the outcome doesn't.
 
 #### Scenario: A manifest scoped to missing sidecars ends partial, not a crash
 
-- **WHEN** `run_manifest.json` lists one or more `scan_keys` with no matching sidecar anywhere
+- **WHEN** the resolved manifest lists one or more `scan_keys` with no matching sidecar anywhere
   under the input directory, and no other scans are discovered
 - **THEN** `discover_scans` returns one failed entry per listed key (not an empty list), and the
   process exits `3`, not `1`
@@ -503,27 +622,34 @@ cross-process delivery (`os.kill`) invokes `TerminateProcess` rather than the re
 
 ### Requirement: Run-manifest forward-copy to the output directory
 
-The runner SHALL forward a present `run_manifest.json` from the input directory to the output
+The runner SHALL forward the run manifest it resolved from the input directory to the output
 directory. Predict's output directory is the downstream trait-extraction stage's input
-directory, and that stage scopes its own discovery by reading `run_manifest.json` from *its*
-input directory — so absent this hop the manifest never reaches it and that stage silently falls
-back to unscoped discovery. The *read* side of this file — scoping predict's own discovery to
-its `scan_keys` — is specified by "Scan discovery and params from the scan-metadata sidecar";
-this requirement covers only the forward hop.
+directory, and that stage scopes its own discovery by resolving the run manifest from *its*
+input directory — so absent this hop the manifest never reaches it and that stage either falls
+back to unscoped discovery or, under a run identity, fails. The *read* side of this file —
+resolving it and scoping predict's own discovery to its `scan_keys` — is specified by "Scan
+discovery and params from the scan-metadata sidecar"; this requirement covers only the forward
+hop.
 
-Specifically: after discovering scans and before predicting any of them, `run_batch` SHALL copy
-a `run_manifest.json` (`RUN_MANIFEST_FILENAME`, `sleap-roots-contracts`) present directly under
-the input directory to the top level of the output directory, creating the output directory if
-it does not exist. When no manifest is present the forward-copy SHALL create nothing, leaving
+Specifically: after discovering scans and before predicting any of them, `run_batch` SHALL publish
+the resolved manifest to the top level of the output directory **under the filename it was read
+from** — the per-run `run_manifest.<pipeline_run_id>.json` or the legacy `run_manifest.json` — so
+the downstream stage, resolving by the same policy with the same run identity, finds it under the
+same name. It SHALL NOT also publish it under the other name. The output directory SHALL be created
+if it does not exist. When no manifest was resolved the forward-copy SHALL create nothing, leaving
 output-directory creation to the existing per-scan write path.
 
 The copy SHALL be a **raw byte copy**, not a re-serialization through the `RunManifest` model,
 so the forwarded file is byte-identical to what the upstream producer wrote. (This clause is
-scoped to the forward-as-copy design: if this hop is later replaced by a union-merge — which
-must re-serialize by construction — that change repeals this sentence rather than violating it.) The copy SHALL
-perform **no validation** of the manifest's contents: within `run_batch` an invalid manifest has
-already been rejected by discovery, and as a standalone public function the copy is
-content-agnostic by design.
+scoped to the forward-as-copy design: if this hop is later replaced by a union-merge or a
+narrowing filter — which must re-serialize by construction — that change repeals this sentence
+rather than violating it.) The copy SHALL perform **no validation** of the manifest's contents:
+within `run_batch` an invalid manifest has already been rejected by discovery, and as a standalone
+public function the copy is content-agnostic by design. Called standalone,
+`copy_run_manifest_forward(input_dir, output_dir)` SHALL locate the manifest by the same policy
+and run identity as discovery (`sleap-roots-contracts`' non-parsing `read_run_manifest`, with
+`allow_legacy=True` and `pipeline_run_id_from_env()`), and SHALL therefore also raise
+`RunManifestMissingError` when a run identity is known and no manifest is found.
 
 Within `run_batch` the manifest SHALL be read **exactly once** per batch, and the bytes
 discovery validates SHALL be the bytes the forward-copy publishes. This makes forwarding a
@@ -536,7 +662,7 @@ downstream stage to the unscoped discovery this requirement exists to prevent.
 
 The copy SHALL be performed **atomically** (written to a temporary file **in the same
 directory**, then moved into place via `os.replace`), so no reader can ever observe a
-partially-written `run_manifest.json` at the final path, and a copy that fails partway SHALL
+partially-written manifest at the final path, and a copy that fails partway SHALL
 leave no residue in the output directory. Same-directory placement is normative: a temporary
 file elsewhere makes the move cross-device on the production mount, a failure no test
 environment reproduces. Atomicity SHALL additionally hold **between concurrent invocations**
@@ -549,8 +675,9 @@ The forwarded file's permissions SHALL match the source manifest's, rather than 
 restricted to the writing process — the downstream stage runs as a **different user** on shared
 storage and must be able to read it.
 
-If **no** `run_manifest.json` is present under the input directory, the forward-copy SHALL be a
-no-op and no manifest SHALL be written to the output directory — preserving the unscoped
+If **no** manifest was resolved — which, per the "Scan discovery" requirement, happens only when
+no run identity is known and no `run_manifest.json` is present — the forward-copy SHALL be a
+no-op and no manifest SHALL be written to the output directory, preserving the unscoped
 fallback for local, standalone, and test runs that stage no manifest. In that case, if the
 output directory nonetheless **already holds** a `run_manifest.json`, the runner SHALL log a
 warning naming it, and SHALL leave it in place. It is not predict's to delete — a concurrent
@@ -558,10 +685,11 @@ invocation may have just written it — but left silent it would scope the downs
 some earlier run's `scan_keys`, under-processing this run's scans with no other signal. The
 condition means the upstream producer staged no manifest where one was expected (most
 plausibly a rolled-back or stale images-downloader image), so the warning is the only place
-that misconfiguration becomes visible. If the source and
+that misconfiguration becomes visible. (Per-run manifests in the output directory are not
+checked: a downstream stage with no run identity never consults them.) If the source and
 destination refer to the same file, the forward-copy SHALL be a no-op and SHALL leave that file
 intact; detection SHALL NOT rely on path-string equality, and SHALL NOT fail when the
-destination does not yet exist (the ordinary case). An existing `run_manifest.json` in the
+destination does not yet exist (the ordinary case). An existing manifest of the same name in the
 output directory SHALL be replaced.
 
 The copy SHALL occur **before** the per-scan prediction loop and before any model-source
@@ -583,12 +711,28 @@ own.
 `copy_run_manifest_forward` SHALL be exported from the package root, so the forward hop is
 callable independently of `run_batch`.
 
+Unless a scenario states otherwise, it runs with no run identity, so the manifest in question is
+`run_manifest.json`.
+
 #### Scenario: A present manifest is forwarded byte-identically
 
 - **WHEN** `run_manifest.json` is present directly under the input directory, with on-disk bytes
   a `RunManifest` round-trip would not reproduce (non-canonical key order, extra whitespace, an
   undeclared extra field, and no trailing newline), and a batch runs
 - **THEN** the file at the top level of the output directory is byte-identical to the input copy
+
+#### Scenario: A per-run manifest is forwarded under its own name only
+
+- **WHEN** `ARGO_WORKFLOW_NAME=wf-a`, the input directory holds both `run_manifest.wf-a.json` and
+  a stale legacy `run_manifest.json`, and a batch runs
+- **THEN** the output directory holds `run_manifest.wf-a.json`, byte-identical to the input copy
+  and carrying its permissions, and no `run_manifest.json` is written to it
+
+#### Scenario: A legacy manifest read under a run identity is forwarded under the legacy name
+
+- **WHEN** `ARGO_WORKFLOW_NAME=wf-a` and the input directory holds only `run_manifest.json`
+- **THEN** the output directory holds `run_manifest.json`, byte-identical to the input copy, and
+  no per-run file
 
 #### Scenario: No manifest present writes no manifest
 
@@ -602,6 +746,19 @@ callable independently of `run_batch`.
   holds one from an earlier run
 - **THEN** that file is left exactly as it is, and a warning naming it is logged — so the
   downstream stage's scoping to an earlier run's `scan_keys` is visible rather than silent
+
+#### Scenario: The standalone copy fails loud for a known run with no manifest
+
+- **WHEN** `copy_run_manifest_forward` is called directly with `ARGO_WORKFLOW_NAME` set and no
+  manifest for that run under the input directory
+- **THEN** it raises `RunManifestMissingError` and writes nothing
+
+#### Scenario: The standalone copy does not check run identity
+
+- **WHEN** `copy_run_manifest_forward` is called directly under `ARGO_WORKFLOW_NAME=wf-a` and
+  `run_manifest.wf-a.json` names `pipeline_run_id="wf-b"`
+- **THEN** it is forwarded unchanged under its own name — the copy is content-agnostic; the
+  identity cross-check belongs to discovery
 
 #### Scenario: The manifest is forwarded even when the batch stops early
 
@@ -683,9 +840,11 @@ callable independently of `run_batch`.
   path, or its parent denies permission)
 - **THEN** the error raised is the underlying filesystem error — not a secondary error from the
   cleanup path — and it is logged with both directories named before it propagates
-- **AND WHEN** the failure comes from the presence or identity check rather than the write —
-  for example the source manifest exists but cannot be stat'd — the same log SHALL still name
-  both directories, since those checks are the first steps that can fail
+- **AND WHEN** `copy_run_manifest_forward` is called standalone and the failure comes from its
+  own read or same-file check rather than the write — for example the source manifest exists but
+  cannot be read — the same log SHALL still name both directories, since those checks are the
+  first steps that can fail *(within `run_batch` the read happens during resolution, before the
+  forward, and surfaces through the CLI's staging-error line instead)*
 
 #### Scenario: A source changed after discovery does not change what is forwarded
 
