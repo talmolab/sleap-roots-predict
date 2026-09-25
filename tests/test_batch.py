@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from manifest_builders import write_run_manifest
 from sleap_roots_predict.batch import discover_scans, run_batch
 
 
@@ -1495,3 +1496,215 @@ def test_catalog_failure_during_requested_stop_propagates(
         signal.signal(signal.SIGTERM, prev_handler)
     assert seen["stop_pending"], "stop was not pending when the catalog failed"
     assert not any("Terminated by SIGTERM" in r.message for r in caplog.records)
+
+
+_PER_RUN = "run_manifest.wf-a.json"
+_TWELVE = [f"scan_{i}" for i in range(1, 13)]
+
+
+def _stage_accumulated_union(inp: Path, *, with_per_run: bool) -> Path:
+    """The measured srp#71 shape: a legacy manifest carrying every run's keys."""
+    for key in _TWELVE:
+        _write_scan(inp, key, _RICE)
+    write_run_manifest(
+        inp, _MANIFEST, pipeline_run_id="sleap-roots-pipeline-hpdpf", scan_keys=_TWELVE
+    )
+    if with_per_run:
+        return write_run_manifest(
+            inp, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scan_7"]
+        )
+    return inp / _MANIFEST
+
+
+def test_a_per_run_manifest_stops_the_accumulated_union(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    src = _stage_accumulated_union(inp, with_per_run=True)
+    assert [s.scan_key for s in discover_scans(inp)] == ["scan_7"]
+    source, _ = _recording_source()
+    result = run_batch(inp, out, source=source)
+    assert [s.scan_key for s in result.scans] == ["scan_7"]
+    assert (out / _PER_RUN).read_bytes() == src.read_bytes()
+    assert not (out / _MANIFEST).exists()
+
+
+def test_a_legacy_union_is_honored_and_flagged_during_the_rollout(
+    tmp_path, monkeypatch, caplog
+):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    src = _stage_accumulated_union(inp, with_per_run=False)
+    source, _ = _recording_source()
+    with caplog.at_level(logging.WARNING, logger="sleap_roots_predict.run_manifest"):
+        result = run_batch(inp, out, source=source)
+    assert sorted(s.scan_key for s in result.scans) == sorted(_TWELVE)
+    assert any(
+        "hpdpf" in r.getMessage() and "wf-a" in r.getMessage() for r in caplog.records
+    )
+    assert {p.name for p in out.iterdir() if p.is_file()} == {_MANIFEST}
+    assert (out / _MANIFEST).read_bytes() == src.read_bytes()
+
+
+def _no_manifest(inp):
+    _write_scan(inp, "scanA", _RICE)
+
+
+def _foreign_per_run(inp):
+    _write_scan(inp, "scanA", _RICE)
+    write_run_manifest(inp, _PER_RUN, pipeline_run_id="wf-b", scan_keys=["scanA"])
+
+
+def _directory_at_legacy_path(inp):
+    _write_scan(inp, "scanA", _RICE)
+    (inp / _MANIFEST).mkdir()
+
+
+@pytest.mark.parametrize(
+    "run_id, stage, error",
+    [
+        ("wf-a", _no_manifest, "RunManifestMissingError"),
+        ("wf-a", _foreign_per_run, "RunManifestIdentityError"),
+        ("../x", _no_manifest, "ValueError"),
+        (None, _directory_at_legacy_path, "OSError"),
+    ],
+    ids=["missing", "foreign", "unusable-id", "directory-at-path"],
+)
+def test_manifest_staging_errors_abort_before_any_work(
+    tmp_path, monkeypatch, run_id, stage, error
+):
+    import sleap_roots_contracts as contracts
+
+    if run_id is not None:
+        monkeypatch.setenv("ARGO_WORKFLOW_NAME", run_id)
+    inp, out = tmp_path / "in", tmp_path / "out"
+    stage(inp)
+    expected = {"ValueError": ValueError, "OSError": OSError}.get(error) or getattr(
+        contracts, error
+    )
+    source, calls = _recording_source()
+    with pytest.raises(expected):
+        run_batch(inp, out, source=source)
+    assert calls["n"] == 0
+    assert not out.exists()
+
+
+def test_standalone_discovery_fails_loud_for_a_known_run(tmp_path, monkeypatch):
+    from sleap_roots_contracts import RunManifestMissingError
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    _write_scan(tmp_path, "scanA", _RICE)
+    with pytest.raises(RunManifestMissingError):
+        discover_scans(tmp_path)
+
+
+def test_discovery_without_identity_ignores_per_run_manifests(tmp_path):
+    _write_scan(tmp_path, "scanA", _RICE)
+    _write_scan(tmp_path, "scanB", _RICE)
+    write_run_manifest(tmp_path, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scanA"])
+    assert [s.scan_key for s in discover_scans(tmp_path)] == ["scanA", "scanB"]
+
+
+@pytest.mark.parametrize("value", ["   ", ""])
+def test_a_blank_run_identity_is_no_identity(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", value)
+    _write_scan(tmp_path, "scanA", _RICE)
+    assert [s.scan_key for s in discover_scans(tmp_path)] == ["scanA"]
+
+
+def test_a_run_identity_with_incidental_whitespace_still_resolves(
+    tmp_path, monkeypatch
+):
+    """Review focus 1."""
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a\n")
+    _write_scan(tmp_path, "scanA", _RICE)
+    _write_scan(tmp_path, "scanB", _RICE)
+    write_run_manifest(tmp_path, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scanB"])
+    assert [s.scan_key for s in discover_scans(tmp_path)] == ["scanB"]
+
+
+def test_an_input_path_that_is_a_file_fails_the_batch(tmp_path):
+    """Review focus 2: a mis-mount must never pass as success, on any OS."""
+    not_a_dir = tmp_path / "in"
+    not_a_dir.write_bytes(b"x")
+    source, calls = _recording_source()
+    with pytest.raises((OSError, ValueError)):
+        run_batch(not_a_dir, tmp_path / "out", source=source)
+    assert calls["n"] == 0
+
+
+def test_an_invalid_per_run_manifest_is_never_forwarded(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    _write_scan(inp, "scanA", _RICE)
+    (inp / _PER_RUN).write_bytes(b"{not valid json")
+    source, _ = _recording_source()
+    with pytest.raises(ValueError):
+        run_batch(inp, out, source=source)
+    assert not out.exists()
+
+
+def test_run_batch_forwards_the_resolved_per_run_bytes_even_if_rewritten(
+    tmp_path, monkeypatch
+):
+    import sleap_roots_predict.batch as batch_mod
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    _write_scan(inp, "scanA", _RICE)
+    src = write_run_manifest(inp, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scanA"])
+    resolved = src.read_bytes()
+    real = batch_mod._resolve_run_manifest
+
+    def _resolve_then_rewrite(*args, **kwargs):
+        loaded = real(*args, **kwargs)
+        src.write_bytes(b'{"pipeline_run_id":"wf-a","scan_keys":["scanA","scanZ"]}')
+        return loaded
+
+    monkeypatch.setattr(batch_mod, "_resolve_run_manifest", _resolve_then_rewrite)
+    source, _ = _recording_source()
+    run_batch(inp, out, source=source)
+    assert (out / _PER_RUN).read_bytes() == resolved
+
+
+def test_missing_input_dir_wins_over_an_unusable_run_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "../x")
+    with pytest.raises(FileNotFoundError, match="input scan directory does not exist"):
+        run_batch(tmp_path / "nope", tmp_path / "out")
+
+
+def _main_with_recording_source(monkeypatch):
+    import sleap_roots_predict.batch as batch_mod
+
+    source, calls = _recording_source()
+    real_run_batch = batch_mod.run_batch
+
+    def _with_source(*args, **kwargs):
+        kwargs.setdefault("source", source)
+        return real_run_batch(*args, **kwargs)
+
+    monkeypatch.setattr(batch_mod, "run_batch", _with_source)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "stage, error",
+    [
+        (_no_manifest, "RunManifestMissingError"),
+        (_foreign_per_run, "RunManifestIdentityError"),
+    ],
+)
+def test_cli_logs_run_manifest_errors_as_staging_errors(
+    tmp_path, monkeypatch, caplog, clean_wandb_env, stage, error
+):
+    import sleap_roots_contracts as contracts
+    from sleap_roots_predict.__main__ import main
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    stage(inp)
+    calls = _main_with_recording_source(monkeypatch)
+    with caplog.at_level("ERROR"):
+        with pytest.raises(getattr(contracts, error)):
+            main([str(inp), str(out)])
+    assert any("Batch aborted" in r.getMessage() for r in caplog.records)
+    assert calls["n"] == 0 and not out.exists()

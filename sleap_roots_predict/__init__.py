@@ -9,8 +9,10 @@ This package provides:
   registry or a local dir (``ModelCardSource`` / ``WandbRegistrySource`` /
   ``LocalCardSource``), and keep sleap-nn predictors resident across scans
   (``WarmModelWorker``)
-- Run scoping: forward a staged ``run_manifest.json`` from the input directory to
-  the output directory (``copy_run_manifest_forward``), so the downstream traits
+- Run scoping: resolve this run's manifest (per-run
+  ``run_manifest.<pipeline_run_id>.json`` or legacy ``run_manifest.json``) and forward
+  it, under the name read, to the output directory (``copy_run_manifest_forward``), so
+  the downstream traits
   stage — whose input directory is predict's output directory — stays scoped to the
   same run instead of falling back to unscoped discovery
 - Output contract: write the per-scan artifacts the downstream traits stage reads

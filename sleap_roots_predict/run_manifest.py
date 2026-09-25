@@ -1,66 +1,119 @@
-"""Forward the run-scoping ``run_manifest.json`` from a stage's input to its output.
+"""Resolve this run's run manifest, and forward it from a stage's input to its output.
 
 ``RunManifest`` (bloomctl's cross-repo run-scoping shape, keyed by ``scan_keys``) is a
 *different* concept from ``PredictionManifest`` (one scan's predict output, written by
 ``output_contract.py``). Kept in its own module so "manifest" never means two things at
 once -- see ``sleap-roots-pipeline#37``.
 
-Two deliberate divergences from the sibling ``trait_extractor/run_manifest.py`` in
-``sleap-roots``, both argued in the ``forward-run-manifest-to-output`` change's
-``design.md``: a copy failure **raises** rather than being treated as best-effort (a
-silently skipped copy is the bug this exists to prevent, recurring undetected), and the
-temporary file is cleaned up on failure. Do not "harmonize" either back without
-re-reading that rationale.
+Resolution is ``sleap-roots-contracts``' own policy (0.1.0a9,
+talmolab/sleap-roots-pipeline#71): with a run identity (``ARGO_WORKFLOW_NAME``, read only
+through ``pipeline_run_id_from_env``) the per-run ``run_manifest.<pipeline_run_id>.json``
+first, then -- while ``allow_legacy=True`` -- the legacy ``run_manifest.json``; a known run
+with neither raises rather than falling back to unscoped discovery. Without an identity
+only ``run_manifest.json`` is a candidate, so local runs behave as before.
+
+One deliberate divergence from the sibling ``trait_extractor/run_manifest.py`` in
+``sleap-roots``: a copy failure **raises** rather than being logged as best-effort (a
+silently skipped copy is the bug this exists to prevent, recurring undetected), argued in
+the archived ``forward-run-manifest-to-output`` change's ``design.md``. Do not
+"harmonize" it back without re-reading that rationale.
 """
 
 import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import NamedTuple
 
-from sleap_roots_contracts import RUN_MANIFEST_FILENAME
+from sleap_roots_contracts import (
+    RUN_MANIFEST_FILENAME,
+    LoadedRunManifest,
+    load_run_manifest,
+    pipeline_run_id_from_env,
+    read_run_manifest,
+)
 
 logger = logging.getLogger(__name__)
 
-# "No snapshot supplied -- read the file yourself." Distinct from None, which is a
+# "No read supplied -- read the manifest yourself." Distinct from None, which is a
 # caller asserting it already looked and the manifest is absent.
 _UNREAD = object()
 
-
-class _ManifestSnapshot(NamedTuple):
-    """One read of a run manifest: the bytes to publish, and the mode to publish at.
-
-    Carrying the mode alongside the bytes keeps "the forwarded file's permissions
-    match the source" true even when the source is gone by publish time, without a
-    second stat that could observe a different file.
-    """
-
-    data: bytes
-    mode: int
+# Matches the per-run names contracts' run_manifest_filename() builds
+# ("run_manifest.<pipeline_run_id>.json") but never the legacy "run_manifest.json" (the
+# pattern needs a second dot) nor a dot-prefixed temp file. Contracts keeps its
+# prefix/suffix private, so the pattern is spelled out here, as traits does.
+_PER_RUN_MANIFEST_GLOB = "run_manifest.*.json"
 
 
-def _read_manifest_snapshot(input_dir: str | Path) -> _ManifestSnapshot | None:
-    """Read a run manifest's bytes and mode in a single pass.
+def _resolve_run_manifest(
+    input_dir: str | Path, pipeline_run_id: str | None
+) -> LoadedRunManifest | None:
+    """Load this run's manifest once, and log the cases where its scope may be wrong.
 
-    Private to the package: `run_batch` uses it to take one snapshot that both
-    discovery and the forward-copy work from. Not part of the public API -- standalone
-    callers want :func:`copy_run_manifest_forward`, which reads for them.
+    Resolution, parsing and the per-run identity cross-check are contracts'
+    ``load_run_manifest``; this adds only traceability for what that function
+    deliberately leaves unchecked. Neither warning changes the scope:
+
+    - the read is not per-run (unscoped, or scoped by the legacy file) while per-run
+      manifests sit unread at the top level of ``input_dir`` -- typically a copied
+      cluster tree re-run locally;
+    - a legacy manifest read under a known identity names a different run -- under Argo
+      the pre-per-run writer stamps each merge with the current run, so this means
+      another workflow merged into the shared directory afterwards.
 
     Args:
-        input_dir: Directory to look for ``RUN_MANIFEST_FILENAME`` in.
+        input_dir: Directory whose top level holds the manifest.
+        pipeline_run_id: This run's identity, from ``pipeline_run_id_from_env()``.
 
     Returns:
-        The snapshot, or ``None`` when no manifest is present. A non-regular file at
-        that path (a directory, say) reads as absent.
+        The loaded manifest and the read it came from, or ``None`` when the run has no
+        identity and no ``run_manifest.json`` exists.
 
     Raises:
-        OSError: If the manifest exists but cannot be stat'd or read.
+        sleap_roots_contracts.RunManifestMissingError: If the identity is known but no
+            manifest resolves for it.
+        sleap_roots_contracts.RunManifestIdentityError: If a per-run manifest names a
+            different run.
+        ValueError: If the identity is unusable as a filename component, or the
+            manifest fails ``RunManifest`` validation (pydantic's ``ValidationError``).
+        OSError: If a candidate exists but cannot be read (a directory there, a
+            permission error, a dangling symlink), or ``input_dir`` is missing.
     """
-    source = Path(input_dir) / RUN_MANIFEST_FILENAME
-    if not source.is_file():
-        return None
-    return _ManifestSnapshot(source.read_bytes(), source.stat().st_mode & 0o777)
+    # allow_legacy=True while any stage may still write the legacy name; flipping it to
+    # False is fleet-wide (talmolab/sleap-roots-pipeline#82).
+    loaded = load_run_manifest(input_dir, pipeline_run_id, allow_legacy=True)
+    input_dir = Path(input_dir)
+    if loaded is None or not loaded.read.is_per_run:
+        per_run = sorted(p.name for p in input_dir.glob(_PER_RUN_MANIFEST_GLOB))
+        if per_run:
+            scoped_by = (
+                "discovering every scan"
+                if loaded is None
+                else f"scoping by legacy {loaded.read.filename}"
+            )
+            logger.warning(
+                "Run %r is not scoped by a per-run manifest in %s (%s); per-run "
+                "manifest(s) present but unread: %s",
+                pipeline_run_id,
+                input_dir.as_posix(),
+                scoped_by,
+                ", ".join(per_run),
+            )
+    if (
+        loaded is not None
+        and pipeline_run_id is not None
+        and not loaded.read.is_per_run
+        and loaded.manifest.pipeline_run_id != pipeline_run_id
+    ):
+        logger.warning(
+            "Run %r is scoped by legacy %s in %s, which names run %r -- honored while "
+            "the legacy fallback is enabled, but it is another run's scope",
+            pipeline_run_id,
+            loaded.read.filename,
+            input_dir.as_posix(),
+            loaded.manifest.pipeline_run_id,
+        )
+    return loaded
 
 
 def _is_same_file(left: Path, right: Path) -> bool:
@@ -97,62 +150,72 @@ def _is_same_file(left: Path, right: Path) -> bool:
 
 
 def copy_run_manifest_forward(
-    input_dir: str | Path, output_dir: str | Path, *, snapshot=_UNREAD
+    input_dir: str | Path, output_dir: str | Path, *, read=_UNREAD
 ) -> None:
-    """Copy ``run_manifest.json`` from ``input_dir`` into ``output_dir``, if present.
+    """Republish this run's manifest from ``input_dir`` into ``output_dir``, if present.
 
-    A raw byte copy -- never a re-serialization through ``RunManifest`` -- and no
-    validation of contents, so the forwarded file is byte-identical to what the
-    upstream producer wrote. Written atomically via a temporary file in ``output_dir``
-    plus :func:`os.replace`, under a name unique to this process so concurrent
-    invocations sharing an output directory can never publish one another's
-    partially-written bytes.
+    Publishes under the filename it was read from -- the per-run
+    ``run_manifest.<pipeline_run_id>.json`` or the legacy ``run_manifest.json`` -- so the
+    downstream stage, resolving by the same policy and identity, finds it. A raw byte
+    copy -- never a re-serialization through ``RunManifest`` -- and no validation of
+    contents, so the forwarded file is byte-identical to what the upstream producer
+    wrote. Written atomically via a temporary file in ``output_dir`` plus
+    :func:`os.replace`, under a name unique to this process so concurrent invocations
+    sharing an output directory can never publish one another's partially-written bytes.
 
     Args:
-        input_dir: Directory to look for ``RUN_MANIFEST_FILENAME`` in (top level only;
-            never searched recursively).
+        input_dir: Directory whose top level holds the manifest (never searched
+            recursively).
         output_dir: Directory to copy the manifest into. Created if missing, and
             removed again if the copy then fails, so a failed forward never leaves a
             directory that did not exist before.
-        snapshot: Package-internal. A manifest already read from ``input_dir`` (as
-            :func:`_read_manifest_snapshot` returns), or ``None`` to assert it was
-            already found absent. Omit it and the manifest is read here. ``run_batch``
-            passes the snapshot discovery validated, so the bytes published are the
-            bytes scoped against even if the source changes in between.
+        read: Package-internal. A ``RunManifestRead`` already taken from ``input_dir``,
+            or ``None`` to assert none was found. Omit it and the manifest is located
+            here with contracts' non-parsing ``read_run_manifest`` (``allow_legacy=True``,
+            identity from ``pipeline_run_id_from_env()``). ``run_batch`` passes the read
+            discovery scoped against, so the bytes published are the bytes scoped
+            against even if the source changes in between.
 
     Returns:
-        None. A no-op when no manifest is present under ``input_dir``, or when source
-        and destination are the same file (a caller passing ``input_dir ==
-        output_dir``, or a symlinked/bind-mounted ``output_dir``). When no manifest is
-        present but ``output_dir`` already holds one from an earlier run, that file is
-        left in place and a warning is logged: it cannot be distinguished from a
-        concurrent invocation's file, but left silent it would scope the downstream
-        stage to an earlier run's ``scan_keys``.
+        None. A no-op when no manifest was found (possible only with no run identity),
+        or when source and destination are the same file (a caller passing
+        ``input_dir == output_dir``, or a symlinked/bind-mounted ``output_dir``). When
+        none was found but ``output_dir`` already holds a ``run_manifest.json`` from an
+        earlier run, that file is left in place and a warning is logged: it cannot be
+        distinguished from a concurrent invocation's file, but left silent it would
+        scope the downstream stage to an earlier run's ``scan_keys``.
 
     Raises:
-        OSError: If a present manifest cannot be forwarded. Deliberately not
-            best-effort: a silently missing forwarded manifest makes the downstream
-            stage fall back to unscoped discovery, which is the contamination this
-            function exists to prevent.
+        sleap_roots_contracts.RunManifestMissingError: Called standalone, if a run
+            identity is known and no manifest is found for it.
+        ValueError: Called standalone, if the run identity is unusable as a filename
+            component.
+        OSError: If a present manifest cannot be read or forwarded, or ``input_dir`` is
+            missing. Deliberately not best-effort: a silently missing forwarded manifest
+            sends the downstream stage to unscoped discovery (or, under a run identity,
+            to a failure) -- the contamination this function exists to prevent.
     """
     source_dir = Path(input_dir)
-    source = source_dir / RUN_MANIFEST_FILENAME
     destination_dir = Path(output_dir)
-    destination = destination_dir / RUN_MANIFEST_FILENAME
+    # Until the read resolves no filename is known, so a failure before then is logged
+    # generically rather than naming a file that was never found.
+    label = "run manifest"
 
     tmp: str | None = None
     created: list[Path] = []
     try:
-        # Presence before identity: the identity check stats both operands, so running
-        # it first would raise on a nonexistent source. Both live INSIDE this block --
-        # Path.is_file() only swallows the errnos in pathlib._IGNORED_ERRNOS (ENOENT,
-        # ENOTDIR, EBADF, WSAENOTSOCK), so EACCES on the source (an NFS ACL
-        # misconfiguration, or a race narrowing the mode) propagates from here and must
-        # still get the log naming both directories that the spec requires.
-        if snapshot is _UNREAD:
-            snapshot = _read_manifest_snapshot(source_dir)
-        if snapshot is None:
-            if destination.is_file():
+        # The read lives INSIDE this block so that a failure there (EACCES from an NFS
+        # ACL misconfiguration, a known run with no manifest) still gets the log naming
+        # both directories that the spec requires before anything propagates.
+        if read is _UNREAD:
+            # allow_legacy=True while any stage may still write the legacy name;
+            # flipping it to False is fleet-wide (talmolab/sleap-roots-pipeline#82).
+            read = read_run_manifest(
+                source_dir, pipeline_run_id_from_env(), allow_legacy=True
+            )
+        if read is None:
+            stale = destination_dir / RUN_MANIFEST_FILENAME
+            if stale.is_file():
                 logger.warning(
                     "No %s under %s, but %s already holds one from an earlier run; "
                     "leaving it in place -- the downstream stage will be scoped to it",
@@ -162,11 +225,14 @@ def copy_run_manifest_forward(
                 )
             else:
                 logger.debug(
-                    "No %s under %s; nothing to forward",
-                    RUN_MANIFEST_FILENAME,
+                    "No run manifest under %s; nothing to forward",
                     source_dir.as_posix(),
                 )
             return
+
+        label = read.filename
+        source = source_dir / read.filename
+        destination = destination_dir / read.filename
 
         # The identity check stats BOTH operands and raises FileNotFoundError when the
         # destination does not exist yet -- the ordinary case -- so it can never be
@@ -201,7 +267,7 @@ def copy_run_manifest_forward(
         # left by a SIGKILL is hidden from any future "run_manifest*" glob.
         fd, tmp = tempfile.mkstemp(
             dir=destination_dir,
-            prefix=f".{RUN_MANIFEST_FILENAME}.",
+            prefix=f".{read.filename}.",
             suffix=".tmp",
         )
         # The fd must be closed before the replace: on Windows an open handle makes
@@ -209,20 +275,20 @@ def copy_run_manifest_forward(
         # bug would surface only at the replace and only on the Windows leg. Writing
         # through the fd mkstemp already opened avoids reopening the path by name.
         with os.fdopen(fd, "wb") as handle:
-            handle.write(snapshot.data)
+            handle.write(read.data)
         # mkstemp creates at 0600 regardless of umask, so without this the forwarded
         # manifest is the one file predict writes that the downstream container -- a
         # different uid on the same shared NFS mount -- cannot read. Before the
         # replace, never after: after would briefly publish the destination at the
         # private temp mode. Largely a no-op on Windows.
-        os.chmod(tmp, snapshot.mode)
+        os.chmod(tmp, read.mode)
         os.replace(tmp, destination)
     except Exception:
         # Log BEFORE cleaning up: if the unlink itself raises, logging afterwards would
         # never run and the secondary error would replace the real one.
         logger.error(
             "Failed to forward %s from %s to %s",
-            RUN_MANIFEST_FILENAME,
+            label,
             source_dir.as_posix(),
             destination_dir.as_posix(),
         )
@@ -245,7 +311,7 @@ def copy_run_manifest_forward(
 
     logger.info(
         "Forwarded %s from %s to %s",
-        RUN_MANIFEST_FILENAME,
+        read.filename,
         source_dir.as_posix(),
         destination_dir.as_posix(),
     )

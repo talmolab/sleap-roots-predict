@@ -55,7 +55,7 @@
 
 ## 3. Per-run run-manifest reader: resolve once, scope, forward under the name read, CLI (TDD)
 
-- [ ] 3.1 Write failing tests first. Import new private symbols **inside** the new tests so the
+- [x] 3.1 Write failing tests first. Import new private symbols **inside** the new tests so the
       existing modules still collect during the red phase. A small importable helper (next to
       `card_builders.py`) writes a `RunManifest` JSON (`pipeline_run_id`, `scan_keys`) to a given
       filename with `write_bytes`.
@@ -112,7 +112,7 @@
     → each raises its error, logs a `Batch aborted:` ERROR line, `calls["n"] == 0`, no output
     directory.
   Verify FAIL for the right reason.
-- [ ] 3.2 Implement:
+- [x] 3.2 Implement:
   - **`run_manifest.py`**
     - Delete `_ManifestSnapshot` / `_read_manifest_snapshot`.
     - Add `_resolve_run_manifest(input_dir, pipeline_run_id) -> LoadedRunManifest | None` calling

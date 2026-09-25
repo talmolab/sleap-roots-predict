@@ -6,10 +6,11 @@ image frames in a dedicated directory), loads models once via a resident
 writes the prediction-output artifacts, and copies the sidecar through so each
 ``<output_dir>/{scan_key}/`` is a self-contained trait-extractor input tree.
 
-A ``run_manifest.json`` staged in ``input_dir`` is also forwarded to the **top
-level** of ``output_dir`` before any scan is predicted, so the downstream
-trait-extraction stage — whose input directory *is* this output directory — stays
-scoped to the same run instead of falling back to unscoped discovery.
+This run's manifest — the per-run ``run_manifest.<pipeline_run_id>.json`` or the
+legacy ``run_manifest.json``, resolved by ``sleap-roots-contracts``' policy — scopes
+discovery and is forwarded, under the name it was read, to the **top level** of
+``output_dir`` before any scan is predicted, so the downstream trait-extraction stage —
+whose input directory *is* this output directory — stays scoped to the same run.
 """
 
 import json
@@ -21,11 +22,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from sleap_roots_contracts import (
-    RUN_MANIFEST_FILENAME,
     PredictionManifest,
     ResolvedParams,
-    RunManifest,
     compute_param_hash,
+    pipeline_run_id_from_env,
 )
 from sleap_roots_contracts.identity import compute_idempotency_key
 
@@ -41,7 +41,7 @@ from sleap_roots_predict.output_contract import (
 )
 from sleap_roots_predict.run_manifest import (
     _UNREAD,
-    _read_manifest_snapshot,
+    _resolve_run_manifest,
     copy_run_manifest_forward,
 )
 from sleap_roots_predict.video_utils import make_video_from_images, natural_sort
@@ -91,7 +91,15 @@ class BatchResult:
         return all(s.status != "failed" for s in self.scans)
 
 
-def discover_scans(input_dir: str | Path, *, manifest_bytes=_UNREAD) -> list[ScanInput]:
+def _require_input_dir(input_dir: Path) -> None:
+    """Fail on a missing input mount before anything else can mask it."""
+    if not input_dir.exists():
+        raise FileNotFoundError(
+            f"input scan directory does not exist: {input_dir.as_posix()}"
+        )
+
+
+def discover_scans(input_dir: str | Path, *, manifest=_UNREAD) -> list[ScanInput]:
     """Discover scans under ``input_dir`` by their scan-metadata sidecars.
 
     Recursively finds ``*.scan_metadata.json`` files; each sidecar's parent
@@ -100,19 +108,22 @@ def discover_scans(input_dir: str | Path, *, manifest_bytes=_UNREAD) -> list[Sca
     returned with ``.error`` set (isolated failure); a duplicate ``scan_key``
     anywhere in the tree raises.
 
-    If ``input_dir / RUN_MANIFEST_FILENAME`` exists, discovery is scoped to
-    exactly its ``scan_keys``: a discovered sidecar outside that set is
-    silently excluded, and a listed ``scan_key`` with no matching sidecar is
-    returned as an isolated error entry. Absent a manifest, every sidecar found
-    is returned (unscoped), unchanged from before manifest-awareness existed.
+    The run manifest is resolved by ``sleap-roots-contracts``' policy (see
+    ``run_manifest._resolve_run_manifest``): with a run identity
+    (``ARGO_WORKFLOW_NAME``) the per-run ``run_manifest.<pipeline_run_id>.json``, else
+    -- during the rollout -- the legacy ``run_manifest.json``; without one, only
+    ``run_manifest.json``. When a manifest resolves, discovery is scoped to exactly its
+    ``scan_keys``: a discovered sidecar outside that set is silently excluded, and a
+    listed ``scan_key`` with no matching sidecar is returned as an isolated error
+    entry. With no identity and no manifest, every sidecar found is returned
+    (unscoped), unchanged from before manifest-awareness existed.
 
     Args:
         input_dir: Directory of staged scans (must exist).
-        manifest_bytes: Package-internal. The raw bytes of a ``run_manifest.json``
-            already read from ``input_dir``, or ``None`` to assert it was already
-            found absent. Omit it and the manifest is read here. ``run_batch`` passes
-            one snapshot so that discovery scopes against exactly the bytes the
-            forward-copy publishes.
+        manifest: Package-internal. A ``LoadedRunManifest`` already resolved for
+            ``input_dir``, or ``None`` to assert none was found. Omit it and it is
+            resolved here. ``run_batch`` passes its single resolution so that
+            discovery scopes against exactly the bytes the forward-copy publishes.
 
     Returns:
         One :class:`ScanInput` per discovered (or manifest-expected-but-missing)
@@ -121,26 +132,22 @@ def discover_scans(input_dir: str | Path, *, manifest_bytes=_UNREAD) -> list[Sca
     Raises:
         FileNotFoundError: If ``input_dir`` does not exist (a mis-configured mount,
             distinct from an empty-but-present directory which is a no-op).
-        ValueError: If two in-scope sidecars share a ``scan_key``.
-        pydantic.ValidationError: If a present ``run_manifest.json`` fails to parse
-            or validate as a :class:`RunManifest`.
+        ValueError: If two in-scope sidecars share a ``scan_key``, or
+            ``ARGO_WORKFLOW_NAME`` is unusable as a filename component.
+        pydantic.ValidationError: If the resolved manifest fails to parse or
+            validate as a ``RunManifest``.
+        sleap_roots_contracts.RunManifestMissingError: If a run identity is known
+            and no manifest resolves for it.
+        sleap_roots_contracts.RunManifestIdentityError: If a per-run manifest names
+            a different run.
+        OSError: If a manifest candidate exists but cannot be read (e.g. a
+            directory at that path).
     """
     input_dir = Path(input_dir)
-    if not input_dir.exists():
-        raise FileNotFoundError(
-            f"input scan directory does not exist: {input_dir.as_posix()}"
-        )
-
-    scoped_keys: set[str] | None = None
-    if manifest_bytes is _UNREAD:
-        manifest_path = input_dir / RUN_MANIFEST_FILENAME
-        # read_bytes, not read_text: model_validate_json accepts bytes, and decoding
-        # with the platform locale would reject a manifest on the Windows leg that the
-        # sibling stages -- which read these same bytes as UTF-8 -- accept.
-        manifest_bytes = manifest_path.read_bytes() if manifest_path.is_file() else None
-    if manifest_bytes is not None:
-        manifest = RunManifest.model_validate_json(manifest_bytes)
-        scoped_keys = set(manifest.scan_keys)
+    _require_input_dir(input_dir)
+    if manifest is _UNREAD:
+        manifest = _resolve_run_manifest(input_dir, pipeline_run_id_from_env())
+    scoped_keys = None if manifest is None else set(manifest.manifest.scan_keys)
 
     scans: list[ScanInput] = []
     seen: dict[str, Path] = {}
@@ -160,7 +167,7 @@ def discover_scans(input_dir: str | Path, *, manifest_bytes=_UNREAD) -> list[Sca
 
     if excluded:
         logger.debug(
-            "Excluded %d sidecar(s) outside run_manifest.json scope: %s",
+            "Excluded %d sidecar(s) outside the run manifest's scope: %s",
             len(excluded),
             sorted(excluded),
         )
@@ -328,10 +335,15 @@ def run_batch(
         ValueError: If two sidecars share a ``scan_key``, or if zero scans are
             discovered under a present ``input_dir`` (both batch-level staging
             errors, surfaced before any prediction or model-source interaction).
-        OSError: If a ``run_manifest.json`` staged in ``input_dir`` cannot be
-            forwarded to ``output_dir``. Also a batch-level staging error, raised
-            before any prediction: a silently missing forwarded manifest would make
-            the downstream stage fall back to unscoped discovery.
+        OSError: If the resolved run manifest cannot be read or forwarded to
+            ``output_dir``. Also a batch-level staging error, raised before any
+            prediction: a silently missing forwarded manifest would make the
+            downstream stage fall back to unscoped discovery.
+        sleap_roots_contracts.RunManifestMissingError: If ``ARGO_WORKFLOW_NAME``
+            gives the run an identity but no manifest resolves for it; raised before
+            any model-source interaction, never falling back to unscoped discovery.
+        sleap_roots_contracts.RunManifestIdentityError: If the per-run manifest
+            names a different run (same timing).
         NoReadableModelCardsError: (a ``ValueError``) If the registry holds
             production artifacts none of which validates. Raised, along with
             ``RuntimeError`` for missing registry credentials, before the first
@@ -339,16 +351,15 @@ def run_batch(
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
-    # ONE read of run_manifest.json for the whole batch. Discovery validates exactly
-    # these bytes and the forward-copy publishes exactly these bytes, so the two can
-    # never disagree about the run's scope. Re-reading the path for the copy left a
+    _require_input_dir(input_dir)
+    # ONE resolution of the run manifest for the whole batch. Discovery scopes against
+    # exactly this read and the forward-copy publishes exactly its bytes, so the two
+    # can never disagree about the run's scope. Re-reading the path for the copy left a
     # window in which a concurrent upstream writer (bloomctl unions scan_keys into the
-    # shared input manifest) could widen it -- forwarding a scope predict never
+    # shared legacy manifest) could widen it -- forwarding a scope predict never
     # predicted -- or remove it, making the forward a silent no-op that reinstates #39.
-    snapshot = _read_manifest_snapshot(input_dir)
-    scans = discover_scans(
-        input_dir, manifest_bytes=None if snapshot is None else snapshot.data
-    )
+    loaded = _resolve_run_manifest(input_dir, pipeline_run_id_from_env())
+    scans = discover_scans(input_dir, manifest=loaded)
     if not scans:
         raise ValueError(f"no scans discovered under {input_dir.as_posix()}")
     # Forward BEFORE the loop and before any model-source interaction: discovery has
@@ -356,7 +367,9 @@ def run_batch(
     # shared output tree; a failure here costs no prediction work; and a batch stopped
     # early (Argo preemption) still hands the downstream stage a scoped tree.
     # Deliberately not wrapped in try/except -- see the change's design.md.
-    copy_run_manifest_forward(input_dir, output_dir, snapshot=snapshot)
+    copy_run_manifest_forward(
+        input_dir, output_dir, read=None if loaded is None else loaded.read
+    )
     result = BatchResult()
 
     resolved_code_sha = resolve_identity(predict_code_sha, "SRP_PREDICT_CODE_SHA")
