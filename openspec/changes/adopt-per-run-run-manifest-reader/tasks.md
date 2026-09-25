@@ -166,7 +166,7 @@
       (ci.yml's expression, verbatim) green.
 - [x] 5.2 GPU subset under a `windows_cuda` sync (`uv sync --extra dev --extra windows_cuda`, then
       `uv run pytest -m gpu tests/`), confirming tests actually ran rather than skipped.
-- [ ] 5.3 POSIX-only tests (the `0o640` forward, mode guards) run under WSL, or confirmed as
+- [x] 5.3 POSIX-only tests (the `0o640` forward, mode guards) run under WSL, or confirmed as
       *passed, not skipped* in the ubuntu/macOS CI logs.
 - [x] 5.4 Per-commit green: for each commit in `main..HEAD`, check it out and run 5.1's command
       (no interactive rebase).
