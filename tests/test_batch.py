@@ -1627,9 +1627,9 @@ def test_an_input_path_that_is_a_file_fails_the_batch(tmp_path):
     not_a_dir = tmp_path / "in"
     not_a_dir.write_bytes(b"x")
     source, calls = _recording_source()
-    # OSError, not the "no scans discovered" ValueError: a mis-mount must never be
-    # reported as an empty staging directory.
-    with pytest.raises(OSError):
+    # Predict's own guard names the real misconfiguration -- neither the "no scans
+    # discovered" ValueError nor a contracts error about the manifest directory.
+    with pytest.raises(NotADirectoryError, match="input scan path is not a directory"):
         run_batch(not_a_dir, tmp_path / "out", source=source)
     assert calls["n"] == 0
 
@@ -1664,8 +1664,32 @@ def test_run_batch_forwards_the_resolved_per_run_bytes_even_if_rewritten(
 
     monkeypatch.setattr(batch_mod, "_resolve_run_manifest", _resolve_then_rewrite)
     source, _ = _recording_source()
-    run_batch(inp, out, source=source)
+    result = run_batch(inp, out, source=source)
     assert (out / _PER_RUN).read_bytes() == resolved
+    # Discovery scoped against the same single resolution, not a re-read of the
+    # rewritten source (which would add the phantom scanZ as a failed scan).
+    assert [s.scan_key for s in result.scans] == ["scanA"]
+
+
+def test_run_batch_resolves_the_run_manifest_exactly_once(tmp_path, monkeypatch):
+    import sleap_roots_predict.batch as batch_mod
+    import sleap_roots_predict.run_manifest as rm_mod
+
+    monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
+    inp, out = tmp_path / "in", tmp_path / "out"
+    _write_scan(inp, "scanA", _RICE)
+    write_run_manifest(inp, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["scanA"])
+    calls = {"n": 0}
+    real = rm_mod.load_run_manifest
+
+    def _counting(*args, **kwargs):
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(rm_mod, "load_run_manifest", _counting)
+    source, _ = _recording_source()
+    batch_mod.run_batch(inp, out, source=source)
+    assert calls["n"] == 1
 
 
 def test_missing_input_dir_wins_over_an_unusable_run_identity(tmp_path, monkeypatch):

@@ -260,9 +260,11 @@ discover_scans(input_dir: Union[str, Path]) -> List[ScanInput]
 Discovers scans under `input_dir` by their `*.scan_metadata.json` sidecars, scoped to this
 run's manifest exactly as `run_batch` does (same resolution, same raises). A `scan_key`
 listed in the manifest with no sidecar is returned as an entry with `.error` set; an invalid
-sidecar likewise. **Raises:** `FileNotFoundError` for a missing `input_dir`; `ValueError` for
-a duplicate `scan_key`, an unusable `ARGO_WORKFLOW_NAME`, or an invalid manifest;
-`RunManifestMissingError` / `RunManifestIdentityError` as for `run_batch`.
+sidecar likewise. **Raises:** `FileNotFoundError` for a missing `input_dir` and
+`NotADirectoryError` when it is not a directory; `ValueError` for a duplicate `scan_key`, an
+unusable `ARGO_WORKFLOW_NAME`, or an invalid manifest; `OSError` for a manifest candidate that
+exists but cannot be read (e.g. a directory at that path); `RunManifestMissingError` /
+`RunManifestIdentityError` as for `run_batch`.
 
 #### `copy_run_manifest_forward`
 

@@ -278,7 +278,10 @@ def write_prediction_outputs(
             and stale.name.endswith(".slp")
             and stale.name not in written_filenames
         ):
-            stale.unlink()
+            # missing_ok: a concurrent writer of the same scan may have removed the
+            # same stale file first; that must not fail a scan whose manifest is
+            # already committed.
+            stale.unlink(missing_ok=True)
 
     return manifest
 

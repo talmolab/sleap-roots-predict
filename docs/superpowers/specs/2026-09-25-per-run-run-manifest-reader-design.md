@@ -86,7 +86,7 @@ stage that never parses" — so "the standalone copy validates nothing" remains 
 also raises `RunManifestMissingError` standalone when the id is known and nothing is found.
 
 The temp prefix changes from `.run_manifest.json.` to `.{read.filename}.` (matching traits). For a
-run id over ~227 characters that exceeds `NAME_MAX` and the publish raises `OSError` (exit 1);
+run id over ~223 characters that exceeds `NAME_MAX` and the publish raises `OSError` (exit 1);
 Argo ids are ~26 characters, so this is documented, not engineered around (contracts'
 `run_manifest_filename` docstring flags it). A standalone failure before the read completes (e.g.
 `RunManifestMissingError`) is logged naming both directories but no filename, since none is known.

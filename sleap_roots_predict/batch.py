@@ -92,10 +92,20 @@ class BatchResult:
 
 
 def _require_input_dir(input_dir: Path) -> None:
-    """Fail on a missing input mount before anything else can mask it."""
+    """Fail on a missing or mis-mounted input before anything else can mask it.
+
+    Checked here rather than left to the manifest resolver so the error names the
+    real misconfiguration: a regular file where the directory should be would
+    otherwise surface as a contracts error about the *manifest* directory (Windows)
+    or a ``NotADirectoryError`` on ``<file>/run_manifest.json`` (POSIX).
+    """
     if not input_dir.exists():
         raise FileNotFoundError(
             f"input scan directory does not exist: {input_dir.as_posix()}"
+        )
+    if not input_dir.is_dir():
+        raise NotADirectoryError(
+            f"input scan path is not a directory: {input_dir.as_posix()}"
         )
 
 
@@ -463,8 +473,9 @@ def _predict_one(
     # treated as "changed" (re-predict), never a silent skip. It's required because the
     # trait-extractor expects a self-contained input tree (manifest + sidecar + .slp) and
     # would reject a manifest with no sidecar. The copy itself is atomic (a per-writer
-    # temp file + os.replace), so no reader ever observes a partially-written sidecar,
-    # even with a concurrent invocation writing the same scan.
+    # temp file + os.replace), so no reader ever observes a partially-written sidecar
+    # and two concurrent writers of the same scan never share a temp file. (Which
+    # writer's complete copy lands last is still last-writer-wins.)
     sidecar_dst = out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
     tmp_sidecar_dst = _unique_tmp_path(sidecar_dst)
     try:

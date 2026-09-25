@@ -578,7 +578,9 @@ def test_resolver_without_identity_ignores_per_run_files_but_warns(tmp_path, cap
     write_run_manifest(tmp_path, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"])
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
         assert _resolve(tmp_path, None) is None
-    assert any(_PER_RUN in m for m in _warnings(caplog))
+    (msg,) = _warnings(caplog)
+    assert _PER_RUN in msg
+    assert "None" not in msg and "no run identity" in msg.lower()
 
 
 def test_a_directory_at_the_legacy_path_raises(tmp_path):
@@ -657,9 +659,13 @@ def test_per_run_same_directory_forward_is_a_noop(tmp_path, monkeypatch):
     monkeypatch.setenv("ARGO_WORKFLOW_NAME", "wf-a")
     both = tmp_path / "both"
     src = write_run_manifest(both, _PER_RUN, pipeline_run_id="wf-a", scan_keys=["s1"])
-    before, mtime = src.read_bytes(), src.stat().st_mtime_ns
+    before, stat = src.read_bytes(), src.stat()
     copy_run_manifest_forward(both, both / ".." / "both")  # a different spelling
-    assert src.read_bytes() == before and src.stat().st_mtime_ns == mtime
+    after = src.stat()
+    assert src.read_bytes() == before
+    # os.replace always yields a new inode, so an unchanged st_ino proves no re-copy
+    # even on filesystems whose mtime is too coarse to tell.
+    assert (after.st_ino, after.st_mtime_ns) == (stat.st_ino, stat.st_mtime_ns)
     assert _names(both) == {_PER_RUN}
 
 

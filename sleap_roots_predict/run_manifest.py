@@ -91,10 +91,15 @@ def _resolve_run_manifest(
                 if loaded is None
                 else f"scoping by legacy {loaded.read.filename}"
             )
+            who = (
+                "No run identity (ARGO_WORKFLOW_NAME unset), so this run is"
+                if pipeline_run_id is None
+                else f"Run {pipeline_run_id!r} is"
+            )
             logger.warning(
-                "Run %r is not scoped by a per-run manifest in %s (%s); per-run "
+                "%s not scoped by a per-run manifest in %s (%s); per-run "
                 "manifest(s) present but unread: %s",
-                pipeline_run_id,
+                who,
                 input_dir.as_posix(),
                 scoped_by,
                 ", ".join(per_run),

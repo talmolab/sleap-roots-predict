@@ -784,3 +784,30 @@ def test_written_artifacts_keep_a_direct_writes_permissions(
         assert all(p.stat().st_mode & 0o777 == want for p in written)
     finally:
         os.umask(old)
+
+
+def test_stale_sweep_tolerates_a_concurrent_writer_removing_the_same_file(
+    rice_source, video, tmp_path, monkeypatch
+):
+    """Two writers can both see one stale .slp; the loser's unlink must not fail a
+    scan whose manifest is already committed."""
+    worker = WarmModelWorker(rice_source)
+    real_iterdir = Path.iterdir
+
+    def _iterdir_with_a_vanished_stale(self):
+        yield from real_iterdir(self)
+        if self == tmp_path:
+            # Listed, but already removed by the concurrent writer.
+            yield tmp_path / "scan0731.modelgone.rootprimary.slp"
+
+    monkeypatch.setattr(Path, "iterdir", _iterdir_with_a_vanished_stale)
+    manifest = write_prediction_outputs(
+        worker.predict(_params(), video),
+        worker.resolve(_params()),
+        tmp_path,
+        scan_key="scan0731",
+        inference_config=worker.inference_config(),
+        output_params=worker.output_params(),
+    )
+    assert (tmp_path / "scan0731.predictions.json").is_file()
+    assert manifest.artifacts

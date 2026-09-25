@@ -46,7 +46,7 @@ Rationale lives in `docs/superpowers/specs/2026-09-25-per-run-run-manifest-reade
 - **SIGKILL orphans accumulate (#43).** A killed write leaves a hidden `.{name}.<hex>.tmp` that no
   later run overwrites (the fixed `.tmp` name used to be). No consumer glob matches it; reclaiming
   it automatically would risk deleting a concurrent writer's live temp. Accepted and documented.
-- **Forward-copy temp name over `NAME_MAX`** for a run id over ~227 characters → `OSError`, exit 1.
+- **Forward-copy temp name over `NAME_MAX`** for a run id over ~223 characters → `OSError`, exit 1.
   Argo ids are ~26 characters.
 - **Rollback floor.** After bloomctl flips the writer, an image older than this change reads only
   the stale accumulated legacy manifest and forwards it, re-scoping traits to the union. Roll the
