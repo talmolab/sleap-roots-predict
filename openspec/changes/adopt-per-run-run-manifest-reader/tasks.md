@@ -2,7 +2,7 @@
 > on all three OS legs. Section 3 is deliberately one commit: `batch.py` imports the
 > `run_manifest.py` symbols it replaces and `__init__.py` imports `batch` eagerly, so splitting it
 > would break collection. "Verify FAIL" steps are working-tree checkpoints, never commit points.
-> CI runs only the PR head, so before pushing run the suite at every commit locally (7.4).
+> CI runs only the PR head, so before pushing run the suite at every commit locally (5.4).
 >
 > **Standing invariants:** never stage a manifest into `tests/assets/scans/`; set
 > `ARGO_WORKFLOW_NAME` only via `monkeypatch.setenv` (1.1's autouse fixture clears it); write
@@ -11,15 +11,15 @@
 > directory-at-path failures as `OSError` (Windows raises `PermissionError`, POSIX
 > `IsADirectoryError`); any test that reaches `run_batch` without an explicit `source=` injects
 > `_recording_source()` and uses `clean_wandb_env`, so no red phase can reach W&B. No commit
-> message may put a closing keyword next to srp#71, #40, #41, #44 or the new tracking issue.
+> message may put a closing keyword next to srp#71, #40, #41, #44 or #46 (the PR body alone closes #46 and #43).
 
 ## 0. Proposal
 
-- [ ] 0.1 Commit the OpenSpec proposal (`proposal.md`, `design.md`, `tasks.md`, both deltas)
+- [x] 0.1 Commit the OpenSpec proposal (`proposal.md`, `design.md`, `tasks.md`, both deltas)
       before any code.
-- [ ] 0.2 File a predict tracking issue for srp#71's predict half (with the user's go-ahead),
+- [x] 0.2 File a predict tracking issue for srp#71's predict half (with the user's go-ahead),
       cross-linking srp#71, srp#37, sleap-roots#269 and the design of record; record its number
-      here. The PR closes it (code scope only); post-merge rollout items live on srp#71.
+      here. **Filed: #46** (2026-09-25). The PR closes it (code scope only); post-merge rollout items live on srp#71.
 
 ## 1. Test harness
 
