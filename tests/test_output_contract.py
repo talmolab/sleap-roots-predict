@@ -7,6 +7,7 @@ models (reusing the `rice_source` / `video` fixtures pattern from
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -514,9 +515,8 @@ def test_slp_write_leaves_no_partial_file_if_replace_fails(
             output_params=worker.output_params(),
         )
     assert not list(tmp_path.glob("*.slp"))
-    assert not list(
-        tmp_path.glob("*.tmp")
-    )  # the failed write's temp file is cleaned up
+    # the failed write's temp file is cleaned up (exact contents, not a name glob)
+    assert not [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
 
 
 def test_manifest_write_leaves_no_partial_file_if_replace_fails(
@@ -547,9 +547,8 @@ def test_manifest_write_leaves_no_partial_file_if_replace_fails(
     assert not (tmp_path / "scan0731.predictions.json").exists()
     assert list(tmp_path.glob("*.rootprimary.slp"))
     assert list(tmp_path.glob("*.rootlateral.slp"))
-    assert not list(
-        tmp_path.glob("*.tmp")
-    )  # the failed manifest write's temp file is gone
+    # the failed manifest write's temp file is gone (exact contents, not a name glob)
+    assert not [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
 
 
 def test_manifest_replace_happens_after_all_slp_replaces(
@@ -705,3 +704,83 @@ def test_output_loads_via_sleap_roots_series(rice_source, video, tmp_path):
     )
     assert series.primary_labels is not None
     assert series.lateral_labels is not None
+
+
+def test_unique_tmp_path_is_private_hidden_and_inert(tmp_path):
+    from sleap_roots_predict.output_contract import _unique_tmp_path
+
+    slp = tmp_path / "scan1.modelx.rootprimary.slp"
+    first, second = _unique_tmp_path(slp), _unique_tmp_path(slp)
+    assert first != second
+    for tmp in (first, second):
+        assert tmp.parent == slp.parent
+        assert tmp.name.startswith(".") and tmp.name.endswith(".tmp")
+        # never matched by the stale-.slp sweep or a consumer glob
+        assert not (tmp.name.startswith("scan1.model") and tmp.name.endswith(".slp"))
+        assert not tmp.name.endswith(".predictions.json")
+
+
+def _record_and_fail_for(monkeypatch, suffix):
+    """Patch os.replace to record + raise only for destinations ending ``suffix``."""
+    import sleap_roots_predict.output_contract as oc_mod
+
+    real_replace = oc_mod.os.replace
+    seen = []
+
+    def _replace(src, dst, *a, **k):
+        if str(dst).endswith(suffix):
+            seen.append(str(src))
+            raise OSError("simulated interruption")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(oc_mod.os, "replace", _replace)
+    return seen
+
+
+@pytest.mark.parametrize("suffix", [".slp", ".predictions.json"])
+def test_concurrent_writers_of_one_scan_use_private_temp_files(
+    rice_source, video, tmp_path, monkeypatch, suffix
+):
+    """Two writers of one scan must never share a temp path (predict#43)."""
+    worker = WarmModelWorker(rice_source)
+    labels = worker.predict(_params(), video)
+    refs = worker.resolve(_params())
+    seen = _record_and_fail_for(monkeypatch, suffix)
+    for _ in range(2):
+        with pytest.raises(OSError):
+            write_prediction_outputs(
+                labels,
+                refs,
+                tmp_path,
+                scan_key="scan0731",
+                inference_config=worker.inference_config(),
+                output_params=worker.output_params(),
+            )
+        assert not [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+    assert len(seen) == 2 and seen[0] != seen[1]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_written_artifacts_keep_a_direct_writes_permissions(
+    rice_source, video, tmp_path
+):
+    """Guard (green before and after #43): a private 0600 temp mode must never leak."""
+    old = os.umask(0o022)
+    try:
+        worker = WarmModelWorker(rice_source)
+        write_prediction_outputs(
+            worker.predict(_params(), video),
+            worker.resolve(_params()),
+            tmp_path,
+            scan_key="scan0731",
+            inference_config=worker.inference_config(),
+            output_params=worker.output_params(),
+        )
+        control = tmp_path / "control"
+        control.write_bytes(b"x")
+        want = control.stat().st_mode & 0o777
+        written = list(tmp_path.glob("scan0731*"))
+        assert written
+        assert all(p.stat().st_mode & 0o777 == want for p in written)
+    finally:
+        os.umask(old)

@@ -623,6 +623,8 @@ def test_sidecar_copy_failure_leaves_no_manifest(
     def _boom(src, dst):
         raise OSError("disk full")
 
+    # path-safe: only the sidecar copy uses shutil.copyfile (the run-manifest forward
+    # writes through the fd mkstemp opened)
     monkeypatch.setattr(batch_mod.shutil, "copyfile", _boom)
     out = tmp_path / "out"
     result = run_batch(scan_input_dir, out, source=all_roots_source)
@@ -632,21 +634,70 @@ def test_sidecar_copy_failure_leaves_no_manifest(
     assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
 
 
+def _fail_replace_for_sidecars(monkeypatch):
+    """Record + raise only for the sidecar's destination; everything else is real.
+
+    Path-conditional so the run-manifest forward-copy, which also calls os.replace,
+    can never be what these tests intercept.
+    """
+    import os as _os
+
+    real_replace = _os.replace
+    seen = []
+
+    def _replace(src, dst, *a, **k):
+        if str(dst).endswith(".scan_metadata.json"):
+            seen.append(str(src))
+            raise OSError("simulated interruption")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr("os.replace", _replace)
+    return seen
+
+
 def test_sidecar_copy_leaves_no_partial_file_if_replace_fails(
     scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
 ):
-    # batch.py has no local `os` reference to patch (unlike output_contract.py),
-    # so patch the global `os.replace` rather than a module attribute.
-    monkeypatch.setattr(
-        "os.replace",
-        lambda *a, **k: (_ for _ in ()).throw(OSError("simulated interruption")),
-    )
+    _fail_replace_for_sidecars(monkeypatch)
     out = tmp_path / "out"
     result = run_batch(scan_input_dir, out, source=all_roots_source)
     assert [s.status for s in result.scans] == ["failed"]
-    assert not (out / "scanCPTEST0" / "scanCPTEST0.scan_metadata.json").exists()
-    assert not (out / "scanCPTEST0" / "scanCPTEST0.predictions.json").exists()
-    assert not list((out / "scanCPTEST0").glob("*.tmp"))  # temp copy is cleaned up
+    scan_dir = out / "scanCPTEST0"
+    assert not (scan_dir / "scanCPTEST0.scan_metadata.json").exists()
+    assert not (scan_dir / "scanCPTEST0.predictions.json").exists()
+    assert not [p.name for p in scan_dir.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_concurrent_sidecar_copies_use_private_temp_files(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path, monkeypatch
+):
+    """Two writers of one scan must never share a sidecar temp path (predict#43)."""
+    seen = _fail_replace_for_sidecars(monkeypatch)
+    out = tmp_path / "out"
+    for _ in range(2):
+        run_batch(scan_input_dir, out, source=all_roots_source)
+    assert len(seen) == 2 and seen[0] != seen[1]
+    scan_dir = out / "scanCPTEST0"
+    assert not [p.name for p in scan_dir.iterdir() if p.name.endswith(".tmp")]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_copied_sidecar_keeps_a_direct_writes_permissions(
+    scan_input_dir: Path, all_roots_source, tmp_path: Path
+):
+    """Guard (green before and after #43): a private 0600 temp mode must never leak."""
+    import os as _os
+
+    old = _os.umask(0o022)
+    try:
+        out = tmp_path / "out"
+        run_batch(scan_input_dir, out, source=all_roots_source)
+        control = out / "control"
+        control.write_bytes(b"x")
+        sidecar = out / "scanCPTEST0" / "scanCPTEST0.scan_metadata.json"
+        assert sidecar.stat().st_mode & 0o777 == control.stat().st_mode & 0o777
+    finally:
+        _os.umask(old)
 
 
 def test_unreadable_json_sidecar_is_error(tmp_path: Path):

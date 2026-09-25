@@ -34,6 +34,7 @@ from sleap_roots_predict.model_registry import (
     NoReadableModelCardsError,
 )
 from sleap_roots_predict.output_contract import (
+    _unique_tmp_path,
     predictions_json_path,
     resolve_identity,
     write_prediction_outputs,
@@ -448,15 +449,11 @@ def _predict_one(
     # sidecar already makes _previous_identity_key's read raise OSError, caught and
     # treated as "changed" (re-predict), never a silent skip. It's required because the
     # trait-extractor expects a self-contained input tree (manifest + sidecar + .slp) and
-    # would reject a manifest with no sidecar. The copy itself is atomic (temp file +
-    # os.replace), so no reader ever observes a partially-written sidecar.
-    # Note for test authors: tests/test_batch.py's sidecar-atomicity tests patch the
-    # *global* os.replace, which the run-manifest forward-copy that now runs first in
-    # run_batch also calls. (Its shutil.copyfile no longer collides -- the forward
-    # writes its bytes through the fd mkstemp opened.) They stay pointed at this copy
-    # only because tests/assets/scans/ stages no run_manifest.json -- never add one.
+    # would reject a manifest with no sidecar. The copy itself is atomic (a per-writer
+    # temp file + os.replace), so no reader ever observes a partially-written sidecar,
+    # even with a concurrent invocation writing the same scan.
     sidecar_dst = out_scan_dir / f"{scan.scan_key}{_SIDECAR_SUFFIX}"
-    tmp_sidecar_dst = sidecar_dst.with_name(sidecar_dst.name + ".tmp")
+    tmp_sidecar_dst = _unique_tmp_path(sidecar_dst)
     try:
         shutil.copyfile(scan.sidecar_path, tmp_sidecar_dst)
         os.replace(tmp_sidecar_dst, sidecar_dst)

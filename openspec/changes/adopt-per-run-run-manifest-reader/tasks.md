@@ -28,7 +28,7 @@
 
 ## 2. predict#43: per-writer unique temp names (TDD)
 
-- [ ] 2.1 Write failing tests first:
+- [x] 2.1 Write failing tests first:
   - Unit test `_unique_tmp_path(dst)`: same directory as `dst`; name starts with `.` and ends
     `.tmp`; differs across two calls; does not match `{scan_key}.model*…*.slp` nor
     `*.predictions.json`.
@@ -47,7 +47,7 @@
     destination only); replace the `glob("*.tmp")` residue checks in `test_output_contract.py` and
     `test_batch.py` with exact-contents checks.
   Verify FAIL (the uniqueness and helper tests) for the right reason.
-- [ ] 2.2 Implement `_unique_tmp_path(dst)` in `output_contract.py` →
+- [x] 2.2 Implement `_unique_tmp_path(dst)` in `output_contract.py` →
       `dst.with_name(f".{dst.name}.{uuid4().hex[:16]}.tmp")`; route the `.slp`, manifest and
       sidecar (`batch.py`) sites through it, keeping each site's write → `os.replace` →
       unlink-on-failure shape. Drop `_predict_one`'s comment that relied on prose to keep the
