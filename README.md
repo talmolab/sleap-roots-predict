@@ -285,19 +285,25 @@ measurement (8 physical weight sets) are in
 [`docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json`](docs/superpowers/specs/2026-08-04-define-parity-tolerance-results.json)
 (design writeup:
 [`2026-08-03-define-parity-tolerance-design.md`](docs/superpowers/specs/2026-08-03-define-parity-tolerance-design.md)).
+The 2026-09-29 re-run against the re-seeded (selector-shaped) registry — all 8 physical models
+within tolerance, unchanged from 2026-08-04 — is in
+[`2026-09-29-parity-reseeded-registry-comparison.md`](docs/superpowers/specs/2026-09-29-parity-reseeded-registry-comparison.md).
 
 Regenerate that report (needs `WANDB_API_KEY` and `SRP_PARITY_DATA_DIR`; lab-only — Windows +
 a `Z:` mapped network share): `uv run python scripts/run_parity_harness.py --out <path>`.
 `--out` is required — write to a new dated path; the 2026-08-04 JSON above is a pre-selectors
 snapshot and must not be overwritten. Pass `--share-root` if your mapped-share letter/path
 differs from the lab default. Commit the regenerated JSON as its own standalone commit.
+The 2026-08-04 baseline was produced on CPU (inferred: a CPU re-run reproduces it
+bit-for-bit; the report records no device). A GPU run is not bit-comparable to it — sync the
+`cpu` extra for a run meant to isolate registry/model changes from numeric noise, or re-run
+any model that moves on CPU before attributing the move.
 
 Set `SRP_PARITY_DATA_DIR=Z:/users/eberrigan/SLEAP` (same tree as `--share-root`'s default —
 `build_basename_index` walks it recursively, and it contains both the `SLEAP_Rice` and
-`SLEAP_Soy` subtrees the basename-search tier needs). This value is inferred from the
-original investigation record (`openspec/changes/define-parity-tolerance/tasks.md`, task 2.4)
-rather than independently re-confirmed against the live share — verify it still resolves
-before a real run, and update this line if the layout has moved.
+`SLEAP_Soy` subtrees the basename-search tier needs). Confirmed against the live share by
+the 2026-09-29 run (every model's ground truth resolved as on 2026-08-04); update this line if
+the layout moves.
 
 ### Build and Publish
 On release or manual trigger:
