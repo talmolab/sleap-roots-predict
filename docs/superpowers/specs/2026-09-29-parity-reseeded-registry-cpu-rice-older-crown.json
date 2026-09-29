@@ -1,0 +1,60 @@
+[
+  {
+    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/rice-older-crown-221208_113552.multi_instance.n-574",
+    "version": "v0",
+    "selectors": [
+      {
+        "species": "rice",
+        "mode": "cylinder",
+        "age_min": 6,
+        "age_max": 10
+      }
+    ],
+    "root_type": "crown",
+    "weights_checksum": "0e4d7d439513b6c3e60dd2b962efd6c8",
+    "ground_truth_source": "basename_search",
+    "n_frames_resolved": 57,
+    "n_frames_total": 57,
+    "n_frames_evaluated": 57,
+    "sleap_nn": {
+      "distance_p95": 194.11559768852385,
+      "visibility_recall": 0.7439076528430953,
+      "distance_avg": 49.12973848925929,
+      "distance_p50": 22.035408027247783,
+      "distance_p75": 54.32922221637483,
+      "distance_p90": 132.34136793968517,
+      "distance_p99": 377.94193250273395,
+      "visibility_precision": 0.9954233409610984,
+      "pck_mean": 0.13044953350296862,
+      "pck_at_5px": 0.13104325699745548,
+      "pck_at_10px": 0.22264631043256997,
+      "moks": 0.2655327193388773,
+      "voc_oks_map": 0.009782435921018663,
+      "voc_oks_mar": 0.04669811320754717,
+      "voc_pck_map": 5.156765676567657e-06,
+      "voc_pck_mar": 0.0002358490566037736,
+      "settings": "recomputed"
+    },
+    "classic_sleap_reference": {
+      "distance_p95": 233.8966438533943,
+      "visibility_recall": 0.796868387642827,
+      "distance_avg": 59.47461642840729,
+      "distance_p50": 25.437637398840216,
+      "distance_p75": 73.70875880769222,
+      "distance_p90": 166.83493969591314,
+      "distance_p99": 399.1012478177245,
+      "visibility_precision": 0.9968237162519852,
+      "pck_mean": 0.13232577665827036,
+      "pck_at_5px": 0.1351805205709488,
+      "pck_at_10px": 0.2237615449202351,
+      "moks": 0.25713957376933605,
+      "voc_oks_map": 0.009857438834294541,
+      "voc_oks_mar": 0.05542452830188679,
+      "voc_pck_map": 7.845320927971872e-05,
+      "voc_pck_mar": 0.0033018867924528303,
+      "settings": "recomputed"
+    },
+    "distance_p95_delta": 39.781046164870446,
+    "visibility_recall_delta": 0.052960734799731624
+  }
+]
