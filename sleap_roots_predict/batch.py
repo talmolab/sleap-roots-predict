@@ -33,7 +33,9 @@ from sleap_roots_predict.model_registry import (
     ModelCardSource,
     NoReadableModelCardsError,
 )
+from sleap_roots_predict.model_selection import past_window_age
 from sleap_roots_predict.output_contract import (
+    _log_past_window,
     _unique_tmp_path,
     predictions_json_path,
     resolve_identity,
@@ -325,6 +327,10 @@ def run_batch(
     A per-scan error is isolated (recorded ``failed``, batch continues). An empty
     (but present) input directory is a batch-level staging error (raises), not a
     no-op — a misconfigured or empty stage-in mount should never look like success.
+    A scan older than every model window for its species and mode is predicted with
+    that species' highest-age window and logs one warning once it is predicted
+    successfully (not when skipped on resume or when it fails; see
+    :func:`~sleap_roots_predict.model_selection.past_window_age`).
 
     Args:
         input_dir: Directory of staged scans.
@@ -437,6 +443,9 @@ def run_batch(
                 predict_code_sha,
                 predict_container_digest,
             )
+            matching_age = past_window_age(scan.params, worker.load_catalog())
+            if matching_age is not None:
+                _log_past_window(logger, scan.scan_key, scan.params, matching_age)
             result.scans.append(ScanResult(scan.scan_key, "ok"))
         except Exception as exc:  # noqa: BLE001 - isolate per-scan failures
             logger.exception("Scan %s failed", scan.scan_key)

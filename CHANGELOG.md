@@ -142,6 +142,14 @@ All notable changes to this project are documented here. The format is based on
   filename (which embeds the model slug) changes once — the writer removes the old file only
   after the new outputs are written. Re-baseline the A4 batch-oracle ("re-run a done batch → 0 GPU
   pods") **after** the migration; never compare across it.
+- **Past-window model selection**: a scan older than every model window for its species and
+  mode is now matched at that species' highest `age_max` (e.g. arabidopsis day 28 selects the
+  day-14 models) instead of failing with "no models resolved". Params, `param_hash` and the
+  idempotency key keep the real age. `run_batch` and `predict_and_write_batch` log one warning per
+  clamped scan once it is predicted successfully (`past-window age: scan_key=… matched as age=…`,
+  the same prefix the trait extractor uses). Younger-than-window and no-card scans are unchanged.
+  Deploy: re-pin predict and traits together, or traits first. Rules: the `model-management`
+  spec. Part of Salk-Harnessing-Plants-Initiative/bloom#971.
 
 ### Changed (BREAKING)
 

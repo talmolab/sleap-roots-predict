@@ -7,6 +7,10 @@ Regenerating both sides needs two environments: the old side (flat cards) only v
 under contracts 0.1.0a7 -- run it from a ``main`` worktree synced to its own lock -- and the new
 side only under 0.1.0a9 (this branch). A ValidationError on flat cards here is expected, not a
 regression.
+
+Since update-past-window-model-selection (bloom#971 phase 1), ``choose_models`` matches an age
+above every window for its species and mode at that species' highest ``age_max``. Grid cells
+past the windows therefore now report matches, and differ from tables generated before it.
 """
 
 import argparse

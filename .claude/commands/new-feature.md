@@ -6,8 +6,12 @@ You are starting a new feature workflow. The user's feature request is: $ARGUMEN
 
 This repo uses **two complementary planning systems** — they layer, they don't compete:
 
-- **superpowers** (`brainstorming`, `writing-plans`, `subagent-driven-development`, `test-driven-development`) — drive the conversational design, planning, and implementation discipline
-- **OpenSpec** (`openspec/`, the `openspec` CLI) — produces durable spec deltas for any change that adds capabilities, modifies behavior, or affects architecture
+- **superpowers** (`brainstorming`, `test-driven-development`, optionally `subagent-driven-development`) — drive the conversational design and the implementation discipline
+- **OpenSpec** (`openspec/`, the `openspec` CLI) — produces durable spec deltas for any change that adds capabilities, modifies behavior, or affects architecture, and its `tasks.md` **is the implementation plan**
+
+Do not also write a superpowers implementation plan (`superpowers:writing-plans`,
+`docs/superpowers/plans/`) for an OpenSpec change: it duplicates `tasks.md`, and two task lists
+drift apart.
 
 For non-trivial features, use BOTH. For tiny changes (typo, formatting, dependency bump, test for existing behavior), skip OpenSpec but still follow superpowers TDD discipline.
 
@@ -40,7 +44,7 @@ For non-trivial features, use BOTH. For tiny changes (typo, formatting, dependen
 
 5. **Create the OpenSpec proposal.** Invoke `/openspec:proposal` with the change-id and grounding context from steps 2–3. The proposal scaffolds:
    - `openspec/changes/<change-id>/proposal.md` — what and why
-   - `openspec/changes/<change-id>/tasks.md` — ordered, verifiable work items. Tasks MUST explicitly outline a TDD approach: for each task, specify what tests will be written first and what behavior they verify.
+   - `openspec/changes/<change-id>/tasks.md` — ordered, verifiable work items, detailed enough to serve as the implementation plan (files, tests, commit boundaries). Tasks MUST explicitly outline a TDD approach: for each task, specify what tests will be written first and what behavior they verify.
    - `openspec/changes/<change-id>/design.md` — only if the solution spans multiple systems, introduces a new pattern, or has trade-offs worth documenting
    - `openspec/changes/<change-id>/specs/<capability>/spec.md` — one folder per affected capability, using `## ADDED|MODIFIED|REMOVED Requirements` with at least one `#### Scenario:` per requirement
 
@@ -51,8 +55,8 @@ For non-trivial features, use BOTH. For tiny changes (typo, formatting, dependen
    - The list of affected capabilities and their delta types (ADDED / MODIFIED / REMOVED)
    - Any open questions or trade-offs from `design.md`
 
-8. **Implement with TDD.** Once approved, invoke `superpowers:writing-plans` to create the implementation plan, then `superpowers:subagent-driven-development` (or implement directly for smaller changes). For each task:
-   - Write the failing test first (`superpowers:test-driven-development` skill)
+8. **Implement with `/openspec:apply` and TDD.** Once approved, invoke `/openspec:apply <change-id>`; `tasks.md` is the plan, so do not invoke `superpowers:writing-plans`. Implement directly, or for a large change dispatch `tasks.md` sections to subagents with `superpowers:subagent-driven-development`. For each task:
+   - Write the failing test first (`/tdd`, i.e. the `superpowers:test-driven-development` skill)
    - Implement the minimum code to pass
    - Mark the task complete (`- [x]`) in `tasks.md`
    - Run `/lint` and `/test` before moving to the next task
@@ -73,7 +77,7 @@ For non-trivial features, use BOTH. For tiny changes (typo, formatting, dependen
 ## Related Commands
 
 - `/openspec:proposal` — scaffold the OpenSpec proposal (step 5)
-- `/openspec:apply` — implement an approved proposal (alternative to step 8)
+- `/openspec:apply` — implement an approved proposal from its `tasks.md` (step 8)
 - `/openspec:archive` — archive after merge (called from `/cleanup-merged`)
 - `/test` — run tests during TDD cycle
 - `/lint` — lint during implementation
