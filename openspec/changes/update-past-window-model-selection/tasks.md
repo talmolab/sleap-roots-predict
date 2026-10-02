@@ -149,17 +149,17 @@ Findings from the review posted on #50 (verified there: three surviving ordering
 species/mode swap mutant, missing shared-case rows). Spec deltas and proposal are updated in
 commit 7; write and run 5.1–5.3 red before 5.4.
 
-- [ ] 5.1 Red (exact message): both entry points' warning tests assert the full text
+- [x] 5.1 Red (exact message): both entry points' warning tests assert the full text
       `past-window age: scan_key=<key> species='rice' mode='cylinder' age=9 matched as age=5`
       (kills the species/mode swap mutant). Red today: the message differs.
-- [ ] 5.2 Red (`test_batch.py`): a clamped rice day-9 scan with no image frames ends `failed` and
+- [x] 5.2 Red (`test_batch.py`): a clamped rice day-9 scan with no image frames ends `failed` and
       logs no past-window warning; re-running it logs none either. Red today: it warns each run.
-- [ ] 5.3 (`test_output_contract.py`): red — a clamped day-9 request whose output writing raises
+- [x] 5.3 (`test_output_contract.py`): red — a clamped day-9 request whose output writing raises
       (its `out_dir/<scan_key>` path is an existing file) propagates the error and logs no warning.
       *Characterization* (kills the "before resolve" mutant): an ambiguous catalog (two primary
       cards covering rice 2–5) makes a day-9 request raise "Ambiguous" with no warning; the same
       catalog in `run_batch` (`test_batch.py`) ends `failed` with no warning.
-- [ ] 5.4 Green: add one private helper `_log_past_window(logger, scan_key, params,
+- [x] 5.4 Green: add one private helper `_log_past_window(logger, scan_key, params,
       matching_age)` in `output_contract.py` (imported by `batch.py`) that logs the spec'd
       message; call it after `_predict_one` returns in `run_batch` and after
       `write_prediction_outputs` returns in `predict_and_write_batch`. Update both docstrings

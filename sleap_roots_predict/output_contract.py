@@ -41,6 +41,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _log_past_window(
+    log: logging.Logger, scan_key: str, params: ResolvedParams, matching_age: int
+) -> None:
+    """Log the past-window warning for a clamped scan that was just predicted.
+
+    One message for both batch entry points, each passing its own logger. It shares the
+    ``past-window age:`` prefix with the trait extractor's warning, so one search finds both.
+
+    Args:
+        log: The calling entry point's logger.
+        scan_key: The scan's key.
+        params: The scan's resolved params (the real age).
+        matching_age: The age it was matched at (``past_window_age``'s result).
+    """
+    values = params.values
+    log.warning(
+        "past-window age: scan_key=%s species=%r mode=%r age=%s matched as age=%s",
+        scan_key,
+        values["species"],
+        values["mode"],
+        values["age"],
+        matching_age,
+    )
+
+
 # --- filename helpers -------------------------------------------------------
 
 # Single source of truth for the manifest's filename, so a future rename can't silently
@@ -327,8 +352,8 @@ def predict_and_write_batch(
     once), so a batch amortizes model-load cost. Each scan is written into
     ``out_dir/{scan_key}/`` via :func:`write_prediction_outputs` (atomic writes;
     see that function's docstring). A request older than every model window for its
-    species and mode is predicted with that species' highest-age window and logs one
-    warning (see :func:`~sleap_roots_predict.model_selection.past_window_age`).
+    species and mode is predicted with that species' highest-age window and, once written,
+    logs one warning (see :func:`~sleap_roots_predict.model_selection.past_window_age`).
 
     Args:
         worker: A ``WarmModelWorker`` kept resident across the batch.
@@ -358,18 +383,6 @@ def predict_and_write_batch(
     manifests: list[PredictionManifest] = []
     for req in reqs:
         refs = worker.resolve(req.params, req.overrides)
-        matching_age = past_window_age(req.params, worker.load_catalog(), req.overrides)
-        if matching_age is not None:
-            values = req.params.values
-            logger.warning(
-                "Scan %s: age %s is past every %s/%s model window; "
-                "selecting models as age %s",
-                req.scan_key,
-                values["age"],
-                values["species"],
-                values["mode"],
-                matching_age,
-            )
         labels = worker.predict(req.params, req.video, overrides=req.overrides)
         manifests.append(
             write_prediction_outputs(
@@ -384,4 +397,7 @@ def predict_and_write_batch(
                 predict_container_digest=predict_container_digest,
             )
         )
+        matching_age = past_window_age(req.params, worker.load_catalog(), req.overrides)
+        if matching_age is not None:
+            _log_past_window(logger, req.scan_key, req.params, matching_age)
     return manifests

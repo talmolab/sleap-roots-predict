@@ -667,13 +667,13 @@ def test_batch_respects_overrides(rice_source, video, tmp_path):
     assert primary_art.model == override
 
 
-def _past_window_warnings(caplog):
+def _contract_warnings(caplog):
+    """Every WARNING from the output_contract logger (any wording), as messages."""
     return [
-        r
+        r.getMessage()
         for r in caplog.records
         if r.name == "sleap_roots_predict.output_contract"
         and r.levelno == logging.WARNING
-        and "past every" in r.getMessage()
     ]
 
 
@@ -686,9 +686,10 @@ def test_batch_warns_once_for_a_past_window_request(
         predict_and_write_batch(
             worker, [ScanRequest("s9", video, _params(age=9))], tmp_path
         )
-    (warning,) = _past_window_warnings(caplog)
-    msg = warning.getMessage()
-    assert all(part in msg for part in ("s9", "rice", "cylinder", "age 9", "age 5"))
+    assert _contract_warnings(caplog) == [
+        "past-window age: scan_key=s9 species='rice' mode='cylinder' age=9 "
+        "matched as age=5"
+    ]
 
 
 @pytest.mark.parametrize("age,override_all", [(3, False), (9, True)])
@@ -708,7 +709,38 @@ def test_batch_does_not_warn_in_window_or_fully_overridden(
             [ScanRequest("s", video, _params(age=age), overrides=overrides)],
             tmp_path,
         )
-    assert _past_window_warnings(caplog) == []
+    assert _contract_warnings(caplog) == []
+
+
+def test_batch_does_not_warn_when_writing_a_clamped_request_fails(
+    rice_source, video, tmp_path, caplog
+):
+    """The output dir path is an existing file, so writing raises; no warning."""
+    (tmp_path / "s9").write_text("not a directory")
+    worker = WarmModelWorker(rice_source)
+    with caplog.at_level(logging.WARNING), pytest.raises(OSError):
+        predict_and_write_batch(
+            worker, [ScanRequest("s9", video, _params(age=9))], tmp_path
+        )
+    assert _contract_warnings(caplog) == []
+
+
+def test_batch_does_not_warn_when_resolution_raises(
+    native_model_dir, video, tmp_path, caplog
+):
+    """Two primary cards both matching at the window maximum: raises, no warning."""
+    source = LocalCardSource(
+        [
+            (_card("primary", "reg/a"), native_model_dir),
+            (_card("primary", "reg/b"), native_model_dir),
+        ]
+    )
+    worker = WarmModelWorker(source)
+    with caplog.at_level(logging.WARNING), pytest.raises(ValueError, match="Ambiguous"):
+        predict_and_write_batch(
+            worker, [ScanRequest("s9", video, _params(age=9))], tmp_path
+        )
+    assert _contract_warnings(caplog) == []
 
 
 def test_batch_rejects_duplicate_scan_keys(rice_source, video, tmp_path):
