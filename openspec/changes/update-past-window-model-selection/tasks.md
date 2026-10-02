@@ -108,15 +108,15 @@ Write and run 2.1–2.9 red before 2.10.
 
 ## 3. One warning per clamped scan
 
-- [ ] 3.1 (`test_batch.py`): extend 2.9's test functions with `caplog` assertions, so no new
+- [x] 3.1 (`test_batch.py`): extend 2.9's test functions with `caplog` assertions, so no new
       runs. Red: the first day-9 `run_batch` logs exactly one WARNING from logger
       `sleap_roots_predict.batch` naming the scan key, `rice`, `cylinder`, 9 and 5.
       *Characterization:* the resumed (skipped) run and an in-window day-3 scan log none.
-- [ ] 3.2 (`test_output_contract.py`): red: `predict_and_write_batch` with `rice_source` logs
+- [x] 3.2 (`test_output_contract.py`): red: `predict_and_write_batch` with `rice_source` logs
       exactly one such WARNING from `sleap_roots_predict.output_contract` for a day-9 request.
       *Characterization:* none for a day-3 request, or for a day-9 request overriding both root
       types (`{"primary": _ref("primary"), "lateral": _ref("lateral", "reg/rice-lateral")}`).
-- [ ] 3.3 Green:
+- [x] 3.3 Green:
       - `batch.py` `run_batch`: inside the per-scan `try`, between the resume-skip `continue`
         and `_predict_one` (so a validation raise stays isolated to the scan), call
         `past_window_age(scan.params, worker.load_catalog())` (no overrides; `load_catalog()` is

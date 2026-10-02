@@ -16,6 +16,7 @@ POSIX and Windows.
 """
 
 import hashlib
+import logging
 import os
 import re
 import uuid
@@ -32,8 +33,12 @@ from sleap_roots_contracts import (
     ResolvedParams,
 )
 
+from sleap_roots_predict.model_selection import past_window_age
+
 if TYPE_CHECKING:
     from sleap_roots_predict.warm_worker import WarmModelWorker
+
+logger = logging.getLogger(__name__)
 
 
 # --- filename helpers -------------------------------------------------------
@@ -321,7 +326,9 @@ def predict_and_write_batch(
     The worker's resident ``Predictor``s are reused across scans (models loaded
     once), so a batch amortizes model-load cost. Each scan is written into
     ``out_dir/{scan_key}/`` via :func:`write_prediction_outputs` (atomic writes;
-    see that function's docstring).
+    see that function's docstring). A request older than every model window for its
+    species and mode is predicted with that species' highest-age window and logs one
+    warning (see :func:`~sleap_roots_predict.model_selection.past_window_age`).
 
     Args:
         worker: A ``WarmModelWorker`` kept resident across the batch.
@@ -351,6 +358,18 @@ def predict_and_write_batch(
     manifests: list[PredictionManifest] = []
     for req in reqs:
         refs = worker.resolve(req.params, req.overrides)
+        matching_age = past_window_age(req.params, worker.load_catalog(), req.overrides)
+        if matching_age is not None:
+            values = req.params.values
+            logger.warning(
+                "Scan %s: age %s is past every %s/%s model window; "
+                "selecting models as age %s",
+                req.scan_key,
+                values["age"],
+                values["species"],
+                values["mode"],
+                matching_age,
+            )
         labels = worker.predict(req.params, req.video, overrides=req.overrides)
         manifests.append(
             write_prediction_outputs(

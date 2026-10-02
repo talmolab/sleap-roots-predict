@@ -839,16 +839,30 @@ def test_changed_params_causes_repredict(all_roots_source, tmp_path: Path):
     assert manifest.stat().st_mtime_ns != mtime1
 
 
+def _past_window_warnings(caplog, logger_name):
+    return [
+        r
+        for r in caplog.records
+        if r.name == logger_name
+        and r.levelno == logging.WARNING
+        and "past every" in r.getMessage()
+    ]
+
+
 def test_past_window_scan_predicts_keeps_real_age_and_resumes(
-    rice_source, tmp_path: Path
+    rice_source, tmp_path: Path, caplog
 ):
     """rice_source is rice 2-5: day 9 is matched at 5, predicts, and resumes by real age."""
     inp = tmp_path / "in"
     _real_scan(inp, "scanP", {"species": "rice", "mode": "cylinder", "age": 9})
     out = tmp_path / "out"
 
-    first = run_batch(inp, out, source=rice_source)
+    with caplog.at_level(logging.WARNING):
+        first = run_batch(inp, out, source=rice_source)
     assert [s.status for s in first.scans] == ["ok"]
+    (warning,) = _past_window_warnings(caplog, "sleap_roots_predict.batch")
+    msg = warning.getMessage()
+    assert all(part in msg for part in ("scanP", "rice", "cylinder", "age 9", "age 5"))
     manifest = json.loads((out / "scanP" / "scanP.predictions.json").read_text())
     assert {a["model"]["registry_id"] for a in manifest["artifacts"]} == {
         "reg/rice-primary",
@@ -857,8 +871,11 @@ def test_past_window_scan_predicts_keeps_real_age_and_resumes(
     copied = json.loads((out / "scanP" / "scanP.scan_metadata.json").read_text())
     assert copied["params"]["age"] == 9
 
-    second = run_batch(inp, out, source=rice_source)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        second = run_batch(inp, out, source=rice_source)
     assert [s.status for s in second.scans] == ["skipped"]
+    assert _past_window_warnings(caplog, "sleap_roots_predict.batch") == []
 
     # The key carries the real age: the same refs at day 5 are a different scan state.
     sidecar = inp / "scanP" / "scanP.scan_metadata.json"
@@ -867,6 +884,15 @@ def test_past_window_scan_predicts_keeps_real_age_and_resumes(
     sidecar.write_text(json.dumps(body))
     third = run_batch(inp, out, source=rice_source)
     assert [s.status for s in third.scans] == ["ok"]
+
+
+def test_in_window_scan_does_not_warn(rice_source, tmp_path: Path, caplog):
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanW", _RICE)
+    with caplog.at_level(logging.WARNING):
+        result = run_batch(inp, tmp_path / "out", source=rice_source)
+    assert [s.status for s in result.scans] == ["ok"]
+    assert _past_window_warnings(caplog, "sleap_roots_predict.batch") == []
 
 
 def test_changed_images_checksum_causes_repredict(all_roots_source, tmp_path: Path):

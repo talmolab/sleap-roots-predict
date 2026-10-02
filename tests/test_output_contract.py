@@ -7,6 +7,7 @@ models (reusing the `rice_source` / `video` fixtures pattern from
 
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -664,6 +665,50 @@ def test_batch_respects_overrides(rice_source, video, tmp_path):
     )
     primary_art = next(a for a in manifests[0].artifacts if a.root_type == "primary")
     assert primary_art.model == override
+
+
+def _past_window_warnings(caplog):
+    return [
+        r
+        for r in caplog.records
+        if r.name == "sleap_roots_predict.output_contract"
+        and r.levelno == logging.WARNING
+        and "past every" in r.getMessage()
+    ]
+
+
+def test_batch_warns_once_for_a_past_window_request(
+    rice_source, video, tmp_path, caplog
+):
+    """rice_source is rice 2-5: a day-9 request is matched at 5 and warns once."""
+    worker = WarmModelWorker(rice_source)
+    with caplog.at_level(logging.WARNING):
+        predict_and_write_batch(
+            worker, [ScanRequest("s9", video, _params(age=9))], tmp_path
+        )
+    (warning,) = _past_window_warnings(caplog)
+    msg = warning.getMessage()
+    assert all(part in msg for part in ("s9", "rice", "cylinder", "age 9", "age 5"))
+
+
+@pytest.mark.parametrize("age,override_all", [(3, False), (9, True)])
+def test_batch_does_not_warn_in_window_or_fully_overridden(
+    rice_source, video, tmp_path, caplog, age, override_all
+):
+    """No warning in-window, nor when every root type among the cards is overridden."""
+    overrides = (
+        {"primary": _ref("primary"), "lateral": _ref("lateral", "reg/rice-lateral")}
+        if override_all
+        else None
+    )
+    worker = WarmModelWorker(rice_source)
+    with caplog.at_level(logging.WARNING):
+        predict_and_write_batch(
+            worker,
+            [ScanRequest("s", video, _params(age=age), overrides=overrides)],
+            tmp_path,
+        )
+    assert _past_window_warnings(caplog) == []
 
 
 def test_batch_rejects_duplicate_scan_keys(rice_source, video, tmp_path):
