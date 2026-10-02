@@ -182,7 +182,7 @@ commit 7; write and run 5.1–5.3 red before 5.4.
       on the canola 5–13 + pennycress 2–14 card to the string-age test (a per-selector row that a
       card-level window would fail); add a focused `past_window_age` test on that shared card —
       canola 14 → 13, pennycress 15 → 14 (the maximum is over matching selectors only).
-- [ ] 5.8 Docs: `CHANGELOG.md` entry (warning after success, `past-window age:` prefix);
+- [x] 5.8 Docs: `CHANGELOG.md` entry (warning after success, `past-window age:` prefix);
       `CLAUDE.md:93` parenthetical mentions the clamp; `scripts/a1_selection_oracle.py` docstring
       notes past-window cells now differ from tables generated on `main`; `_validated` gets an
       Args section.
