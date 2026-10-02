@@ -9,7 +9,7 @@ import logging
 from importlib.metadata import version
 
 import pytest
-from sleap_roots_contracts import ModelRef, ResolvedParams
+from sleap_roots_contracts import ModelRef, ResolvedParams, compute_param_hash
 
 from card_builders import make_card, production_cards
 from sleap_roots_predict.model_selection import choose_models, past_window_age
@@ -156,6 +156,15 @@ def test_string_age_at_a_per_selector_boundary(species, age, expected):
     assert (
         "primary" in choose_models(_params(species=species, age=age), [card])
     ) is expected
+
+
+def test_string_age_is_compared_per_selector():
+    """Canola "3" is below its own 5-13 window; a card-level 2-14 window would match it."""
+    card = _card(
+        "primary",
+        selectors=[("canola", "cylinder", 5, 13), ("pennycress", "cylinder", 2, 14)],
+    )
+    assert choose_models(_params(species="canola", age="3"), [card]) == {}
 
 
 def test_disjoint_windows_of_one_species_are_not_merged():
@@ -377,12 +386,14 @@ def test_bad_age_raises_with_no_cards(fn):
 def test_clamped_call_keeps_params_and_logs_nothing(caplog):
     """choose_models never mutates params and never logs."""
     params = _params(species="arabidopsis", age=28)
-    hash_before = params.param_hash
     with caplog.at_level(logging.DEBUG, logger="sleap_roots_predict.model_selection"):
         choose_models(params, production_cards())
     assert params.values["age"] == 28
-    fresh = _params(species="arabidopsis", age=28).param_hash
-    assert params.param_hash == hash_before == fresh
+    # Recompute from the (mutable) values: param_hash itself is fixed at construction.
+    assert (
+        compute_param_hash(params.values)
+        == _params(species="arabidopsis", age=28).param_hash
+    )
     assert not [r for r in caplog.records if r.name.startswith("sleap_roots_predict")]
 
 
@@ -425,3 +436,124 @@ def test_past_window_age_none_when_every_species_mode_root_type_overridden():
     lateral = _card("lateral", selectors=[("arabidopsis", "cylinder", 2, 14)])
     overrides = {"primary": _override("primary")}
     assert past_window_age(_params(age=18), [primary, lateral], overrides) is None
+
+
+# --- Shared-case rows from talmolab/sleap-roots#272 not pinned above ----------------------
+
+_RICE_YOUNGER = {"primary": "rice-younger-primary", "crown": "rice-younger-crown"}
+
+_SHARED_PRODUCTION_ROWS = [
+    ("rice", "cylinder", 1, {}, None),
+    ("rice", "cylinder", 3, _RICE_YOUNGER, None),
+    ("rice", "cylinder", 10, {"crown": "rice-older-crown"}, None),
+    ("rice", "cylinder", 11, {"crown": "rice-older-crown"}, 10),
+    ("rice", "cylinder", 99, {"crown": "rice-older-crown"}, 10),
+    (
+        "soybean",
+        "cylinder",
+        9,
+        {"primary": "soybean-primary", "lateral": "soybean-lateral"},
+        8,
+    ),
+    ("pennycress", "cylinder", 20, {"primary": _CPA, "lateral": "canola-lateral"}, 14),
+    (
+        "arabidopsis",
+        "multiplant cylinder",
+        28,
+        {"primary": _CPA, "lateral": "arabidopsis-lateral"},
+        14,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "species,mode,age,expected,matched_as", _SHARED_PRODUCTION_ROWS
+)
+def test_shared_case_rows_on_production_catalog(
+    species, mode, age, expected, matched_as
+):
+    """Rows of the cross-repo shared case list, on the production-shaped catalog."""
+    params = _params(species=species, mode=mode, age=age)
+    assert _stems(choose_models(params, production_cards())) == expected
+    assert past_window_age(params, production_cards()) == matched_as
+
+
+def test_shared_case_gap_rows():
+    """Gap cards 2-5 and 8-10: 6 is in the gap (not clamped), 11 is matched at 10."""
+    young = _card(
+        "primary", registry_id="reg/young", selectors=[("x", "cylinder", 2, 5)]
+    )
+    old = _card("primary", registry_id="reg/old", selectors=[("x", "cylinder", 8, 10)])
+    gap = _params(species="x", age=6)
+    assert choose_models(gap, [young, old]) == {}
+    assert past_window_age(gap, [young, old]) is None
+    past = _params(species="x", age=11)
+    assert choose_models(past, [young, old])["primary"].registry_id == "reg/old"
+    assert past_window_age(past, [young, old]) == 10
+
+
+def test_shared_case_per_mode_multiplant_row():
+    """Canola multiplant 15 is inside its own 2-20 window, so it is not clamped."""
+    cyl = _card("primary", selectors=[("canola", "cylinder", 2, 13)])
+    multi = _card(
+        "lateral",
+        registry_id="reg/multi",
+        selectors=[("canola", "multiplant cylinder", 2, 20)],
+    )
+    params = _params(species="canola", mode="multiplant cylinder", age=15)
+    assert set(choose_models(params, [cyl, multi])) == {"lateral"}
+    assert past_window_age(params, [cyl, multi]) is None
+
+
+def test_window_maximum_uses_only_the_matching_selectors():
+    """On a card shared by canola (2-13) and pennycress (2-14), each keeps its own maximum."""
+    card = _card("primary", selectors=_CANOLA_PENNYCRESS)
+    assert past_window_age(_params(species="canola", age=14), [card]) == 13
+    assert past_window_age(_params(species="pennycress", age=15), [card]) == 14
+
+
+def _reference_selection(params, cards, overrides):
+    """Independent reference: match non-overridden root types at past_window_age or age."""
+    age = int(params.values["age"])
+    species, mode = params.values["species"], params.values["mode"]
+    match_age = past_window_age(params, cards, overrides) or age
+    selected = dict(overrides)
+    for root_type in {c.root_type for c in cards} - set(overrides):
+        matches = [
+            c
+            for c in cards
+            if c.root_type == root_type
+            and any(
+                s.species == species
+                and s.mode == mode
+                and s.age_min <= match_age <= s.age_max
+                for s in c.selectors
+            )
+        ]
+        if matches:
+            selected[root_type] = matches[0].registry_id
+    return {
+        r: (v if isinstance(v, str) else v.registry_id) for r, v in selected.items()
+    }
+
+
+_CONTEXTS = sorted(
+    {(s.species, s.mode) for c in production_cards() for s in c.selectors}
+)
+
+
+@pytest.mark.parametrize("species,mode", _CONTEXTS)
+@pytest.mark.parametrize("override_primary", [False, True])
+def test_choose_models_agrees_with_past_window_age(species, mode, override_primary):
+    """The clamp has one source: selection equals matching at past_window_age(...) or age."""
+    cards = production_cards()
+    overrides = {"primary": _override("primary")} if override_primary else {}
+    for age in range(0, 41):
+        params = _params(species=species, mode=mode, age=age)
+        got = choose_models(params, cards, overrides=overrides)
+        got = {r: ref.registry_id for r, ref in got.items()}
+        assert got == _reference_selection(params, cards, overrides), (
+            species,
+            mode,
+            age,
+        )

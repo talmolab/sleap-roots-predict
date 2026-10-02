@@ -164,7 +164,7 @@ commit 7; write and run 5.1–5.3 red before 5.4.
       message; call it after `_predict_one` returns in `run_batch` and after
       `write_prediction_outputs` returns in `predict_and_write_batch`. Update both docstrings
       ("after it is predicted").
-- [ ] 5.5 *Characterization* (`test_model_selection.py`, shared-case rows from
+- [x] 5.5 *Characterization* (`test_model_selection.py`, shared-case rows from
       talmolab/sleap-roots#272 not yet pinned here): on `production_cards()` — rice 1 and 3 →
       `{}` / rice-younger-primary + rice-younger-crown; rice 10, 11 and 99 → `rice-older-crown`
       only (11 and 99 matched as 10); soybean 9 → soybean-primary + soybean-lateral (as 8);
@@ -172,12 +172,12 @@ commit 7; write and run 5.1–5.3 red before 5.4.
       cpa-primary + arabidopsis-lateral (as 14). Injected: gap cards (2–5, 8–10) at 6 → `{}` and
       `None`, at 11 → the 8–10 card, as 10; per-mode cards (canola cylinder 2–13, canola
       multiplant cylinder 2–20) at canola multiplant 15 → the multiplant card, `None`.
-- [ ] 5.6 Refactor: `choose_models` takes its matching age from `past_window_age(params, cards,
+- [x] 5.6 Refactor: `choose_models` takes its matching age from `past_window_age(params, cards,
       overrides)` (falling back to the scan age), so the clamp rule has one source. Guard it with
       a parametrized agreement test over `production_cards()` (every species/mode, ages 0–40,
       with and without a primary override): the selection equals matching every non-overridden
       root type at `past_window_age(...) or age`.
-- [ ] 5.7 Test fixes: replace the vacuous `param_hash == hash_before` with
+- [x] 5.7 Test fixes: replace the vacuous `param_hash == hash_before` with
       `compute_param_hash(params.values)` equal to the real-age hash; add `("canola", "3", False)`
       on the canola 5–13 + pennycress 2–14 card to the string-age test (a per-selector row that a
       card-level window would fail); add a focused `past_window_age` test on that shared card —

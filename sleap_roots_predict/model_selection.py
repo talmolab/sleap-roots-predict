@@ -27,6 +27,10 @@ _REQUIRED_PARAMS = ("species", "mode", "age")
 def _validated(params: ResolvedParams) -> Tuple[str, str, int]:
     """Return the scan's ``(species, mode, age)``, with ``age`` coerced to an int.
 
+    Args:
+        params: Resolved scan params; ``values`` must contain ``species``, ``mode`` and
+            ``age``.
+
     Raises:
         ValueError: If a required param is missing or ``age`` is not a whole number.
     """
@@ -149,8 +153,11 @@ def choose_models(
     overrides = overrides or {}
     species, mode, age = _validated(params)
 
-    window_max = _window_max(cards, species, mode)
-    match_age = window_max if window_max is not None and age > window_max else age
+    # One source for the clamp. When past_window_age returns None for a past-window age,
+    # every root type with a selector for this species and mode is overridden, so the
+    # matching age cannot change any selection.
+    clamped = past_window_age(params, cards, overrides)
+    match_age = age if clamped is None else clamped
     age_desc = (
         f"age={age}" if match_age == age else f"age={age} (matched as {match_age})"
     )
