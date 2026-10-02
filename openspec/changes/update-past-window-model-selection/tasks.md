@@ -186,5 +186,5 @@ commit 7; write and run 5.1–5.3 red before 5.4.
       `CLAUDE.md:93` parenthetical mentions the clamp; `scripts/a1_selection_oracle.py` docstring
       notes past-window cells now differ from tables generated on `main`; `_validated` gets an
       Args section.
-- [ ] 5.9 Gate (CPU + GPU subset), `openspec validate --strict`, push, and update the PR body's
+- [x] 5.9 Gate (CPU + GPU subset), `openspec validate --strict`, push, and update the PR body's
       deploy-order, rollback and multiplant notes to match the proposal.
