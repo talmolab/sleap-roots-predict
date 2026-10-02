@@ -50,36 +50,36 @@ openspec validate update-past-window-model-selection --strict
 
 Write and run 2.1–2.9 red before 2.10.
 
-- [ ] 2.1 Red: past-window cases on `production_cards()` — arabidopsis 28 → cpa-primary +
+- [x] 2.1 Red: past-window cases on `production_cards()` — arabidopsis 28 → cpa-primary +
       arabidopsis-lateral; rice 18 → `rice-older-crown` only; soybean 10 → soybean-primary +
       soybean-lateral; canola 14 → cpa-primary + canola-lateral; pennycress 15 → cpa-primary +
       canola-lateral. Assert the exact root-type set and `registry_id`s. Red today: each is `{}`.
-- [ ] 2.2 Red: each past-window result equals the result at the window maximum (arabidopsis 28 ==
+- [x] 2.2 Red: each past-window result equals the result at the window maximum (arabidopsis 28 ==
       14, rice 18 == 10, soybean 10 == 8, canola 14 == 13, pennycress 15 == 14); age 365 and
       string age `"28"` clamp too.
-- [ ] 2.3 Red: the window maximum is scoped by mode — cards (canola, cylinder, 2–13) and (canola,
+- [x] 2.3 Red: the window maximum is scoped by mode — cards (canola, cylinder, 2–13) and (canola,
       multiplant cylinder, 2–20), scan canola cylinder 15 → the cylinder card is selected.
-- [ ] 2.4 Red: no lower-window fallback — lateral cards (arabidopsis 2–10) and (arabidopsis 2–14),
+- [x] 2.4 Red: no lower-window fallback — lateral cards (arabidopsis 2–10) and (arabidopsis 2–14),
       scan 28 → only the 2–14 card, no ambiguity error.
-- [ ] 2.5 Red: ambiguity at the matching age — two lateral cards both covering arabidopsis 14,
+- [x] 2.5 Red: ambiguity at the matching age — two lateral cards both covering arabidopsis 14,
       scan 28 → `ValueError` whose message names 28 and 14.
-- [ ] 2.6 Overrides: arabidopsis 28 with primary overridden → the override plus arabidopsis-lateral
+- [x] 2.6 Overrides: arabidopsis 28 with primary overridden → the override plus arabidopsis-lateral
       (red: lateral is `{}` today). *Characterization:* primary card rice 2–10 overridden, lateral
       rice 2–5, scan 18 → only the override (lateral is skipped today too).
-- [ ] 2.7 *Characterization* controls: younger than every window (arabidopsis 1, canola 0) → `{}`;
+- [x] 2.7 *Characterization* controls: younger than every window (arabidopsis 1, canola 0) → `{}`;
       no-card species (`sorghum` 30) → `{}`; cards only in another mode (canola, multiplant
       cylinder, 20) → `{}`; `cards=[]` at age 100 → `{}`; overrides only, no cards → the
       overrides; gap age 7 on the disjoint card → `{}`; a non-integer age with `cards=[]` still
       raises. After a clamped call, `params.values["age"]` is unchanged, `param_hash` equals a
       fresh `ResolvedParams` with the real age, and `caplog` shows no record from
       `sleap_roots_predict.model_selection`.
-- [ ] 2.8 Red: `past_window_age` unit tests, one per spec scenario of "Past-Window Matching Age
+- [x] 2.8 Red: `past_window_age` unit tests, one per spec scenario of "Past-Window Matching Age
       Helper": 14 for arabidopsis 28 and `"28"`; 13 for the mode-scoped case; 10 for the
       overridden-primary case; `None` for arabidopsis 10 and 14, rice 4, canola 13, arabidopsis 1,
       no-card, other-mode and `cards=[]`; `None` when every root type with a selector for the
       species and mode is overridden (rice 18, primary rice 2–10 overridden, only lateral card
       arabidopsis); the same `ValueError` as `choose_models` for a bad age with `cards=[]`.
-- [ ] 2.9 Red: end-to-end — `test_batch.py`: `run_batch` with `rice_source` (rice 2–5) and one
+- [x] 2.9 Red: end-to-end — `test_batch.py`: `run_batch` with `rice_source` (rice 2–5) and one
       rice day-9 scan ends `ok`; its manifest's artifacts carry the rice refs; the copied sidecar
       (`out/<key>/<key>.scan_metadata.json`) keeps `params.age == 9`. Re-running skips it;
       rewriting the input sidecar to day 5 then re-predicts (`ok`), so the key carries the real
@@ -87,7 +87,7 @@ Write and run 2.1–2.9 red before 2.10.
       plant_age_days=20)), cards)` over the multi-selector card already in
       `test_round_trip_selects_a_multi_selector_card` (canola 2–13, pennycress 2–14) equals the
       day-14 result. Red today: `failed` "no models resolved", and `{}`.
-- [ ] 2.10 Update the tests whose "no match" examples are above-window:
+- [x] 2.10 Update the tests whose "no match" examples are above-window:
       - `test_string_age_at_a_per_selector_boundary[canola-14-False]` and
         `test_inclusive_boundaries_per_selector[14-False]` → expect a match (clamped to 13). These
         two go red before 2.11. Add `("canola", "1", False)` to the string-age test
@@ -97,13 +97,13 @@ Write and run 2.1–2.9 red before 2.10.
         `test_age_compared_against_the_matching_selectors_window_only` → canola 5–13 + pennycress
         2–14, canola age 3 → `{}`; `tests/test_canary_check.py::test_every_context_is_checked` →
         context rice age 1, asserting `"rice|cylinder|1"`.
-- [ ] 2.11 Green: in `sleap_roots_predict/model_selection.py`, factor the existing param validation
+- [x] 2.11 Green: in `sleap_roots_predict/model_selection.py`, factor the existing param validation
       and age coercion into one helper used by both functions; add `past_window_age` (validate
       first, then `max(..., default=None)`); match at its window maximum in `choose_models`; name
       both ages in the ambiguity error. `params` is never mutated and nothing is logged. Update the
       module, `choose_models` and `_card_matches` docstrings (the `age` argument is the matching
       age).
-- [ ] 2.12 *Characterization*: `test_zero_resolved_models_is_failed` (soybean on `rice_source`, no
+- [x] 2.12 *Characterization*: `test_zero_resolved_models_is_failed` (soybean on `rice_source`, no
       cards for the species) stays `failed`.
 
 ## 3. One warning per clamped scan

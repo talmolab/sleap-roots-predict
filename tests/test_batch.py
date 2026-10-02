@@ -839,6 +839,36 @@ def test_changed_params_causes_repredict(all_roots_source, tmp_path: Path):
     assert manifest.stat().st_mtime_ns != mtime1
 
 
+def test_past_window_scan_predicts_keeps_real_age_and_resumes(
+    rice_source, tmp_path: Path
+):
+    """rice_source is rice 2-5: day 9 is matched at 5, predicts, and resumes by real age."""
+    inp = tmp_path / "in"
+    _real_scan(inp, "scanP", {"species": "rice", "mode": "cylinder", "age": 9})
+    out = tmp_path / "out"
+
+    first = run_batch(inp, out, source=rice_source)
+    assert [s.status for s in first.scans] == ["ok"]
+    manifest = json.loads((out / "scanP" / "scanP.predictions.json").read_text())
+    assert {a["model"]["registry_id"] for a in manifest["artifacts"]} == {
+        "reg/rice-primary",
+        "reg/rice-lateral",
+    }
+    copied = json.loads((out / "scanP" / "scanP.scan_metadata.json").read_text())
+    assert copied["params"]["age"] == 9
+
+    second = run_batch(inp, out, source=rice_source)
+    assert [s.status for s in second.scans] == ["skipped"]
+
+    # The key carries the real age: the same refs at day 5 are a different scan state.
+    sidecar = inp / "scanP" / "scanP.scan_metadata.json"
+    body = json.loads(sidecar.read_text())
+    body["params"]["age"] = 5
+    sidecar.write_text(json.dumps(body))
+    third = run_batch(inp, out, source=rice_source)
+    assert [s.status for s in third.scans] == ["ok"]
+
+
 def test_changed_images_checksum_causes_repredict(all_roots_source, tmp_path: Path):
     inp = tmp_path / "in"
     _real_scan(inp, "scanA", _RICE)

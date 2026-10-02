@@ -52,10 +52,10 @@ def test_every_context_is_checked():
     canary = _canary()
     cards = [make_card("primary", "reg/rice-p")]
     results = canary.select_all(
-        cards, [_RICE3, {"species": "rice", "mode": "cylinder", "age": 9}]
+        cards, [_RICE3, {"species": "rice", "mode": "cylinder", "age": 1}]
     )
     failures = canary.check(results, [("primary", "rice-p")], None, 0, None)
-    assert len(failures) == 1 and "rice|cylinder|9" in failures[0]
+    assert len(failures) == 1 and "rice|cylinder|1" in failures[0]
 
 
 def test_skip_count_mismatch_fails():

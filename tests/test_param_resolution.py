@@ -61,3 +61,21 @@ def test_round_trip_selects_a_multi_selector_card():
     )
     row = _row(species_name="Pennycress", plant_age_days=14)
     assert set(choose_models(resolve_params(row), [card])) == {"primary"}
+
+
+def test_round_trip_past_window_matches_at_window_maximum():
+    """A resolved Bloom row past its species' window selects the window-maximum refs."""
+    card = make_card(
+        "primary",
+        "reg/shared-primary",
+        selectors=[("canola", "cylinder", 2, 13), ("pennycress", "cylinder", 2, 14)],
+        weights_checksum="sha",
+    )
+    day20 = choose_models(
+        resolve_params(_row(species_name="Pennycress", plant_age_days=20)), [card]
+    )
+    day14 = choose_models(
+        resolve_params(_row(species_name="Pennycress", plant_age_days=14)), [card]
+    )
+    assert set(day20) == {"primary"}
+    assert day20 == day14
