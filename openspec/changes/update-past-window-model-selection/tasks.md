@@ -129,12 +129,12 @@ Write and run 2.1–2.9 red before 2.10.
 
 ## 4. Docs and validation
 
-- [ ] 4.1 `CHANGELOG.md` `[Unreleased]`: append one short entry to the existing `### Changed`
+- [x] 4.1 `CHANGELOG.md` `[Unreleased]`: append one short entry to the existing `### Changed`
       (not `### Changed (BREAKING)`; no API breaks): the clamp rule, the real age kept, the
       warning, a pointer to the `model-management` spec, and
       `Part of Salk-Harnessing-Plants-Initiative/bloom#971`.
-- [ ] 4.2 Run the gate; all green.
-- [ ] 4.3 `openspec list` shows no other active change touching these requirements.
+- [x] 4.2 Run the gate; all green.
+- [x] 4.3 `openspec list` shows no other active change touching these requirements.
 - [ ] 4.4 Read-only check against the live registry from the branch, recorded in the PR:
       `uv run python scripts/canary_check.py --context arabidopsis,cylinder,28 --expect-roots
       primary,lateral` and `--context rice,cylinder,18 --expect-roots crown`.
