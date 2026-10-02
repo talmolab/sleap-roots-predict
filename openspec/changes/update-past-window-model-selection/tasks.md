@@ -37,10 +37,10 @@ openspec validate update-past-window-model-selection --strict
 
 - [ ] 1.1 Re-verify the live production catalog read-only (`WandbRegistrySource().list_cards()`)
       and record root type, model and selectors in the PR.
-- [ ] 1.2 Add `production_cards()` to `tests/card_builders.py`, mirroring the 8 cards' root types,
+- [x] 1.2 Add `production_cards()` to `tests/card_builders.py`, mirroring the 8 cards' root types,
       registry-id stems and selectors as recorded in 1.1 (including both arabidopsis
       multiplant-cylinder selectors).
-- [ ] 1.3 *Characterization* (`test_model_selection.py`): in-window selection on that catalog —
+- [x] 1.3 *Characterization* (`test_model_selection.py`): in-window selection on that catalog —
       arabidopsis 10 and 14 → cpa-primary + arabidopsis-lateral; rice 4 → rice-younger-primary +
       rice-younger-crown; rice 8 → rice-older-crown; canola 13 → cpa-primary + canola-lateral;
       soybean 8 → soybean-primary + soybean-lateral. Pins today's in-window refs, so section 2

@@ -10,7 +10,7 @@ from importlib.metadata import version
 import pytest
 from sleap_roots_contracts import ModelRef, ResolvedParams
 
-from card_builders import make_card
+from card_builders import make_card, production_cards
 from sleap_roots_predict.model_selection import choose_models
 
 
@@ -207,3 +207,26 @@ def test_inclusive_boundaries_per_selector(age, expected):
     assert (
         "primary" in choose_models(_params(species="canola", age=age), [card])
     ) is expected
+
+
+def _stems(result):
+    return {root: ref.registry_id.removeprefix("reg/") for root, ref in result.items()}
+
+
+_CPA = "canola_pennycress_arabidopsis-primary"
+
+_IN_WINDOW = [
+    ("arabidopsis", 10, {"primary": _CPA, "lateral": "arabidopsis-lateral"}),
+    ("arabidopsis", 14, {"primary": _CPA, "lateral": "arabidopsis-lateral"}),
+    ("rice", 4, {"primary": "rice-younger-primary", "crown": "rice-younger-crown"}),
+    ("rice", 8, {"crown": "rice-older-crown"}),
+    ("canola", 13, {"primary": _CPA, "lateral": "canola-lateral"}),
+    ("soybean", 8, {"primary": "soybean-primary", "lateral": "soybean-lateral"}),
+]
+
+
+@pytest.mark.parametrize("species,age,expected", _IN_WINDOW)
+def test_in_window_production_selection_is_pinned(species, age, expected):
+    """In-window refs on the production-shaped catalog; the clamp must not change them."""
+    result = choose_models(_params(species=species, age=age), production_cards())
+    assert _stems(result) == expected

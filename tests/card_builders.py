@@ -72,3 +72,45 @@ def raw_card_meta(
     for key in drop:
         del selector_dicts[0][key]
     return {"selectors": selector_dicts, "root_type": root_type}
+
+
+_CYL = "cylinder"
+_MULTI = "multiplant cylinder"
+
+# The live production catalog's shape (registry sleap-roots-models, alias production) as
+# verified for update-past-window-model-selection: (root_type, registry-id stem, selectors).
+_PRODUCTION = (
+    (
+        "primary",
+        "canola_pennycress_arabidopsis-primary",
+        (
+            ("arabidopsis", _CYL, 2, 14),
+            ("arabidopsis", _MULTI, 2, 14),
+            ("canola", _CYL, 2, 13),
+            ("pennycress", _CYL, 2, 14),
+        ),
+    ),
+    ("primary", "soybean-primary", (("soybean", _CYL, 2, 8),)),
+    ("primary", "rice-younger-primary", (("rice", _CYL, 2, 5),)),
+    (
+        "lateral",
+        "canola-lateral",
+        (("canola", _CYL, 2, 13), ("pennycress", _CYL, 2, 14)),
+    ),
+    (
+        "lateral",
+        "arabidopsis-lateral",
+        (("arabidopsis", _CYL, 2, 14), ("arabidopsis", _MULTI, 2, 14)),
+    ),
+    ("lateral", "soybean-lateral", (("soybean", _CYL, 2, 8),)),
+    ("crown", "rice-younger-crown", (("rice", _CYL, 2, 5),)),
+    ("crown", "rice-older-crown", (("rice", _CYL, 6, 10),)),
+)
+
+
+def production_cards():
+    """Cards shaped like the production catalog; registry ids are ``reg/<stem>``."""
+    return [
+        make_card(root, f"reg/{stem}", selectors=sels, weights_checksum=f"sha-{stem}")
+        for root, stem, sels in _PRODUCTION
+    ]
