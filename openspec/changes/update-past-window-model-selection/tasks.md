@@ -32,6 +32,10 @@ openspec validate update-past-window-model-selection --strict
 4. `feat(batch): warn once per past-window scan` — section 3.
 5. `docs: CHANGELOG for past-window selection` — section 4.
 6. After the PR opens: `docs: tick live-registry checks` — 1.1 and 4.4, once recorded in the PR.
+7. `docs: OpenSpec updates from the PR #50 review` — spec deltas, proposal and section 5's tasks.
+8. `fix(batch): warn only after a clamped scan is predicted` — 5.1–5.4.
+9. `test(selection): shared-case rows and matcher test fixes` — 5.5–5.7.
+10. `docs: past-window review follow-ups` — 5.8–5.9.
 
 ## 1. Production-shaped fixture
 
@@ -138,3 +142,49 @@ Write and run 2.1–2.9 red before 2.10.
 - [x] 4.4 Read-only check against the live registry from the branch, recorded in the PR:
       `uv run python scripts/canary_check.py --context arabidopsis,cylinder,28 --expect-roots
       primary,lateral` and `--context rice,cylinder,18 --expect-roots crown`.
+
+## 5. Fixes from the PR #50 review
+
+Findings from the review posted on #50 (verified there: three surviving ordering mutants, a
+species/mode swap mutant, missing shared-case rows). Spec deltas and proposal are updated in
+commit 7; write and run 5.1–5.3 red before 5.4.
+
+- [ ] 5.1 Red (exact message): both entry points' warning tests assert the full text
+      `past-window age: scan_key=<key> species='rice' mode='cylinder' age=9 matched as age=5`
+      (kills the species/mode swap mutant). Red today: the message differs.
+- [ ] 5.2 Red (`test_batch.py`): a clamped rice day-9 scan with no image frames ends `failed` and
+      logs no past-window warning; re-running it logs none either. Red today: it warns each run.
+- [ ] 5.3 (`test_output_contract.py`): red — a clamped day-9 request whose output writing raises
+      (its `out_dir/<scan_key>` path is an existing file) propagates the error and logs no warning.
+      *Characterization* (kills the "before resolve" mutant): an ambiguous catalog (two primary
+      cards covering rice 2–5) makes a day-9 request raise "Ambiguous" with no warning; the same
+      catalog in `run_batch` (`test_batch.py`) ends `failed` with no warning.
+- [ ] 5.4 Green: add one private helper `_log_past_window(logger, scan_key, params,
+      matching_age)` in `output_contract.py` (imported by `batch.py`) that logs the spec'd
+      message; call it after `_predict_one` returns in `run_batch` and after
+      `write_prediction_outputs` returns in `predict_and_write_batch`. Update both docstrings
+      ("after it is predicted").
+- [ ] 5.5 *Characterization* (`test_model_selection.py`, shared-case rows from
+      talmolab/sleap-roots#272 not yet pinned here): on `production_cards()` — rice 1 and 3 →
+      `{}` / rice-younger-primary + rice-younger-crown; rice 10, 11 and 99 → `rice-older-crown`
+      only (11 and 99 matched as 10); soybean 9 → soybean-primary + soybean-lateral (as 8);
+      pennycress 20 → cpa-primary + canola-lateral (as 14); arabidopsis multiplant cylinder 28 →
+      cpa-primary + arabidopsis-lateral (as 14). Injected: gap cards (2–5, 8–10) at 6 → `{}` and
+      `None`, at 11 → the 8–10 card, as 10; per-mode cards (canola cylinder 2–13, canola
+      multiplant cylinder 2–20) at canola multiplant 15 → the multiplant card, `None`.
+- [ ] 5.6 Refactor: `choose_models` takes its matching age from `past_window_age(params, cards,
+      overrides)` (falling back to the scan age), so the clamp rule has one source. Guard it with
+      a parametrized agreement test over `production_cards()` (every species/mode, ages 0–40,
+      with and without a primary override): the selection equals matching every non-overridden
+      root type at `past_window_age(...) or age`.
+- [ ] 5.7 Test fixes: replace the vacuous `param_hash == hash_before` with
+      `compute_param_hash(params.values)` equal to the real-age hash; add `("canola", "3", False)`
+      on the canola 5–13 + pennycress 2–14 card to the string-age test (a per-selector row that a
+      card-level window would fail); add a focused `past_window_age` test on that shared card —
+      canola 14 → 13, pennycress 15 → 14 (the maximum is over matching selectors only).
+- [ ] 5.8 Docs: `CHANGELOG.md` entry (warning after success, `past-window age:` prefix);
+      `CLAUDE.md:93` parenthetical mentions the clamp; `scripts/a1_selection_oracle.py` docstring
+      notes past-window cells now differ from tables generated on `main`; `_validated` gets an
+      Args section.
+- [ ] 5.9 Gate (CPU + GPU subset), `openspec validate --strict`, push, and update the PR body's
+      deploy-order, rollback and multiplant notes to match the proposal.

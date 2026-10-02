@@ -142,6 +142,14 @@ predict/contracts repo boundary.
   soybean-lateral; cpa-primary + canola-lateral; cpa-primary + canola-lateral — the same refs as
   that species at its window maximum (14, 8, 13, 14)
 
+#### Scenario: A past-window multiplant scan is clamped within its own mode
+
+- **WHEN** the cards are shaped like the production catalog and the scan is arabidopsis,
+  multiplant cylinder, day 28
+- **THEN** it is matched at 14 (the multiplant cylinder window maximum) and selects cpa-primary +
+  arabidopsis-lateral, as an in-window multiplant scan does; the trait extractor may still
+  reject multi-plant scans downstream
+
 #### Scenario: One window is used for the whole species, not per root type
 
 - **WHEN** the cards are shaped like the production catalog and the scan is rice, cylinder, day 18

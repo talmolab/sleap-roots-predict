@@ -20,10 +20,15 @@ bloom#971 decided to run them with the species' highest-age window by default.
   in the `model-management` delta.
 - New pure helper `model_selection.past_window_age(params, cards, overrides=None)`, module-level
   and **not** exported from the package. `choose_models` stays pure and silent.
-- `run_batch` and `predict_and_write_batch` log one warning per clamped scan they predict (not on
-  resume-skip). The warning lives in the batch entry points because selection runs twice per scan
-  there (`resolve`, then again inside `predict`), so a warning in `choose_models` would log twice.
-- Nothing new in provenance: saved `params` + `predict_models` + the registry windows suffice.
+- `run_batch` and `predict_and_write_batch` log one warning per clamped scan **after it is
+  predicted successfully** (not on resume-skip, and not for a scan that fails, so a failing scan
+  isn't re-warned on every rerun). The message starts `past-window age:`, like the trait
+  extractor's, so one search finds both. The warning lives in the batch entry points because
+  selection runs twice per scan there (`resolve`, then again inside `predict`), so a warning in
+  `choose_models` would log twice.
+- Nothing new in provenance: saved `params` + `predict_models` + those cards' selector windows
+  identify a clamp. This assumes a card version's `selectors` metadata is never edited in place:
+  W&B allows editing it, and `ModelRef` doesn't record selectors.
 - The ambiguity error names both the scan age and the matching age when they differ.
 
 ## Impact
@@ -47,17 +52,36 @@ bloom#971 decided to run them with the species' highest-age window by default.
 - **Selected refs for in-window scans are unchanged.** Resume-skip is not preserved across the
   re-pin regardless: the idempotency key includes `predict_code_sha`, which every CI-built image
   bakes in (`docker-build.yml`), so a new image re-predicts every scan.
-- **Deploy ordering (other repos):** after merge, re-pin the image in sleap-roots-pipeline
-  (`sleap-roots-predictor-template.yaml` `image:` digest and `SRP_PREDICT_CONTAINER_DIGEST`
-  together) alongside the traits re-pin. Until both are live a past-window scan fails as today, so
-  either can ship first. Bloom's dialog warning ships last.
+- **Deploy ordering (other repos):** after merge, re-pin `sleap-roots-predictor-template.yaml`
+  in sleap-roots-pipeline: the `image:` `:sha-<commit>` tag and digest, and
+  `SRP_PREDICT_CONTAINER_DIGEST`, together (`scripts/check_manifests.py` enforces both). The code
+  PRs can merge in either order, but **re-pin both templates in one sleap-roots-pipeline PR, or
+  traits first**:
+  - traits first: a past-window scan fails as today, at predict ("no models resolved", exit 3,
+    retried);
+  - predict first: it runs GPU inference, writes predictions, then fails at traits ("No pipeline
+    matches", exit 3, retried twice). The exit gate passes exit 3 either way, and those
+    predictions are reused once traits is re-pinned.
+
+  Bloom's dialog warning ships last.
+- **Arabidopsis multiplant cylinder past day 14** now gets predictions (cpa-primary and
+  arabidopsis-lateral carry multiplant selectors), but traits' scan-grain guard still rejects
+  multi-plant scans (talmolab/sleap-roots#252), as it does in-window ones. This adds a GPU pass to
+  an existing gap rather than creating one.
+- **Parity rests on data.** Predict's window maximum comes from the live registry; traits' from
+  its packaged `pipeline_selection.yaml`. They match today (arabidopsis 14, canola 13, pennycress
+  14, soybean 8, rice 10), but a promotion that changes a window would break parity without a code
+  change. A guard (canary or promotion-checklist item) is a follow-up.
 - **Out of scope:** per-root-type model choice / overrides threading (bloom#897, predict#22);
   species with no cards (bloom#993); younger-than-window (bloom#994); a shared matcher in
   sleap-roots-contracts (contracts#13/#14, phase 2).
 
 ## Rollback
 
-Revert the squash commit and re-pin the previous image in sleap-roots-pipeline. Past-window scans
-go back to failing with "no models resolved", before anything is written, so outputs from a
-clamped run stay on disk but the scan is reported `failed`. Every other scan re-predicts once,
-because the code sha changes.
+Revert the squash commit and re-pin the previous image (tag, digest and
+`SRP_PREDICT_CONTAINER_DIGEST`). New past-window scans go back to failing at predict with "no
+models resolved", before anything is written. Predictions already written for clamped scans are
+not removed, and a clamping traits image still reads them, so roll traits back too to stop
+past-window results. Every other scan re-predicts once, because the code sha changes. The squash
+also carries the unrelated `.claude/commands/new-feature.md` fix (step 8 → `/openspec:apply`); a
+revert undoes it too, so re-apply it if needed.
