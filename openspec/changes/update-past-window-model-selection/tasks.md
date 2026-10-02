@@ -35,7 +35,7 @@ openspec validate update-past-window-model-selection --strict
 
 ## 1. Production-shaped fixture
 
-- [ ] 1.1 Re-verify the live production catalog read-only (`WandbRegistrySource().list_cards()`)
+- [x] 1.1 Re-verify the live production catalog read-only (`WandbRegistrySource().list_cards()`)
       and record root type, model and selectors in the PR.
 - [x] 1.2 Add `production_cards()` to `tests/card_builders.py`, mirroring the 8 cards' root types,
       registry-id stems and selectors as recorded in 1.1 (including both arabidopsis
@@ -135,6 +135,6 @@ Write and run 2.1–2.9 red before 2.10.
       `Part of Salk-Harnessing-Plants-Initiative/bloom#971`.
 - [x] 4.2 Run the gate; all green.
 - [x] 4.3 `openspec list` shows no other active change touching these requirements.
-- [ ] 4.4 Read-only check against the live registry from the branch, recorded in the PR:
+- [x] 4.4 Read-only check against the live registry from the branch, recorded in the PR:
       `uv run python scripts/canary_check.py --context arabidopsis,cylinder,28 --expect-roots
       primary,lateral` and `--context rice,cylinder,18 --expect-roots crown`.
