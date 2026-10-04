@@ -288,6 +288,11 @@ measurement (8 physical weight sets) are in
 The 2026-09-29 re-run against the re-seeded (selector-shaped) registry — all 8 physical models
 within tolerance, unchanged from 2026-08-04 — is in
 [`2026-09-29-parity-reseeded-registry-comparison.md`](docs/superpowers/specs/2026-09-29-parity-reseeded-registry-comparison.md).
+The 2026-10-04 run of the wheat and sorghum cards staged under the W&B alias `candidate` (read with
+`SRP_WANDB_MODEL_ALIAS=candidate`; the harness lists only that alias) is in
+[`2026-10-04-parity-wheat-sorghum-comparison.md`](docs/superpowers/specs/2026-10-04-parity-wheat-sorghum-comparison.md).
+All three cards passed. That doc also explains why `distance_p95` is sensitive to the evaluator's
+greedy instance pairing on crowded crown and lateral frames.
 
 Regenerate that report (needs `WANDB_API_KEY` and `SRP_PARITY_DATA_DIR`; lab-only — Windows +
 a `Z:` mapped network share): `uv run python scripts/run_parity_harness.py --out <path>`.
