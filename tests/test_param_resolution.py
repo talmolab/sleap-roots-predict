@@ -46,7 +46,7 @@ def test_round_trip_selects_expected_models():
 def test_round_trip_unknown_species_selects_nothing():
     """An unmodelled species resolves and zero-matches (skip, not error)."""
     cards = [_card("primary"), _card("crown")]
-    row = _row(species_name="Sorghum", plant_age_days=3)
+    row = _row(species_name="Alfalfa", plant_age_days=3)
     assert choose_models(resolve_params(row), cards) == {}
 
 
