@@ -6,15 +6,20 @@ linking these three cards to `production` (#118 step 6).
 
 ## Result
 
-**Pass.** All 3 cards are within the `prediction-parity` tolerance decided in predict#33
-(2026-08-04): relative Δ`distance_p95` ≤ 0.25 and Δ`visibility_recall` ≥ −0.10.
+**Pass.** All 3 cards are within the `prediction-parity` tolerance decided 2026-08-04 in
+predict#33: relative Δ`distance_p95` ≤ 0.25 and Δ`visibility_recall` ≥ −0.10.
 
 - Every card resolved its ground truth by bundle relinking alone, with every frame resolved.
   There were no gaps.
 - The classic-SLEAP reference and sleap-nn were scored on the identical frames.
-- Wheat crown is the closest to the limit, at a relative Δp95 of +0.206. That number comes from
-  how the evaluator pairs instances on crowded crown-root frames. sleap-nn doesn't localize roots
-  measurably worse. See [Why wheat's Δp95 is high](#why-wheats-δp95-is-high).
+- **Wheat crown passes marginally.** Its relative Δp95 is +0.206, with sleap-nn worse. A frame
+  bootstrap puts that between −0.03 and +0.60 (95%), and above 0.25 with probability 0.40.
+- **Wheat frames hint at a gap.** On the 11 wheat frames alone, sleap-nn's Δp95 is +0.825. One
+  mis-paired root accounts for much of that, but without that frame it's still +0.321. So a
+  wheat-specific difference isn't ruled out, and 11 frames can't settle it (95% range −0.04 to
+  +1.97). See [Wheat's Δp95](#wheats-δp95). The trait check, talmolab/sleap-roots-pipeline#120
+  part 1 (≥ 20 real wheat scans), should be read with this in mind before #118 step 6.
+- Sorghum primary is a clear pass. Sorghum lateral passes but is noisy.
 - The model-selection checks from #51 all pass, with the 8 production cards and the 3 candidates
   loaded together.
 
@@ -108,35 +113,66 @@ sorghum models on sorghum plus soybean labels. Their held-out sets are mixed the
 | sorghum primary | 133 soybean, 36 sorghum | 78 soybean, **22 sorghum** | days 5, 6, 10, 12 |
 | sorghum lateral | 49 soybean, 10 sorghum | 49 soybean, **10 sorghum** | days 5, 10 |
 
-The gate above is computed over the whole evaluated set, as for every earlier model. The split
-below is informational and doesn't change the gate.
+The gate above is computed over the whole evaluated set, as for every earlier model. Everything
+below is informational and doesn't change the gate. The data is in
+[`2026-10-04-parity-wheat-sorghum-diagnostics.json`](2026-10-04-parity-wheat-sorghum-diagnostics.json)
+(`pairing_comparison`, `bootstrap`, `drop_one_frame`, plus a `method` block). All of it uses the
+same frames and predictions as the harness report, with no new inference.
 
-## Why wheat's Δp95 is high
+## Wheat's Δp95
 
-On its 11 wheat frames, wheat crown's Δp95 is +0.825 (140.4 vs 76.9 px). The pipeline was checked
-for a fault, and none was found: the files, frames, skeleton and image size are all as above, and
-the training config's preprocessing and model settings are identical to the sorghum primary
-model's. Root by root,
-sleap-nn's predictions are about as close to the labels as classic SLEAP's. This was measured as
-mean point error against each root's nearest prediction, and sleap-nn was sometimes better and
-sometimes worse.
+On its 11 wheat frames, wheat crown's Δp95 is +0.825 (140.4 vs 76.9 px).
 
-**The cause is instance pairing.** `sleap_nn.evaluation` pairs prediction to ground truth
-greedily, in descending prediction score, with an OKS threshold of 0 (`OKS_MATCH_THRESHOLD` in
-`parity.py`), so any nonzero OKS is accepted. Wheat-card frames carry up to 12 labelled crown
-roots, often close together. A high-scoring prediction can
-take a neighbouring root, which leaves the true root paired with a far-away leftover. Classic
-SLEAP and sleap-nn score their instances differently, so they mis-pair on different frames.
-`distance_p95` measures exactly those bad pairings, and the 11 wheat frames contribute only
-about 212 points.
+**The pipeline was checked for a fault, and none was found.** The files, frames, skeleton and
+image size are all as above. The training config's preprocessing and model settings are
+identical to the sorghum primary model's.
 
-**Diagnostic.** The same predictions, with no new inference, were scored two ways:
+### Instance pairing explains part of it
 
-- **greedy OKS:** the evaluator's own pairing, which reproduces the harness values;
-- **optimal:** a per-frame minimum-cost assignment (Hungarian algorithm) on mean point distance.
+`sleap_nn.evaluation` pairs predictions to ground truth greedily, in descending prediction score,
+with an OKS threshold of 0 (`OKS_MATCH_THRESHOLD` in `parity.py`).
 
-The data is
-[`2026-10-04-parity-wheat-sorghum-diagnostics.json`](2026-10-04-parity-wheat-sorghum-diagnostics.json).
+- A pair with OKS exactly 0 is rejected. Its ground-truth root becomes a false negative and adds
+  no distances.
+- Any pair above 0 is accepted, however poor.
+- On frames with several roots close together, a high-scoring prediction can take a neighbouring
+  root. The true root is then left with a far-away leftover at a low but nonzero OKS.
+- Classic SLEAP and sleap-nn score their instances differently, so they mis-pair on different
+  frames.
+- p95 over a few hundred points is sensitive to a handful of such pairs.
+
+How this shows up in the wheat card:
+
+- **Rice frames are crowded.** They carry up to 12 labelled roots. The 89 rice frames have 54
+  near-zero-OKS pairs for classic and 68 for sleap-nn (OKS < 0.01).
+- **Wheat frames are not.** They carry 3–6 roots and have 1 near-zero-OKS pair on each side.
+  - sleap-nn's one near-zero pair, on `LSSSVVVVOJ` f56, is 208–317 px and dominates the slice's
+    tail.
+  - Without that frame, the wheat-slice Δp95 is still **+0.321**. The remainder comes from
+    accepted pairs with moderate OKS, for example on `142QU1HI9A` f29 and `BZ52UFGM79` f41.
+  - So pairing doesn't explain the whole wheat difference.
+
+### How noisy the numbers are
+
+These are paired frame-bootstrap ranges on the greedy-OKS signed rel. Δp95: 2,000 resamples,
+with the same frames drawn for both engines.
+
+| card | frames | point estimate | 95% range | P(\|rel\| > 0.25) |
+|---|---|---|---|---|
+| wheat crown | all 100 | +0.206 | −0.03 to +0.60 | 0.40 |
+| | wheat 11 | +0.825 | −0.04 to +1.97 | 0.83 |
+| sorghum primary | all 100 | −0.016 | −0.13 to +0.16 | 0.00 |
+| | sorghum 22 | −0.184 | −0.47 to +0.14 | 0.14 |
+| sorghum lateral | all 59 | −0.070 | −0.43 to +0.45 | 0.29 |
+| | sorghum 10 | −0.174 | −0.60 to +0.80 | 0.45 |
+
+Frames are the first *n* in bundle order, so they cluster by video and plate. These ranges treat
+frames as independent, so if anything they are too narrow.
+
+### Re-scoring with a different pairing
+
+The same predictions were also paired per frame by a minimum-cost assignment (Hungarian
+algorithm) on mean point distance.
 
 | card | frames | greedy Δp95 | optimal Δp95 | optimal p50, ref / sleap-nn | near-zero-OKS pairs, ref / sleap-nn |
 |---|---|---|---|---|---|
@@ -150,19 +186,26 @@ The data is
 | | soybean 49 | +0.077 | +0.116 | 2.6 / 2.7 | 104 / 106 |
 | | sorghum 10 | −0.174 | +0.161 | 4.7 / 4.6 | 14 / 13 |
 
-"Near-zero-OKS pairs" counts pairs with OKS < 0.01.
-
-- **The pairing effect runs both ways.** It made wheat look worse than it is, and it made sorghum
-  look better than it is: on sorghum-only frames, −0.18 under greedy pairing becomes +0.04 and
+- **The pairing effect runs both ways.** It made the wheat card look worse and the sorghum slices
+  look better. On sorghum-only frames, −0.18 and −0.17 under greedy pairing become +0.04 and
   +0.16 under optimal pairing.
-- **Optimal pairing doesn't change the outcome.** Under it, every subset, including each
-  target-species slice, is within ±0.17, and the medians agree to within 0.5 px.
-- **The sorghum slices are small**: 22 and 10 frames.
-- **It's not a substitute gate.** Optimal pairing is not the decided metric. The gate stays
-  greedy-OKS, unchanged from predict#33.
-- **The earlier crown models were probably affected too.** rice/older/crown's −0.170 on
-  2026-08-04 is likely the same effect in sleap-nn's favour. That is plausible but untested,
-  because the 2026-08-04 run kept no intermediates.
+- **This pairing has a known bias.** Its cost averages only over nodes visible on *both* sides,
+  so partial (fragment) predictions are cheap to pair. It yields fewer scored points than greedy.
+  On sorghum primary, classic goes from 537 to 520 points and sleap-nn from 527 to 516. Both engines emit fragments at similar rates, but the
+  bias favours whichever emits more. Treat these numbers as supporting evidence, not as a
+  corrected metric.
+- **It's not a substitute gate.** The gate stays greedy-OKS, unchanged from predict#33.
+
+### Conclusion for wheat
+
+The whole-card result passes as decided, but marginally.
+
+- **On wheat frames, sleap-nn may be somewhat worse** than classic SLEAP. Part of the measured
+  gap is pairing, but not all of it.
+- **The bundle can't settle it.** Its 17 wheat labels are too few to confirm or rule this out.
+- **The trait check is the better evidence.** It compares traits from ≥ 20 real wheat scans,
+  talmolab/sleap-roots-pipeline#120 part 1, and should be read with this in mind before #118
+  step 6.
 
 ## Selection checks
 
@@ -180,11 +223,11 @@ same snapshot.
 - **Soybean is unaffected.** For every age from 0 to 20, soybean's selection and
   `past_window_age` are identical with and without the candidates. Ages 0–1 match nothing,
   ages 2–8 select `soybean-primary-…n-1389` and `soybean-lateral-…n-482`, and ages 9–20 clamp
-  to 8. The sorghum
-  models are joint sorghum+soybean, but their selectors name only `sorghum`.
-- **A related test fix is in predict#53.** `tests/test_model_selection.py` used `sorghum cylinder
+  to 8. The sorghum models are joint sorghum+soybean, but their selectors name only `sorghum`.
+- **Related test fixes are in predict#53.** `tests/test_model_selection.py` used `sorghum cylinder
   30` as its no-card example, which would go stale once the test catalog mirrors these cards.
-  predict#53 switches it to `alfalfa`.
+  `tests/test_param_resolution.py` called sorghum "an unmodelled species". predict#53 switches
+  both to `alfalfa`.
 
 ## Coverage caveats
 
@@ -194,6 +237,8 @@ same snapshot.
     (lateral).
   - Wheat days 6–10 and 12–13, and sorghum days 3–4, 7–9, 11 and 13–14, have no labelled frames.
     Those ages are untested here.
+  - The sorghum list is the union of both cards. The lateral card also has no sorghum labels at
+    days 6 and 12.
 
   Past production ran these models at those ages the same way.
 - **Most evaluated frames aren't the target species.** The gate rests mostly on rice and soybean
@@ -208,5 +253,7 @@ same snapshot.
 - **Pairing in the harness.** The harness's greedy OKS pairing with threshold 0 is fragile on
   crowded crown and lateral frames. Changing the matching or tolerance would be its own decision
   and would need a re-baseline, the same as predict#33.
+- **Uncertainty in the gate.** predict#33's gate is a point estimate. A frame-bootstrap range,
+  like the one above, would show when a pass or fail is marginal.
 - **Environment in the report.** The report still doesn't record device, torch, sleap-nn or the
   commit, as already noted on 2026-09-29.

@@ -1,209 +1,330 @@
-[
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
-    "version": "v0",
-    "root_type": "crown",
-    "frames_subset": "all",
-    "n_frames": 100,
-    "greedy_oks": {
-      "classic_p95": 196.11088564047188,
-      "sleap_nn_p95": 236.54345064602845,
-      "classic_near_zero_oks_pairs": 55,
-      "sleap_nn_near_zero_oks_pairs": 69,
-      "classic_points": 1956,
-      "sleap_nn_points": 1929,
-      "signed_rel_p95": 0.20617195661275625
-    },
-    "optimal": {
-      "classic_p95": 111.69313446783045,
-      "sleap_nn_p95": 108.27148260633753,
-      "classic_p50": 11.623458017559251,
-      "sleap_nn_p50": 11.578768621095328,
-      "signed_rel_p95": -0.030634397340495566
-    }
+{
+  "method": {
+    "scope": "Informational only; not the gate. Same frames and predictions as the harness report, no new inference.",
+    "greedy_oks": "sleap_nn.evaluation.Evaluator with the harness's settings (match_method=oks, match_threshold=0.0, oks_stddev=0.025, oks_scale=None, user_labels_only=True). OKS==0 pairs are rejected as false negatives and contribute no distances.",
+    "optimal": "Per-frame minimum-cost assignment (scipy linear_sum_assignment) on mean point distance over nodes visible on BOTH sides. Caveat: this cost makes partial (fragment) predictions cheap to pair, so it can under-count error for whichever side emits more fragments.",
+    "near_zero_oks_pairs": "Accepted greedy pairs with OKS < 0.01.",
+    "bootstrap": "Paired frame bootstrap of the greedy-OKS signed rel. dp95: frames resampled with replacement (same draw for both sides), 2000 resamples, numpy default_rng(0)."
   },
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
-    "version": "v0",
-    "root_type": "crown",
-    "frames_subset": "Rice",
-    "n_frames": 89,
-    "greedy_oks": {
-      "classic_p95": 214.39885340018708,
-      "sleap_nn_p95": 250.73830766372484,
-      "classic_near_zero_oks_pairs": 54,
-      "sleap_nn_near_zero_oks_pairs": 68,
-      "classic_points": 1740,
-      "sleap_nn_points": 1717,
-      "signed_rel_p95": 0.16949462969239018
+  "pairing_comparison": [
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
+      "version": "v0",
+      "root_type": "crown",
+      "frames_subset": "all",
+      "n_frames": 100,
+      "greedy_oks": {
+        "classic_p95": 196.11088564047188,
+        "sleap_nn_p95": 236.54345064602845,
+        "classic_near_zero_oks_pairs": 55,
+        "sleap_nn_near_zero_oks_pairs": 69,
+        "classic_points": 1956,
+        "sleap_nn_points": 1929,
+        "signed_rel_p95": 0.20617195661275625
+      },
+      "optimal": {
+        "classic_p95": 111.69313446783045,
+        "sleap_nn_p95": 108.27148260633753,
+        "classic_p50": 11.623458017559251,
+        "sleap_nn_p50": 11.578768621095328,
+        "signed_rel_p95": -0.030634397340495566
+      }
     },
-    "optimal": {
-      "classic_p95": 125.90183091975963,
-      "sleap_nn_p95": 112.59473342105139,
-      "classic_p50": 11.181874862083614,
-      "sleap_nn_p50": 11.297137804379474,
-      "signed_rel_p95": -0.10569423336813258
-    }
-  },
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
-    "version": "v0",
-    "root_type": "crown",
-    "frames_subset": "wheat",
-    "n_frames": 11,
-    "greedy_oks": {
-      "classic_p95": 76.92963786799041,
-      "sleap_nn_p95": 140.3816451029019,
-      "classic_near_zero_oks_pairs": 1,
-      "sleap_nn_near_zero_oks_pairs": 1,
-      "classic_points": 216,
-      "sleap_nn_points": 212,
-      "signed_rel_p95": 0.8248057444881485
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
+      "version": "v0",
+      "root_type": "crown",
+      "frames_subset": "Rice",
+      "n_frames": 89,
+      "greedy_oks": {
+        "classic_p95": 214.39885340018708,
+        "sleap_nn_p95": 250.73830766372484,
+        "classic_near_zero_oks_pairs": 54,
+        "sleap_nn_near_zero_oks_pairs": 68,
+        "classic_points": 1740,
+        "sleap_nn_points": 1717,
+        "signed_rel_p95": 0.16949462969239018
+      },
+      "optimal": {
+        "classic_p95": 125.90183091975963,
+        "sleap_nn_p95": 112.59473342105139,
+        "classic_p50": 11.181874862083614,
+        "sleap_nn_p50": 11.297137804379474,
+        "signed_rel_p95": -0.10569423336813258
+      }
     },
-    "optimal": {
-      "classic_p95": 77.21802460043254,
-      "sleap_nn_p95": 83.69124289614639,
-      "classic_p50": 13.948913948819209,
-      "sleap_nn_p50": 13.762364046389315,
-      "signed_rel_p95": 0.08383040526107409
-    }
-  },
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_primary_6nodes-250203_181521.multi_instance.n-1689",
-    "version": "v0",
-    "root_type": "primary",
-    "frames_subset": "all",
-    "n_frames": 100,
-    "greedy_oks": {
-      "classic_p95": 92.84405077737902,
-      "sleap_nn_p95": 91.32571648265505,
-      "classic_near_zero_oks_pairs": 2,
-      "sleap_nn_near_zero_oks_pairs": 1,
-      "classic_points": 537,
-      "sleap_nn_points": 527,
-      "signed_rel_p95": -0.016353598125146702
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
+      "version": "v0",
+      "root_type": "crown",
+      "frames_subset": "wheat",
+      "n_frames": 11,
+      "greedy_oks": {
+        "classic_p95": 76.92963786799041,
+        "sleap_nn_p95": 140.3816451029019,
+        "classic_near_zero_oks_pairs": 1,
+        "sleap_nn_near_zero_oks_pairs": 1,
+        "classic_points": 216,
+        "sleap_nn_points": 212,
+        "signed_rel_p95": 0.8248057444881485
+      },
+      "optimal": {
+        "classic_p95": 77.21802460043254,
+        "sleap_nn_p95": 83.69124289614639,
+        "classic_p50": 13.948913948819209,
+        "sleap_nn_p50": 13.762364046389315,
+        "signed_rel_p95": 0.08383040526107409
+      }
     },
-    "optimal": {
-      "classic_p95": 87.06904300103795,
-      "sleap_nn_p95": 83.44398632273264,
-      "classic_p50": 15.26735057359208,
-      "sleap_nn_p50": 14.775412729712663,
-      "signed_rel_p95": -0.04163427727420983
-    }
-  },
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_primary_6nodes-250203_181521.multi_instance.n-1689",
-    "version": "v0",
-    "root_type": "primary",
-    "frames_subset": "Soy",
-    "n_frames": 78,
-    "greedy_oks": {
-      "classic_p95": 83.76855245532039,
-      "sleap_nn_p95": 80.8722964159523,
-      "classic_near_zero_oks_pairs": 0,
-      "sleap_nn_near_zero_oks_pairs": 0,
-      "classic_points": 432,
-      "sleap_nn_points": 426,
-      "signed_rel_p95": -0.03457450265614723
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_primary_6nodes-250203_181521.multi_instance.n-1689",
+      "version": "v0",
+      "root_type": "primary",
+      "frames_subset": "all",
+      "n_frames": 100,
+      "greedy_oks": {
+        "classic_p95": 92.84405077737902,
+        "sleap_nn_p95": 91.32571648265505,
+        "classic_near_zero_oks_pairs": 2,
+        "sleap_nn_near_zero_oks_pairs": 1,
+        "classic_points": 537,
+        "sleap_nn_points": 527,
+        "signed_rel_p95": -0.016353598125146702
+      },
+      "optimal": {
+        "classic_p95": 87.06904300103795,
+        "sleap_nn_p95": 83.44398632273264,
+        "classic_p50": 15.26735057359208,
+        "sleap_nn_p50": 14.775412729712663,
+        "signed_rel_p95": -0.04163427727420983
+      }
     },
-    "optimal": {
-      "classic_p95": 82.40875985173761,
-      "sleap_nn_p95": 78.97070444594023,
-      "classic_p50": 14.379868762872444,
-      "sleap_nn_p50": 14.280269600674984,
-      "signed_rel_p95": -0.041719538213932886
-    }
-  },
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_primary_6nodes-250203_181521.multi_instance.n-1689",
-    "version": "v0",
-    "root_type": "primary",
-    "frames_subset": "sorghum",
-    "n_frames": 22,
-    "greedy_oks": {
-      "classic_p95": 152.2399286723773,
-      "sleap_nn_p95": 124.29941618472897,
-      "classic_near_zero_oks_pairs": 2,
-      "sleap_nn_near_zero_oks_pairs": 1,
-      "classic_points": 105,
-      "sleap_nn_points": 101,
-      "signed_rel_p95": -0.18352946386211688
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_primary_6nodes-250203_181521.multi_instance.n-1689",
+      "version": "v0",
+      "root_type": "primary",
+      "frames_subset": "Soy",
+      "n_frames": 78,
+      "greedy_oks": {
+        "classic_p95": 83.76855245532039,
+        "sleap_nn_p95": 80.8722964159523,
+        "classic_near_zero_oks_pairs": 0,
+        "sleap_nn_near_zero_oks_pairs": 0,
+        "classic_points": 432,
+        "sleap_nn_points": 426,
+        "signed_rel_p95": -0.03457450265614723
+      },
+      "optimal": {
+        "classic_p95": 82.40875985173761,
+        "sleap_nn_p95": 78.97070444594023,
+        "classic_p50": 14.379868762872444,
+        "sleap_nn_p50": 14.280269600674984,
+        "signed_rel_p95": -0.041719538213932886
+      }
     },
-    "optimal": {
-      "classic_p95": 118.6380157124801,
-      "sleap_nn_p95": 123.62476146792788,
-      "classic_p50": 19.88660365484094,
-      "sleap_nn_p50": 20.283061699330027,
-      "signed_rel_p95": 0.04203328693167957
-    }
-  },
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_lateral_4nodes-250203_214033.multi_instance.n-590",
-    "version": "v0",
-    "root_type": "lateral",
-    "frames_subset": "all",
-    "n_frames": 59,
-    "greedy_oks": {
-      "classic_p95": 112.48155878895152,
-      "sleap_nn_p95": 104.62576357377463,
-      "classic_near_zero_oks_pairs": 118,
-      "sleap_nn_near_zero_oks_pairs": 119,
-      "classic_points": 2349,
-      "sleap_nn_points": 2326,
-      "signed_rel_p95": -0.0698407392265666
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_primary_6nodes-250203_181521.multi_instance.n-1689",
+      "version": "v0",
+      "root_type": "primary",
+      "frames_subset": "sorghum",
+      "n_frames": 22,
+      "greedy_oks": {
+        "classic_p95": 152.2399286723773,
+        "sleap_nn_p95": 124.29941618472897,
+        "classic_near_zero_oks_pairs": 2,
+        "sleap_nn_near_zero_oks_pairs": 1,
+        "classic_points": 105,
+        "sleap_nn_points": 101,
+        "signed_rel_p95": -0.18352946386211688
+      },
+      "optimal": {
+        "classic_p95": 118.6380157124801,
+        "sleap_nn_p95": 123.62476146792788,
+        "classic_p50": 19.88660365484094,
+        "sleap_nn_p50": 20.283061699330027,
+        "signed_rel_p95": 0.04203328693167957
+      }
     },
-    "optimal": {
-      "classic_p95": 62.21822023801274,
-      "sleap_nn_p95": 65.83304989027629,
-      "classic_p50": 2.7184196407729107,
-      "sleap_nn_p50": 2.8833316335872667,
-      "signed_rel_p95": 0.05809921335639611
-    }
-  },
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_lateral_4nodes-250203_214033.multi_instance.n-590",
-    "version": "v0",
-    "root_type": "lateral",
-    "frames_subset": "Soy",
-    "n_frames": 49,
-    "greedy_oks": {
-      "classic_p95": 89.83152462107303,
-      "sleap_nn_p95": 96.73640931938442,
-      "classic_near_zero_oks_pairs": 104,
-      "sleap_nn_near_zero_oks_pairs": 106,
-      "classic_points": 1997,
-      "sleap_nn_points": 1981,
-      "signed_rel_p95": 0.07686482810391505
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_lateral_4nodes-250203_214033.multi_instance.n-590",
+      "version": "v0",
+      "root_type": "lateral",
+      "frames_subset": "all",
+      "n_frames": 59,
+      "greedy_oks": {
+        "classic_p95": 112.48155878895152,
+        "sleap_nn_p95": 104.62576357377463,
+        "classic_near_zero_oks_pairs": 118,
+        "sleap_nn_near_zero_oks_pairs": 119,
+        "classic_points": 2349,
+        "sleap_nn_points": 2326,
+        "signed_rel_p95": -0.0698407392265666
+      },
+      "optimal": {
+        "classic_p95": 62.21822023801274,
+        "sleap_nn_p95": 65.83304989027629,
+        "classic_p50": 2.7184196407729107,
+        "sleap_nn_p50": 2.8833316335872667,
+        "signed_rel_p95": 0.05809921335639611
+      }
     },
-    "optimal": {
-      "classic_p95": 50.20313169822242,
-      "sleap_nn_p95": 56.026278703330696,
-      "classic_p50": 2.5521073686152405,
-      "sleap_nn_p50": 2.6581618705645025,
-      "signed_rel_p95": 0.11599170824864019
-    }
-  },
-  {
-    "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_lateral_4nodes-250203_214033.multi_instance.n-590",
-    "version": "v0",
-    "root_type": "lateral",
-    "frames_subset": "sorghum",
-    "n_frames": 10,
-    "greedy_oks": {
-      "classic_p95": 227.6827358063105,
-      "sleap_nn_p95": 188.05673925843877,
-      "classic_near_zero_oks_pairs": 14,
-      "sleap_nn_near_zero_oks_pairs": 13,
-      "classic_points": 352,
-      "sleap_nn_points": 345,
-      "signed_rel_p95": -0.17404040937729034
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_lateral_4nodes-250203_214033.multi_instance.n-590",
+      "version": "v0",
+      "root_type": "lateral",
+      "frames_subset": "Soy",
+      "n_frames": 49,
+      "greedy_oks": {
+        "classic_p95": 89.83152462107303,
+        "sleap_nn_p95": 96.73640931938442,
+        "classic_near_zero_oks_pairs": 104,
+        "sleap_nn_near_zero_oks_pairs": 106,
+        "classic_points": 1997,
+        "sleap_nn_points": 1981,
+        "signed_rel_p95": 0.07686482810391505
+      },
+      "optimal": {
+        "classic_p95": 50.20313169822242,
+        "sleap_nn_p95": 56.026278703330696,
+        "classic_p50": 2.5521073686152405,
+        "sleap_nn_p50": 2.6581618705645025,
+        "signed_rel_p95": 0.11599170824864019
+      }
     },
-    "optimal": {
-      "classic_p95": 110.02388274048604,
-      "sleap_nn_p95": 127.73726828403724,
-      "classic_p50": 4.696115629290906,
-      "sleap_nn_p50": 4.602513645084971,
-      "signed_rel_p95": 0.16099582292811698
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_lateral_4nodes-250203_214033.multi_instance.n-590",
+      "version": "v0",
+      "root_type": "lateral",
+      "frames_subset": "sorghum",
+      "n_frames": 10,
+      "greedy_oks": {
+        "classic_p95": 227.6827358063105,
+        "sleap_nn_p95": 188.05673925843877,
+        "classic_near_zero_oks_pairs": 14,
+        "sleap_nn_near_zero_oks_pairs": 13,
+        "classic_points": 352,
+        "sleap_nn_points": 345,
+        "signed_rel_p95": -0.17404040937729034
+      },
+      "optimal": {
+        "classic_p95": 110.02388274048604,
+        "sleap_nn_p95": 127.73726828403724,
+        "classic_p50": 4.696115629290906,
+        "sleap_nn_p50": 4.602513645084971,
+        "signed_rel_p95": 0.16099582292811698
+      }
     }
-  }
-]
+  ],
+  "bootstrap": [
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
+      "root_type": "crown",
+      "frames_subset": "all",
+      "n_frames": 100,
+      "signed_rel_p95": 0.20617195661275625,
+      "bootstrap_median": 0.2081431482783583,
+      "bootstrap_ci95": [
+        -0.029477081233819796,
+        0.597683082030354
+      ],
+      "bootstrap_p_abs_rel_gt_0_25": 0.402,
+      "oks_zero_false_negatives": {
+        "classic": 46,
+        "sleap_nn": 50
+      }
+    },
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
+      "root_type": "crown",
+      "frames_subset": "wheat",
+      "n_frames": 11,
+      "signed_rel_p95": 0.8248057444881485,
+      "bootstrap_median": 0.644621580387022,
+      "bootstrap_ci95": [
+        -0.04426895416465134,
+        1.9691093744860415
+      ],
+      "bootstrap_p_abs_rel_gt_0_25": 0.8285,
+      "oks_zero_false_negatives": {
+        "classic": 2,
+        "sleap_nn": 2
+      }
+    },
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_primary_6nodes-250203_181521.multi_instance.n-1689",
+      "root_type": "primary",
+      "frames_subset": "all",
+      "n_frames": 100,
+      "signed_rel_p95": -0.016353598125146702,
+      "bootstrap_median": -0.008167249734455059,
+      "bootstrap_ci95": [
+        -0.12778977981774794,
+        0.15758320846438761
+      ],
+      "bootstrap_p_abs_rel_gt_0_25": 0.002,
+      "oks_zero_false_negatives": {
+        "classic": 0,
+        "sleap_nn": 0
+      }
+    },
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_primary_6nodes-250203_181521.multi_instance.n-1689",
+      "root_type": "primary",
+      "frames_subset": "sorghum",
+      "n_frames": 22,
+      "signed_rel_p95": -0.18352946386211688,
+      "bootstrap_median": -0.04496922873354544,
+      "bootstrap_ci95": [
+        -0.46989269984951615,
+        0.1428784751532194
+      ],
+      "bootstrap_p_abs_rel_gt_0_25": 0.143,
+      "oks_zero_false_negatives": {
+        "classic": 0,
+        "sleap_nn": 0
+      }
+    },
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_lateral_4nodes-250203_214033.multi_instance.n-590",
+      "root_type": "lateral",
+      "frames_subset": "all",
+      "n_frames": 59,
+      "signed_rel_p95": -0.0698407392265666,
+      "bootstrap_median": -0.08849970888464896,
+      "bootstrap_ci95": [
+        -0.4296226187723749,
+        0.45448943739685344
+      ],
+      "bootstrap_p_abs_rel_gt_0_25": 0.2915,
+      "oks_zero_false_negatives": {
+        "classic": 52,
+        "sleap_nn": 57
+      }
+    },
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250204_sorghum_experimental-sorghum_soybean_lateral_4nodes-250203_214033.multi_instance.n-590",
+      "root_type": "lateral",
+      "frames_subset": "sorghum",
+      "n_frames": 10,
+      "signed_rel_p95": -0.17404040937729034,
+      "bootstrap_median": -0.16443126973519717,
+      "bootstrap_ci95": [
+        -0.5955644909762052,
+        0.7980589777609215
+      ],
+      "bootstrap_p_abs_rel_gt_0_25": 0.4535,
+      "oks_zero_false_negatives": {
+        "classic": 23,
+        "sleap_nn": 26
+      }
+    }
+  ],
+  "drop_one_frame": [
+    {
+      "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
+      "frames_subset": "wheat without LSSSVVVVOJ f56",
+      "n_frames": 10,
+      "signed_rel_p95": 0.3210937972869457
+    }
+  ]
+}
