@@ -348,7 +348,7 @@ def test_overridden_root_types_count_toward_window_maximum():
     [
         ("arabidopsis", "cylinder", 1),
         ("canola", "cylinder", 0),
-        ("sorghum", "cylinder", 30),
+        ("alfalfa", "cylinder", 30),
         ("canola", "multiplant cylinder", 20),
     ],
 )
@@ -407,7 +407,7 @@ def test_clamped_call_keeps_params_and_logs_nothing(caplog):
         ("rice", "cylinder", 4, None),
         ("canola", "cylinder", 13, None),
         ("arabidopsis", "cylinder", 1, None),
-        ("sorghum", "cylinder", 30, None),
+        ("alfalfa", "cylinder", 30, None),
         ("canola", "multiplant cylinder", 20, None),
     ],
 )
