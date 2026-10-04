@@ -13,12 +13,13 @@ predict#33: relative Δ`distance_p95` ≤ 0.25 and Δ`visibility_recall` ≥ −
   There were no gaps.
 - The classic-SLEAP reference and sleap-nn were scored on the identical frames.
 - **Wheat crown passes marginally.** Its relative Δp95 is +0.206, with sleap-nn worse. A frame
-  bootstrap puts that between −0.03 and +0.60 (95%), and above 0.25 with probability 0.40.
+  bootstrap puts that between −0.03 and +0.60 (95%), with P(|rel| > 0.25) = 0.40.
 - **Wheat frames hint at a gap.** On the 11 wheat frames alone, sleap-nn's Δp95 is +0.825. One
   mis-paired root accounts for much of that, but without that frame it's still +0.321. So a
-  wheat-specific difference isn't ruled out, and 11 frames can't settle it (95% range −0.04 to
-  +1.97). See [Wheat's Δp95](#wheats-δp95). The trait check, talmolab/sleap-roots-pipeline#120
-  part 1 (≥ 20 real wheat scans), should be read with this in mind before #118 step 6.
+  wheat-specific difference isn't ruled out. Eleven frames can't settle it: the bootstrap median
+  is +0.645 and the 95% range −0.04 to +1.97. See [Wheat's Δp95](#wheats-δp95).
+- **Read the trait check with this in mind.** talmolab/sleap-roots-pipeline#120 part 1 (≥ 20
+  real wheat scans) comes before #118 step 6.
 - Sorghum primary is a clear pass. Sorghum lateral passes but is noisy.
 - The model-selection checks from #51 all pass, with the 8 production cards and the 3 candidates
   loaded together.
@@ -143,12 +144,14 @@ with an OKS threshold of 0 (`OKS_MATCH_THRESHOLD` in `parity.py`).
 
 How this shows up in the wheat card:
 
-- **Rice frames are crowded.** They carry up to 12 labelled roots. The 89 rice frames have 54
-  near-zero-OKS pairs for classic and 68 for sleap-nn (OKS < 0.01).
-- **Wheat frames are not.** They carry 3–6 roots and have 1 near-zero-OKS pair on each side.
+- **Rice frames are crowded.** The 89 evaluated rice frames carry up to 11 labelled roots each.
+  They have 54 near-zero-OKS pairs for classic and 68 for sleap-nn (OKS < 0.01).
+- **Wheat frames are not.** The 11 evaluated wheat frames carry 3–5 roots each, and have 1
+  near-zero-OKS pair on each side.
   - sleap-nn's one near-zero pair, on `LSSSVVVVOJ` f56, is 208–317 px and dominates the slice's
     tail.
-  - Without that frame, the wheat-slice Δp95 is still **+0.321**. The remainder comes from
+  - Without that frame (the slice's only `LSSSVVVVOJ` frame), the wheat-slice Δp95 is still
+    **+0.321**. The remainder comes from
     accepted pairs with moderate OKS, for example on `142QU1HI9A` f29 and `BZ52UFGM79` f41.
   - So pairing doesn't explain the whole wheat difference.
 
@@ -191,9 +194,9 @@ algorithm) on mean point distance.
   +0.16 under optimal pairing.
 - **This pairing has a known bias.** Its cost averages only over nodes visible on *both* sides,
   so partial (fragment) predictions are cheap to pair. It yields fewer scored points than greedy.
-  On sorghum primary, classic goes from 537 to 520 points and sleap-nn from 527 to 516. Both engines emit fragments at similar rates, but the
-  bias favours whichever emits more. Treat these numbers as supporting evidence, not as a
-  corrected metric.
+  On sorghum primary, classic goes from 537 to 520 points and sleap-nn from 527 to 516. The bias
+  favours whichever engine emits more fragments, and which one that is wasn't measured. Treat
+  these numbers as supporting evidence, not as a corrected metric.
 - **It's not a substitute gate.** The gate stays greedy-OKS, unchanged from predict#33.
 
 ### Conclusion for wheat

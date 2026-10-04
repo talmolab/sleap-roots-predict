@@ -4,7 +4,8 @@
     "greedy_oks": "sleap_nn.evaluation.Evaluator with the harness's settings (match_method=oks, match_threshold=0.0, oks_stddev=0.025, oks_scale=None, user_labels_only=True). OKS==0 pairs are rejected as false negatives and contribute no distances.",
     "optimal": "Per-frame minimum-cost assignment (scipy linear_sum_assignment) on mean point distance over nodes visible on BOTH sides. Caveat: this cost makes partial (fragment) predictions cheap to pair, so it can under-count error for whichever side emits more fragments.",
     "near_zero_oks_pairs": "Accepted greedy pairs with OKS < 0.01.",
-    "bootstrap": "Paired frame bootstrap of the greedy-OKS signed rel. dp95: frames resampled with replacement (same draw for both sides), 2000 resamples, numpy default_rng(0)."
+    "bootstrap": "Paired frame bootstrap of the greedy-OKS signed rel. dp95: frames resampled with replacement (same draw for both sides), 2000 resamples, numpy default_rng(0).",
+    "false_negatives": "len(Evaluator.false_negatives): ground-truth instances left unpaired, both those whose only candidates had OKS == 0 and those left over when a frame has fewer predictions than ground-truth instances."
   },
   "pairing_comparison": [
     {
@@ -228,7 +229,7 @@
         0.597683082030354
       ],
       "bootstrap_p_abs_rel_gt_0_25": 0.402,
-      "oks_zero_false_negatives": {
+      "false_negatives": {
         "classic": 46,
         "sleap_nn": 50
       }
@@ -245,7 +246,7 @@
         1.9691093744860415
       ],
       "bootstrap_p_abs_rel_gt_0_25": 0.8285,
-      "oks_zero_false_negatives": {
+      "false_negatives": {
         "classic": 2,
         "sleap_nn": 2
       }
@@ -262,7 +263,7 @@
         0.15758320846438761
       ],
       "bootstrap_p_abs_rel_gt_0_25": 0.002,
-      "oks_zero_false_negatives": {
+      "false_negatives": {
         "classic": 0,
         "sleap_nn": 0
       }
@@ -279,7 +280,7 @@
         0.1428784751532194
       ],
       "bootstrap_p_abs_rel_gt_0_25": 0.143,
-      "oks_zero_false_negatives": {
+      "false_negatives": {
         "classic": 0,
         "sleap_nn": 0
       }
@@ -296,7 +297,7 @@
         0.45448943739685344
       ],
       "bootstrap_p_abs_rel_gt_0_25": 0.2915,
-      "oks_zero_false_negatives": {
+      "false_negatives": {
         "classic": 52,
         "sleap_nn": 57
       }
@@ -313,7 +314,7 @@
         0.7980589777609215
       ],
       "bootstrap_p_abs_rel_gt_0_25": 0.4535,
-      "oks_zero_false_negatives": {
+      "false_negatives": {
         "classic": 23,
         "sleap_nn": 26
       }
@@ -322,7 +323,7 @@
   "drop_one_frame": [
     {
       "registry_id": "eberrigan-salk-institute-for-biological-studies-org/wandb-registry-sleap-roots-models/20250401_wheat_models-250328_095645.multi_instance.n-1658",
-      "frames_subset": "wheat without LSSSVVVVOJ f56",
+      "frames_subset": "wheat without LSSSVVVVOJ (its only frame in the slice is f56)",
       "n_frames": 10,
       "signed_rel_p95": 0.3210937972869457
     }
