@@ -179,6 +179,12 @@ Create these to track the deferred pieces (repo · one-liner · dependency):
    on:* A4 start.
 4. **salk-bloom / A4 — override plumbing UX.** How user overrides are collected at submit
    time and carried into predict (the "user override wins" surface).
+   **[⚠️ narrowed 2026-10-01 — [bloom#971 decisions](https://github.com/Salk-Harnessing-Plants-Initiative/bloom/issues/971#issuecomment-5937500723):
+   there are no *user* param overrides. Species, mode and age always come from Bloom metadata.
+   `resolve_params`' `overrides` argument stays, because bloomctl uses it to force `mode`. The
+   user-facing choice is of **models per root type** (bloom#897; predict's batch path must pass
+   overrides to both `worker.resolve` and `worker.predict`). Phase 1 adds no override: a scan older
+   than its species' window runs with that species' highest-age window in `choose_models`.]**
 5. **bloom / training — multiscanner (multi-scan) modality.** Not implemented; when it
    lands, add its scanner family + mode string + models, then extend `_mode_for_scan`.
 6. **(watch) TS parity.** If a Bloom-side (TS) params resolver is ever needed, test it
