@@ -57,7 +57,8 @@ jobs:
           - os: windows
             runs-on: windows-latest
           - os: mac
-            runs-on: macos-14
+            # macos-14 runner image is retired ("configuration not supported").
+            runs-on: macos-15
         python: [3.12]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
@@ -88,7 +89,9 @@ jobs:
         run: |
           # sleap-nn 0.3.0 depends on skia-python, which needs system graphics
           # libraries (libEGL etc.) not present on headless Ubuntu runners.
-          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+          # No libglapi-mesa: Ubuntu 26.04 (ubuntu-latest) folded it into
+          # mesa-libgallium, which libegl-mesa0/libglx-mesa0 pull in.
+          sudo apt-get update && sudo apt-get install -y libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
 
       - name: Verify installation
         run: |
