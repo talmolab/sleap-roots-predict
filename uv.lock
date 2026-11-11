@@ -4363,7 +4363,7 @@ requires-dist = [
     { name = "torchvision", marker = "extra == 'macos'", specifier = ">=0.20.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "sleap-roots-predict", extra = "macos" } },
     { name = "torchvision", marker = "extra == 'windows-cuda'", specifier = ">=0.20.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "sleap-roots-predict", extra = "windows-cuda" } },
     { name = "twine", marker = "extra == 'dev'" },
-    { name = "wandb" },
+    { name = "wandb", specifier = ">=0.31" },
 ]
 provides-extras = ["dev", "windows-cuda", "linux-cuda", "macos", "cpu"]
 

@@ -112,6 +112,20 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **wandb 0.21.3 → 0.31.0, with a `wandb>=0.31` floor** (#56 by blm3886; closes #13).
+  wandb was unpinned (a sleap-nn transitive), so the registry round-trip that
+  `WandbRegistrySource` relies on was proven only for whatever version happened to resolve. The
+  floor ties it to the version the gated `pytest -m wandb` compat test runs against. The lock
+  moves only the wandb subtree: protobuf 6.32 → 7.36 (used only by wandb and its new deps),
+  adds opentelemetry-\*, googleapis-common-protos, xxhash, distro, cwevals; drops sentry-sdk and
+  gitpython/gitdb/smmap. None of these load on the inference import path. Context:
+  [bloom#1187](https://github.com/Salk-Harnessing-Plants-Initiative/bloom/issues/1187), where
+  prod runs aborted with "the model-card source listed no model cards" while W&B returned
+  registry alias records without their project. **This bump does not by itself prevent a
+  repeat:** in wandb 0.31, `api.artifacts(...)` (the `list_cards()` path) still keeps an alias
+  only when the alias record's collection project matches; only membership-based lookups
+  (`api.artifact(name)`, registry search) read aliases from the membership. Moving
+  `list_cards()` onto a membership path is a follow-up change.
 - **Rebuilt the inference core on sleap-nn 0.3.0.** `make_predictor` now builds a
   reusable `sleap_nn.inference.Predictor` (loaded once, reused across videos) and
   `predict_on_video` runs `predictor.predict(video, make_labels=True)`.
