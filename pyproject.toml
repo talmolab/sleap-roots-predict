@@ -24,7 +24,9 @@ dependencies = [
     "sleap-roots-contracts==0.1.0a9",
     # wandb is already a transitive dependency of sleap-nn 0.3.0; declared here
     # because WandbRegistrySource imports it directly (kept as a lazy import).
-    "wandb",
+    # Floor (#13): the registry round-trip is proven only by the gated
+    # `pytest -m wandb` test against this version; don't resolve below it.
+    "wandb>=0.31",
     ]
     
 dynamic = ["version", "readme"]
